@@ -14,6 +14,7 @@ import (
 	"github.com/voxlane/voice-gateway/internal/config"
 	"github.com/voxlane/voice-gateway/internal/openai"
 	goredis "github.com/voxlane/voice-gateway/internal/redis"
+	"github.com/voxlane/voice-gateway/internal/session/sm"
 	"github.com/voxlane/voice-gateway/internal/twilio"
 )
 
@@ -22,36 +23,13 @@ import (
 type MetaState string
 
 const (
-	MetaCreated     MetaState = "CREATED"
-	MetaConnecting  MetaState = "CONNECTING"
-	MetaActive      MetaState = "ACTIVE"
+	MetaCreated      MetaState = "CREATED"
+	MetaConnecting   MetaState = "CONNECTING"
+	MetaActive       MetaState = "ACTIVE"
 	MetaReconnecting MetaState = "RECONNECTING"
-	MetaEnding      MetaState = "ENDING"
-	MetaCleaningUp  MetaState = "CLEANUP"
+	MetaEnding       MetaState = "ENDING"
+	MetaCleaningUp   MetaState = "CLEANUP"
 )
-
-// ─── Conversation States ─────────────────────────────────────────────────
-
-type ConvState string
-
-const (
-	ConvGreeting     ConvState = "GREETING"
-	ConvFAQ          ConvState = "FAQ_ANSWER"
-	ConvCollectBooking ConvState = "COLLECT_BOOKING_DETAILS"
-	ConvCheckAvail   ConvState = "CHECK_AVAILABILITY"
-	ConvConfirm      ConvState = "CONFIRM_BOOKING"
-	ConvClosing      ConvState = "CLOSING"
-)
-
-// ─── Booking Data ────────────────────────────────────────────────────────
-
-type BookingData struct {
-	PartySize int    `json:"partySize"`
-	Date      string `json:"date"`
-	Time      string `json:"time"`
-	Name      string `json:"name"`
-	Phone     string `json:"phone"`
-}
 
 // ─── Session ─────────────────────────────────────────────────────────────
 
@@ -61,8 +39,7 @@ type Session struct {
 
 	mu       sync.RWMutex
 	metaState MetaState
-	convState ConvState
-	booking   BookingData
+	stateMachine *sm.Machine
 
 	// Components
 	twilioH  *twilio.Handler
@@ -90,16 +67,16 @@ type Session struct {
 // NewSession creates a new call session.
 func NewSession(callSid string, tw *twilio.Handler, cfg *config.Config, redisC *goredis.Client) *Session {
 	return &Session{
-		ID:        callSid,
-		Config:    cfg,
-		twilioH:   tw,
-		redisC:    redisC,
-		audioP:    audio.NewPipeline(),
-		metaState: MetaCreated,
-		convState: ConvGreeting,
-		stopCh:    make(chan struct{}),
-		doneCh:    make(chan struct{}),
-		startTime: time.Now(),
+		ID:           callSid,
+		Config:       cfg,
+		twilioH:      tw,
+		redisC:       redisC,
+		audioP:       audio.NewPipeline(),
+		stateMachine: sm.New("Bella Roma"), // TODO: tenant config
+		metaState:    MetaCreated,
+		stopCh:       make(chan struct{}),
+		doneCh:       make(chan struct{}),
+		startTime:    time.Now(),
 	}
 }
 
@@ -113,8 +90,8 @@ func (s *Session) Run(ctx context.Context) error {
 		APIKey:       s.Config.OpenAIAPIKey,
 		Model:        s.Config.OpenAIRealtimeModel,
 		Voice:        "alloy",
-		Instructions: openai.BuildGreetingPrompt("Bella Roma"), // TODO: tenant config
-		Tools:        s.getActiveTools(),
+		Instructions: s.stateMachine.BuildSystemPrompt(),
+		Tools:        convertTools(s.stateMachine.AvailableTools()),
 	}
 
 	oaSess, err := openai.NewSession(ctx, oaCfg)
@@ -369,12 +346,6 @@ func (s *Session) setMeta(state MetaState) {
 	s.metaState = state
 }
 
-func (s *Session) setConv(state ConvState) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.convState = state
-}
-
 func (s *Session) isBargingIn() bool {
 	// Simple implementation: if we have a pending tool call, suppress audio briefly
 	s.mu.RLock()
@@ -394,36 +365,19 @@ func (s *Session) isAISpeaking() bool {
 }
 
 func (s *Session) getActiveTools() []openai.Tool {
-	return []openai.Tool{
-		{
-			Name:        "check_availability",
-			Description: "Check table availability for a given date, time, and party size",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"date":      map[string]interface{}{"type": "string", "description": "Date in YYYY-MM-DD format"},
-					"time":      map[string]interface{}{"type": "string", "description": "Time in HH:MM 24-hour format"},
-					"partySize": map[string]interface{}{"type": "integer", "description": "Number of guests"},
-				},
-				"required": []string{"date", "time", "partySize"},
-			},
-		},
-		{
-			Name:        "create_booking",
-			Description: "Create a confirmed table booking",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"date":      map[string]interface{}{"type": "string"},
-					"time":      map[string]interface{}{"type": "string"},
-					"partySize": map[string]interface{}{"type": "integer"},
-					"name":      map[string]interface{}{"type": "string"},
-					"phone":     map[string]interface{}{"type": "string"},
-				},
-				"required": []string{"date", "time", "partySize", "name", "phone"},
-			},
-		},
+	return convertTools(s.stateMachine.AvailableTools())
+}
+
+func convertTools(smTools []sm.Tool) []openai.Tool {
+	tools := make([]openai.Tool, len(smTools))
+	for i, t := range smTools {
+		tools[i] = openai.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  t.Parameters,
+		}
 	}
+	return tools
 }
 
 func (s *Session) saveState(ctx context.Context) {
@@ -432,13 +386,13 @@ func (s *Session) saveState(ctx context.Context) {
 	}
 
 	state := &goredis.SessionState{
-		CallSid:       s.ID,
-		MetaState:     string(s.metaState),
-		ConvState:     string(s.convState),
+		CallSid:         s.ID,
+		MetaState:       string(s.metaState),
+		ConvState:       string(s.stateMachine.Current()),
 		InputAudioSecs:  s.inputSecs,
 		OutputAudioSecs: s.outputSecs,
-		CreatedAt:     s.startTime,
-		LastActivity:  time.Now(),
+		CreatedAt:       s.startTime,
+		LastActivity:    time.Now(),
 	}
 	_ = s.redisC.SaveSession(ctx, state)
 }
@@ -449,13 +403,13 @@ func (s *Session) Metrics() map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return map[string]interface{}{
-		"callSid":       s.ID,
-		"metaState":     string(s.metaState),
-		"convState":     string(s.convState),
-		"inputSecs":     s.inputSecs,
-		"outputSecs":    s.outputSecs,
-		"bargeIns":      s.bargeIns,
-		"toolCalls":     s.toolCalls,
-		"duration":      time.Since(s.startTime).Seconds(),
+		"callSid":    s.ID,
+		"metaState":  string(s.metaState),
+		"convState":  string(s.stateMachine.Current()),
+		"inputSecs":  s.inputSecs,
+		"outputSecs": s.outputSecs,
+		"bargeIns":   s.bargeIns,
+		"toolCalls":  s.toolCalls,
+		"duration":   time.Since(s.startTime).Seconds(),
 	}
 }
