@@ -112,6 +112,24 @@ func (p *Pipeline) ProcessInboundBytes(mulaw []byte) []byte {
 	return pcm24k
 }
 
+// ProcessOutboundBytes converts raw PCM16 24kHz bytes from OpenAI
+// to u-law 8kHz bytes for Twilio. Bypasses base64 for internal use.
+func (p *Pipeline) ProcessOutboundBytes(pcm24k []byte) ([]byte, error) {
+	floats24k := make([]float64, Samples24k)
+	PCM16ToFloat64(pcm24k, floats24k)
+
+	floats8k := make([]float64, Samples8k)
+	p.resampler.Downsample24to8(floats24k, floats8k)
+
+	pcm8k := make([]byte, FrameSizePCM16_8k)
+	Float64ToPCM16(floats8k, pcm8k)
+
+	mulaw := make([]byte, FrameSizeMulaw8k)
+	PCM16ToMulaw(pcm8k, mulaw)
+
+	return mulaw, nil
+}
+
 // Reset clears the resampler state for reuse.
 func (p *Pipeline) Reset() {
 	p.resampler.Reset()
