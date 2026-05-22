@@ -7,11 +7,23 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/voxlane/voice-gateway/internal/config"
+	"github.com/voxlane/voice-gateway/internal/session"
+	"github.com/voxlane/voice-gateway/internal/twilio"
 )
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true }, // Twilio doesn't send Origin
+}
+
+var activeSessions sync.Map
 
 func main() {
 	cfg, err := config.Load()
@@ -30,19 +42,45 @@ func main() {
 
 	// Readiness endpoint
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, _ *http.Request) {
-		// TODO: check Redis + OpenAI reachability
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"status":"ready"}`)
+		count := 0
+		activeSessions.Range(func(_, _ interface{}) bool { count++; return true })
+		fmt.Fprintf(w, `{"status":"ready","activeSessions":%d}`, count)
 	})
 
-	// WebSocket stream endpoint (placeholder)
+	// Prometheus metrics
+	mux.Handle("GET /metrics", promhttp.Handler())
+
+	// WebSocket stream endpoint for Twilio Media Streams
 	mux.HandleFunc("GET /stream/{callSid}", func(w http.ResponseWriter, r *http.Request) {
 		callSid := r.PathValue("callSid")
-		log.Printf("stream request received for callSid=%s", callSid)
-		// TODO: upgrade to WebSocket, create session, start audio pipeline
-		w.WriteHeader(http.StatusNotImplemented)
-		fmt.Fprintf(w, "WebSocket stream endpoint for callSid=%s (not yet implemented)", callSid)
+		log.Printf("[%s] Twilio Media Stream connecting...", callSid)
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("[%s] WebSocket upgrade failed: %v", callSid, err)
+			return
+		}
+
+		// Create Twilio handler
+		tw := twilio.NewHandler(conn, callSid)
+
+		// Create session (without Redis for PoC — in-memory only)
+		sess := session.NewSession(callSid, tw, cfg, nil)
+
+		// Track active session
+		activeSessions.Store(callSid, sess)
+		defer activeSessions.Delete(callSid)
+
+		// Start Twilio read loop
+		go tw.ReadLoop()
+
+		// Run session lifecycle
+		log.Printf("[%s] session starting", callSid)
+		if err := sess.Run(r.Context()); err != nil {
+			log.Printf("[%s] session error: %v", callSid, err)
+		}
+		log.Printf("[%s] session ended", callSid)
 	})
 
 	server := &http.Server{
@@ -58,10 +96,18 @@ func main() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		sig := <-sigCh
-		log.Printf("received signal %v, shutting down...", sig)
+		log.Printf("received signal %v, draining %d active sessions...", sig, countSessions())
 
+		// Drain: stop accepting new connections, wait for active calls
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+
+		activeSessions.Range(func(key, value interface{}) bool {
+			if s, ok := value.(*session.Session); ok {
+				s.Stop()
+			}
+			return true
+		})
 
 		if err := server.Shutdown(ctx); err != nil {
 			log.Printf("forced shutdown: %v", err)
@@ -69,9 +115,19 @@ func main() {
 	}()
 
 	log.Printf("VoxLane Voice Gateway starting on :%d", cfg.Port)
+	log.Printf("  Health:  http://localhost:%d/health", cfg.Port)
+	log.Printf("  Metrics: http://localhost:%d/metrics", cfg.Port)
+	log.Printf("  Stream:  ws://localhost:%d/stream/{callSid}", cfg.Port)
+
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
 	}
 
 	log.Println("server stopped gracefully")
+}
+
+func countSessions() int {
+	count := 0
+	activeSessions.Range(func(_, _ interface{}) bool { count++; return true })
+	return count
 }
