@@ -47,7 +47,7 @@ func Load() (*Config, error) {
 		SilencePromptSecs:   getEnvInt("GATEWAY_SILENCE_TIMEOUT_PROMPT_SECONDS", 8),
 		SilenceHangupSecs:   getEnvInt("GATEWAY_SILENCE_TIMEOUT_HANGUP_SECONDS", 15),
 		OpenAIAPIKey:        os.Getenv("OPENAI_API_KEY"),
-		OpenAIRealtimeModel: getEnv("OPENAI_REALTIME_MODEL", "gpt-4o-realtime-preview-2024-12-17"),
+		OpenAIRealtimeModel: getEnv("OPENAI_REALTIME_MODEL", "gpt-realtime-mini"),
 		TwilioAccountSID:    os.Getenv("TWILIO_ACCOUNT_SID"),
 		TwilioAuthToken:     os.Getenv("TWILIO_AUTH_TOKEN"),
 		RedisAddr:           getEnv("REDIS_ADDR", "localhost:6379"),
