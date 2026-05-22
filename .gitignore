@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build output
+dist/
+.next/
+/bin/
+*.exe
+
+# Environment
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Go
+*.test
+*.out
+coverage.out
+
+# NestJS
+*.js.map
+
+# Logs
+*.log
+logs/
+
+# Temp
+tmp/
+temp/

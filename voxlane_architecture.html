@@ -1,0 +1,2254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VoxLane — AI Voice Receptionist Platform Architecture</title>
+<style>
+  :root {
+    --bg: #0d0f12;
+    --bg2: #13161b;
+    --bg3: #1a1e26;
+    --bg4: #222730;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.12);
+    --text: #e8eaf0;
+    --text2: #9aa0b0;
+    --text3: #5f6675;
+    --accent: #3d7eff;
+    --accent2: #5b94ff;
+    --accent-dim: rgba(61,126,255,0.12);
+    --green: #2dd4a0;
+    --green-dim: rgba(45,212,160,0.1);
+    --amber: #f5a623;
+    --amber-dim: rgba(245,166,35,0.1);
+    --red: #f05252;
+    --red-dim: rgba(240,82,82,0.1);
+    --purple: #a78bfa;
+    --purple-dim: rgba(167,139,250,0.1);
+    --teal: #22d3ee;
+    --teal-dim: rgba(34,211,238,0.1);
+    --coral: #fb7185;
+    --coral-dim: rgba(251,113,133,0.1);
+    --radius: 8px;
+    --radius-lg: 12px;
+    --sidebar-w: 260px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.6; display: flex; min-height: 100vh; }
+
+  /* Sidebar */
+  #sidebar {
+    width: var(--sidebar-w); min-height: 100vh; background: var(--bg2);
+    border-right: 1px solid var(--border); position: fixed; top: 0; left: 0;
+    overflow-y: auto; z-index: 100; display: flex; flex-direction: column;
+  }
+  .sidebar-header { padding: 20px 16px 12px; border-bottom: 1px solid var(--border); }
+  .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .logo-icon { width: 28px; height: 28px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .logo-sub { font-size: 11px; color: var(--text3); font-weight: 400; margin-top: 2px; }
+  .sidebar-nav { padding: 8px 0; flex: 1; }
+  .nav-group { margin-bottom: 2px; }
+  .nav-group-label { font-size: 10px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text3); padding: 8px 16px 4px; }
+  .nav-item { display: flex; align-items: center; gap: 8px; padding: 7px 16px; cursor: pointer; color: var(--text2); font-size: 13px; border-left: 2px solid transparent; transition: all 0.15s; }
+  .nav-item:hover { background: var(--bg3); color: var(--text); }
+  .nav-item.active { background: var(--accent-dim); color: var(--accent2); border-left-color: var(--accent); }
+  .nav-num { font-size: 10px; background: var(--bg4); color: var(--text3); border-radius: 4px; padding: 1px 5px; min-width: 20px; text-align: center; }
+
+  /* Main content */
+  #main { margin-left: var(--sidebar-w); flex: 1; padding: 0; }
+  .section { display: none; padding: 40px 48px; max-width: 960px; }
+  .section.active { display: block; }
+
+  /* Typography */
+  h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.8px; color: var(--text); line-height: 1.2; margin-bottom: 8px; }
+  h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.4px; color: var(--text); margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; font-weight: 600; color: var(--text); margin: 20px 0 8px; }
+  h4 { font-size: 13px; font-weight: 600; color: var(--text2); margin: 14px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  p { color: var(--text2); margin-bottom: 12px; line-height: 1.7; }
+  .section-meta { color: var(--text3); font-size: 12px; margin-bottom: 24px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .meta-tag { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; }
+
+  /* Cards & blocks */
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card-sm { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .card-sm h3 { font-size: 13px; margin: 0 0 4px; }
+  .card-sm p { font-size: 12px; margin: 0; }
+
+  /* Badges */
+  .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px; }
+  .badge-blue { background: var(--accent-dim); color: var(--accent2); }
+  .badge-green { background: var(--green-dim); color: var(--green); }
+  .badge-amber { background: var(--amber-dim); color: var(--amber); }
+  .badge-red { background: var(--red-dim); color: var(--red); }
+  .badge-purple { background: var(--purple-dim); color: var(--purple); }
+  .badge-teal { background: var(--teal-dim); color: var(--teal); }
+  .badge-coral { background: var(--coral-dim); color: var(--coral); }
+
+  /* Code blocks */
+  pre { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; overflow-x: auto; margin: 12px 0; }
+  code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; color: var(--teal); }
+  .inline-code { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; color: var(--teal); font-family: 'SF Mono', monospace; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; color: var(--text3); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border2); background: var(--bg3); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg3); }
+
+  /* State machine */
+  .state-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 16px 0; }
+  .state-card { border-radius: var(--radius); padding: 12px 14px; border: 1px solid; }
+  .state-greeting { background: rgba(61,126,255,0.08); border-color: rgba(61,126,255,0.25); }
+  .state-booking { background: rgba(45,212,160,0.08); border-color: rgba(45,212,160,0.25); }
+  .state-modify { background: rgba(167,139,250,0.08); border-color: rgba(167,139,250,0.25); }
+  .state-cancel { background: rgba(245,166,35,0.08); border-color: rgba(245,166,35,0.25); }
+  .state-complaint { background: rgba(251,113,133,0.08); border-color: rgba(251,113,133,0.25); }
+  .state-faq { background: rgba(34,211,238,0.08); border-color: rgba(34,211,238,0.25); }
+  .state-transfer { background: rgba(240,82,82,0.08); border-color: rgba(240,82,82,0.25); }
+  .state-closing { background: rgba(156,163,175,0.08); border-color: rgba(156,163,175,0.25); }
+  .state-name { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+  .state-desc { font-size: 11px; color: var(--text3); line-height: 1.4; }
+  .state-transitions { margin-top: 8px; }
+  .state-arrow { font-size: 10px; color: var(--text3); display: flex; align-items: center; gap: 4px; }
+
+  /* Flow diagram */
+  .flow { margin: 16px 0; }
+  .flow-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; flex-wrap: wrap; }
+  .flow-box { background: var(--bg3); border: 1px solid var(--border2); border-radius: var(--radius); padding: 6px 12px; font-size: 12px; color: var(--text); white-space: nowrap; }
+  .flow-box.accent { border-color: var(--accent); color: var(--accent2); background: var(--accent-dim); }
+  .flow-box.green { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+  .flow-box.amber { border-color: var(--amber); color: var(--amber); background: var(--amber-dim); }
+  .flow-box.red { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+  .flow-arrow { color: var(--text3); font-size: 16px; }
+
+  /* Architecture boxes */
+  .arch-layer { margin-bottom: 8px; border-radius: var(--radius); overflow: hidden; }
+  .arch-layer-header { padding: 8px 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; display: flex; align-items: center; gap: 8px; }
+  .arch-layer-body { padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .arch-chip { background: rgba(255,255,255,0.05); border: 1px solid var(--border2); border-radius: 6px; padding: 4px 10px; font-size: 12px; color: var(--text); }
+
+  /* Cost table highlight */
+  .cost-highlight { background: var(--accent-dim); border-left: 3px solid var(--accent); padding: 12px 16px; border-radius: 0 var(--radius) var(--radius) 0; margin: 12px 0; }
+  .cost-highlight p { margin: 0; font-size: 13px; }
+
+  /* Divider */
+  .divider { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+
+  /* Callout */
+  .callout { border-radius: var(--radius); padding: 12px 16px; margin: 12px 0; border-left: 3px solid; }
+  .callout-info { background: var(--accent-dim); border-color: var(--accent); }
+  .callout-warn { background: var(--amber-dim); border-color: var(--amber); }
+  .callout-danger { background: var(--red-dim); border-color: var(--red); }
+  .callout-success { background: var(--green-dim); border-color: var(--green); }
+  .callout p { margin: 0; font-size: 13px; }
+  .callout strong { color: var(--text); }
+
+  /* List */
+  ul, ol { padding-left: 20px; margin-bottom: 12px; color: var(--text2); }
+  li { margin-bottom: 4px; font-size: 13px; line-height: 1.6; }
+  li strong { color: var(--text); }
+
+  /* Cover page */
+  .cover { text-align: center; padding: 80px 48px 60px; max-width: none; }
+  .cover h1 { font-size: 42px; letter-spacing: -1.5px; margin-bottom: 12px; }
+  .cover-sub { font-size: 18px; color: var(--text2); margin-bottom: 32px; }
+  .cover-badges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 40px; }
+  .cover-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; max-width: 800px; margin: 0 auto; }
+  .cover-stat { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; text-align: center; }
+  .cover-stat-val { font-size: 26px; font-weight: 700; color: var(--accent2); letter-spacing: -1px; }
+  .cover-stat-label { font-size: 11px; color: var(--text3); margin-top: 4px; }
+  .gradient-text { background: linear-gradient(135deg, var(--accent2), var(--teal)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 3px; }
+
+  /* DB schema */
+  .schema-table { background: var(--bg3); border: 1px solid var(--border2); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+  .schema-table-header { background: var(--bg4); padding: 8px 14px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border2); }
+  .schema-table-name { font-size: 13px; font-weight: 600; color: var(--text); font-family: monospace; }
+  .schema-fields { padding: 4px 0; }
+  .schema-field { display: grid; grid-template-columns: 160px 100px 1fr; gap: 8px; padding: 5px 14px; font-size: 12px; font-family: monospace; border-bottom: 1px solid var(--border); }
+  .schema-field:last-child { border-bottom: none; }
+  .field-name { color: var(--teal); }
+  .field-type { color: var(--purple); }
+  .field-desc { color: var(--text3); font-size: 11px; }
+
+  /* Pricing cards */
+  .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 16px 0; }
+  .pricing-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
+  .pricing-card.featured { border-color: var(--accent); }
+  .pricing-tier { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text3); margin-bottom: 8px; }
+  .pricing-price { font-size: 28px; font-weight: 700; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
+  .pricing-period { font-size: 12px; color: var(--text3); margin-bottom: 16px; }
+  .pricing-feature { font-size: 12px; color: var(--text2); padding: 4px 0; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 6px; }
+  .pricing-feature:last-child { border-bottom: none; }
+  .pricing-check { color: var(--green); font-size: 10px; }
+
+  @media (max-width: 768px) {
+    #sidebar { transform: translateX(-100%); }
+    #main { margin-left: 0; }
+    .section { padding: 24px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<nav id="sidebar">
+  <div class="sidebar-header">
+    <div class="logo">
+      <div class="logo-icon">V</div>
+      VoxLane
+    </div>
+    <div class="logo-sub">Platform Architecture v1.0</div>
+  </div>
+  <div class="sidebar-nav">
+    <div class="nav-group">
+      <div class="nav-group-label">Overview</div>
+      <div class="nav-item active" onclick="show('cover')">
+        <span class="nav-num">—</span> Platform Overview
+      </div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Product</div>
+      <div class="nav-item" onclick="show('prd')"><span class="nav-num">1</span> PRD</div>
+      <div class="nav-item" onclick="show('sdd')"><span class="nav-num">2</span> SDD</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Architecture</div>
+      <div class="nav-item" onclick="show('system-arch')"><span class="nav-num">3</span> System Architecture</div>
+      <div class="nav-item" onclick="show('infra-diag')"><span class="nav-num">4</span> Infrastructure Diagram</div>
+      <div class="nav-item" onclick="show('voice-arch')"><span class="nav-num">5</span> Realtime Voice Architecture</div>
+      <div class="nav-item" onclick="show('tool-arch')"><span class="nav-num">6</span> Tool Calling Architecture</div>
+      <div class="nav-item" onclick="show('db-schema')"><span class="nav-num">7</span> Database Schema</div>
+      <div class="nav-item" onclick="show('api-structure')"><span class="nav-num">8</span> API Structure</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Infrastructure</div>
+      <div class="nav-item" onclick="show('queue-arch')"><span class="nav-num">9</span> Queue Architecture</div>
+      <div class="nav-item" onclick="show('session-mgmt')"><span class="nav-num">10</span> Session Management</div>
+      <div class="nav-item" onclick="show('state-machine')"><span class="nav-num">11</span> Conversation State Machine</div>
+      <div class="nav-item" onclick="show('ai-orch')"><span class="nav-num">12</span> AI Orchestration</div>
+      <div class="nav-item" onclick="show('human-escalation')"><span class="nav-num">13</span> Human Escalation</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Security & Compliance</div>
+      <div class="nav-item" onclick="show('security')"><span class="nav-num">14</span> Security Model</div>
+      <div class="nav-item" onclick="show('gdpr')"><span class="nav-num">15</span> GDPR Compliance</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Business</div>
+      <div class="nav-item" onclick="show('cost-analysis')"><span class="nav-num">16</span> Cost Analysis</div>
+      <div class="nav-item" onclick="show('pricing')"><span class="nav-num">17</span> SaaS Pricing</div>
+      <div class="nav-item" onclick="show('multi-tenant')"><span class="nav-num">18</span> Multi-Tenant Architecture</div>
+      <div class="nav-item" onclick="show('resdiary')"><span class="nav-num">19</span> ResDiary Integration</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Reliability</div>
+      <div class="nav-item" onclick="show('failure-handling')"><span class="nav-num">20</span> Failure Handling</div>
+      <div class="nav-item" onclick="show('retry-logic')"><span class="nav-num">21</span> Retry Logic</div>
+      <div class="nav-item" onclick="show('observability')"><span class="nav-num">22</span> Observability & Logging</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Voice Infrastructure</div>
+      <div class="nav-item" onclick="show('twilio-streams')"><span class="nav-num">23</span> Twilio Media Streams</div>
+      <div class="nav-item" onclick="show('sip-transfer')"><span class="nav-num">24</span> SIP Transfer</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">AI Engineering</div>
+      <div class="nav-item" onclick="show('token-opt')"><span class="nav-num">25</span> Token Optimisation</div>
+      <div class="nav-item" onclick="show('prompt-arch')"><span class="nav-num">26</span> Prompt Architecture</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Scaling & DevOps</div>
+      <div class="nav-item" onclick="show('scaling-roadmap')"><span class="nav-num">27</span> Scaling Roadmap</div>
+      <div class="nav-item" onclick="show('k8s-migration')"><span class="nav-num">28</span> Kubernetes Migration</div>
+      <div class="nav-item" onclick="show('cicd')"><span class="nav-num">29</span> CI/CD Architecture</div>
+      <div class="nav-item" onclick="show('analytics-roadmap')"><span class="nav-num">30</span> Analytics Roadmap</div>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+
+<!-- COVER -->
+<div id="cover" class="section active cover">
+  <h1 class="gradient-text">VoxLane</h1>
+  <p class="cover-sub">Production-Grade AI Voice Receptionist SaaS Platform<br>Full Architecture, PRD & SDD — 30 Deliverables</p>
+  <div class="cover-badges">
+    <span class="badge badge-blue">Enterprise-Ready</span>
+    <span class="badge badge-green">UK-First</span>
+    <span class="badge badge-teal">Realtime AI</span>
+    <span class="badge badge-purple">Multi-Tenant SaaS</span>
+    <span class="badge badge-amber">ResDiary Integration</span>
+    <span class="badge badge-coral">GDPR Compliant</span>
+  </div>
+  <div class="cover-stats">
+    <div class="cover-stat"><div class="cover-stat-val">&lt;800ms</div><div class="cover-stat-label">First response latency target</div></div>
+    <div class="cover-stat"><div class="cover-stat-val">99.95%</div><div class="cover-stat-label">Availability SLA target</div></div>
+    <div class="cover-stat"><div class="cover-stat-val">10k+</div><div class="cover-stat-label">Concurrent calls (K8s scale)</div></div>
+    <div class="cover-stat"><div class="cover-stat-val">£0.04</div><div class="cover-stat-label">Estimated cost per call (avg 3 min)</div></div>
+    <div class="cover-stat"><div class="cover-stat-val">£149</div><div class="cover-stat-label">Starter plan / month</div></div>
+    <div class="cover-stat"><div class="cover-stat-val">8</div><div class="cover-stat-label">Conversation states (MVP)</div></div>
+  </div>
+  <div style="margin-top:40px; color:var(--text3); font-size:12px;">Navigate using the sidebar → use on desktop for best experience</div>
+</div>
+
+<!-- 1. PRD -->
+<div id="prd" class="section">
+  <h1>Product Requirements Document</h1>
+  <div class="section-meta">
+    <span class="meta-tag">v1.0 MVP</span>
+    <span class="meta-tag">UK Market</span>
+    <span class="meta-tag">Restaurants + Local Business</span>
+  </div>
+
+  <h2>1. Executive Summary</h2>
+  <p>VoxLane is a B2B SaaS platform that deploys an AI-powered voice receptionist for restaurants and local businesses in the United Kingdom. The platform answers inbound telephone calls in real time, conducts natural human-like conversations, manages bookings via direct API integration with reservation systems (initially ResDiary), and escalates to human staff when required.</p>
+  <p>The core value proposition is: <strong>"Never miss another booking call."</strong></p>
+
+  <div class="callout callout-info">
+    <p><strong>Market Opportunity:</strong> UK restaurants collectively miss an estimated 30–40% of inbound calls during peak hours, evenings, and weekends. Each missed call represents £30–£120 in lost revenue. A single busy London restaurant takes 200+ calls per week.</p>
+  </div>
+
+  <h2>2. Problem Statement</h2>
+  <div class="card-grid">
+    <div class="card-sm">
+      <h3>Missed Calls</h3>
+      <p>Staff cannot answer every call during peak service. Calls during dinner service go straight to voicemail and are never returned.</p>
+    </div>
+    <div class="card-sm">
+      <h3>After-Hours Bookings</h3>
+      <p>Restaurants are closed but callers want to book. No answer = booking made at a competitor.</p>
+    </div>
+    <div class="card-sm">
+      <h3>Staff Cost</h3>
+      <p>Hiring dedicated phone staff is expensive. Existing staff are pulled away from service to answer routine booking calls.</p>
+    </div>
+    <div class="card-sm">
+      <h3>Data Fragmentation</h3>
+      <p>No analytics on inbound call volume, peak times, booking conversion rates, or common questions.</p>
+    </div>
+  </div>
+
+  <h2>3. Goals & Non-Goals</h2>
+  <h3>MVP Goals</h3>
+  <ul>
+    <li>Answer 100% of inbound calls with a natural AI voice within 3 rings</li>
+    <li>Handle booking, modification, and cancellation workflows end-to-end</li>
+    <li>Answer restaurant FAQs (hours, location, menus, parking)</li>
+    <li>Transfer calls to human staff on request or escalation triggers</li>
+    <li>Send SMS confirmation to caller after booking actions</li>
+    <li>Integrate directly with ResDiary booking API</li>
+    <li>Provide call analytics dashboard to restaurant owners</li>
+    <li>Support multi-location restaurant groups (multi-tenant)</li>
+  </ul>
+  <h3>MVP Non-Goals</h3>
+  <ul>
+    <li>POS integration (Lightspeed, Square, etc.)</li>
+    <li>Payment processing</li>
+    <li>Outbound calling campaigns</li>
+    <li>Multi-language support (English only in MVP)</li>
+    <li>WhatsApp / web chat integration</li>
+    <li>AI-generated menu recommendations</li>
+  </ul>
+
+  <h2>4. Target Users</h2>
+  <table>
+    <tr><th>Persona</th><th>Description</th><th>Primary Need</th></tr>
+    <tr><td><strong>Restaurant Owner</strong></td><td>Single-site independent restaurant, 30–120 covers</td><td>Stop missing calls, capture bookings 24/7</td></tr>
+    <tr><td><strong>Restaurant Group Ops</strong></td><td>Multi-site chain (3–20 locations)</td><td>Centralised call handling, unified analytics</td></tr>
+    <tr><td><strong>Front-of-House Manager</strong></td><td>Day-to-day operations, manages reservations</td><td>Reduce phone interruptions, handle overflow</td></tr>
+    <tr><td><strong>Caller / Guest</strong></td><td>Member of public calling to book a table</td><td>Book quickly, confirm details, feel heard</td></tr>
+  </table>
+
+  <h2>5. User Stories</h2>
+  <h4>Core Flows (MVP)</h4>
+  <ul>
+    <li>As a restaurant, I want the AI to answer calls when I'm busy so I never miss a booking.</li>
+    <li>As a caller, I want to book a table by phone using natural conversation without pressing buttons.</li>
+    <li>As a caller, I want to modify my existing booking without calling during service hours.</li>
+    <li>As a caller, I want to cancel a reservation and get a confirmation SMS.</li>
+    <li>As a caller, I want to be transferred to a human if my request is complex.</li>
+    <li>As a restaurant manager, I want to see call volume and booking conversion analytics.</li>
+    <li>As an ops manager with multiple locations, I want each location configured independently.</li>
+  </ul>
+
+  <h2>6. Success Metrics</h2>
+  <table>
+    <tr><th>Metric</th><th>MVP Target</th><th>12-Month Target</th></tr>
+    <tr><td>Call answer rate</td><td>100%</td><td>100%</td></tr>
+    <tr><td>First AI response latency</td><td>&lt;1.2s</td><td>&lt;800ms</td></tr>
+    <tr><td>Booking completion rate</td><td>&gt;70%</td><td>&gt;82%</td></tr>
+    <tr><td>Human escalation rate</td><td>&lt;25%</td><td>&lt;15%</td></tr>
+    <tr><td>CSAT (post-call SMS survey)</td><td>4.0/5</td><td>4.4/5</td></tr>
+    <tr><td>ResDiary sync success rate</td><td>&gt;99.5%</td><td>&gt;99.9%</td></tr>
+    <tr><td>SMS delivery rate</td><td>&gt;98%</td><td>&gt;99.5%</td></tr>
+    <tr><td>Uptime SLA</td><td>99.9%</td><td>99.95%</td></tr>
+  </table>
+
+  <h2>7. Constraints</h2>
+  <ul>
+    <li>Must comply with UK GDPR / Data Protection Act 2018</li>
+    <li>Voice must feel natural — no robotic TTS, no long pauses</li>
+    <li>Barge-in support required (caller can interrupt AI mid-sentence)</li>
+    <li>Must integrate with existing phone numbers (Twilio SIP trunking or call forwarding)</li>
+    <li>Restaurant can configure their own hours, FAQs, and booking rules via dashboard</li>
+  </ul>
+</div>
+
+<!-- 2. SDD -->
+<div id="sdd" class="section">
+  <h1>System Design Document</h1>
+  <div class="section-meta"><span class="meta-tag">Technical Reference</span><span class="meta-tag">v1.0</span></div>
+
+  <h2>1. Design Philosophy</h2>
+  <div class="callout callout-warn">
+    <p><strong>Core Rule:</strong> The AI owns zero business state. It is a <em>conversation orchestrator</em> that calls server-side tools. All booking state, availability, and validation lives in backend services. This prevents hallucination of availability, invented confirmations, and race conditions.</p>
+  </div>
+
+  <h2>2. Service Boundaries</h2>
+  <div class="arch-layer">
+    <div class="arch-layer-header" style="background:var(--accent-dim);color:var(--accent2);">▶ Client / Telephony Layer</div>
+    <div class="arch-layer-body" style="background:var(--bg3);">
+      <span class="arch-chip">Twilio Voice (PSTN inbound)</span>
+      <span class="arch-chip">Twilio Media Streams (WebSocket)</span>
+      <span class="arch-chip">SIP Trunk (human transfer)</span>
+      <span class="arch-chip">Twilio SMS</span>
+    </div>
+  </div>
+  <div class="arch-layer">
+    <div class="arch-layer-header" style="background:var(--teal-dim);color:var(--teal);">▶ Realtime Voice Engine (Go)</div>
+    <div class="arch-layer-body" style="background:var(--bg3);">
+      <span class="arch-chip">WebSocket Server</span>
+      <span class="arch-chip">Audio Buffer Manager</span>
+      <span class="arch-chip">OpenAI Realtime API Client</span>
+      <span class="arch-chip">VAD / Barge-in Handler</span>
+      <span class="arch-chip">Session State Manager</span>
+      <span class="arch-chip">Tool Dispatch Router</span>
+    </div>
+  </div>
+  <div class="arch-layer">
+    <div class="arch-layer-header" style="background:var(--green-dim);color:var(--green);">▶ API Gateway + Business Logic (NestJS / Fastify)</div>
+    <div class="arch-layer-body" style="background:var(--bg3);">
+      <span class="arch-chip">Tenant Configuration Service</span>
+      <span class="arch-chip">Booking Service</span>
+      <span class="arch-chip">ResDiary Integration Service</span>
+      <span class="arch-chip">FAQ Engine</span>
+      <span class="arch-chip">Call Session Service</span>
+      <span class="arch-chip">SMS Service</span>
+      <span class="arch-chip">Analytics Ingestion</span>
+      <span class="arch-chip">Auth / JWT Service</span>
+    </div>
+  </div>
+  <div class="arch-layer">
+    <div class="arch-layer-header" style="background:var(--purple-dim);color:var(--purple);">▶ Async Processing (BullMQ / Redis)</div>
+    <div class="arch-layer-body" style="background:var(--bg3);">
+      <span class="arch-chip">SMS Dispatch Queue</span>
+      <span class="arch-chip">Analytics Events Queue</span>
+      <span class="arch-chip">ResDiary Sync Queue</span>
+      <span class="arch-chip">Call Recording Queue</span>
+      <span class="arch-chip">Notification Queue</span>
+    </div>
+  </div>
+  <div class="arch-layer">
+    <div class="arch-layer-header" style="background:var(--amber-dim);color:var(--amber);">▶ Data Layer</div>
+    <div class="arch-layer-body" style="background:var(--bg3);">
+      <span class="arch-chip">Supabase Postgres (primary)</span>
+      <span class="arch-chip">Redis (session cache + queues)</span>
+      <span class="arch-chip">S3-compatible (call recordings)</span>
+    </div>
+  </div>
+  <div class="arch-layer">
+    <div class="arch-layer-header" style="background:var(--coral-dim);color:var(--coral);">▶ Dashboard (Next.js App Router)</div>
+    <div class="arch-layer-body" style="background:var(--bg3);">
+      <span class="arch-chip">Restaurant Admin Portal</span>
+      <span class="arch-chip">Call Analytics</span>
+      <span class="arch-chip">Tenant Configuration UI</span>
+      <span class="arch-chip">Booking Management</span>
+    </div>
+  </div>
+
+  <h2>3. Key Design Decisions</h2>
+  <table>
+    <tr><th>Decision</th><th>Choice</th><th>Rationale</th></tr>
+    <tr><td>Realtime voice runtime</td><td>Go</td><td>Sub-millisecond goroutine scheduling, excellent WebSocket concurrency, no GC pauses during audio streaming</td></tr>
+    <tr><td>AI for voice</td><td>OpenAI Realtime API</td><td>End-to-end audio (no STT→LLM→TTS chain), native barge-in, &lt;300ms response latency</td></tr>
+    <tr><td>AI for async tasks</td><td>DeepSeek V4 / Kimi K2.7</td><td>10-50× cheaper for non-latency-critical tasks (analytics summarisation, FAQ generation, complaint analysis)</td></tr>
+    <tr><td>State management</td><td>Redis (per-session)</td><td>Sub-millisecond reads, TTL-based cleanup, shared across Go nodes for horizontal scaling</td></tr>
+    <tr><td>Database</td><td>Supabase Postgres</td><td>Managed Postgres with RLS for multi-tenancy, built-in auth, real-time subscriptions for dashboard</td></tr>
+    <tr><td>Queue system</td><td>BullMQ + Redis</td><td>Reliable job delivery, retry logic, delayed jobs (SMS 5s post-call), bull-board for monitoring</td></tr>
+    <tr><td>Booking integration</td><td>ResDiary REST API (direct)</td><td>No intermediate sync layer — tools call ResDiary synchronously during call, ensures data freshness</td></tr>
+  </table>
+
+  <h2>4. Latency Budget</h2>
+  <table>
+    <tr><th>Stage</th><th>Budget</th><th>Actual (target)</th></tr>
+    <tr><td>Twilio → Go WebSocket receipt</td><td>50ms</td><td>~20–40ms</td></tr>
+    <tr><td>Audio buffer → OpenAI Realtime API</td><td>100ms</td><td>~80ms</td></tr>
+    <tr><td>OpenAI processing + first audio token</td><td>400ms</td><td>~250–400ms</td></tr>
+    <tr><td>Tool call round-trip (Booking/FAQ)</td><td>250ms</td><td>~80–200ms</td></tr>
+    <tr><td>Go → Twilio audio stream back</td><td>50ms</td><td>~20–40ms</td></tr>
+    <tr><td><strong>Total first audio response</strong></td><td><strong>&lt;850ms</strong></td><td><strong>~450–720ms</strong></td></tr>
+  </table>
+</div>
+
+<!-- 3. System Architecture -->
+<div id="system-arch" class="section">
+  <h1>System Architecture</h1>
+  <div class="section-meta"><span class="meta-tag">Full Stack</span><span class="meta-tag">Microservices</span></div>
+
+  <h2>Component Overview</h2>
+  <p>VoxLane uses a layered microservices architecture where the realtime voice path is kept completely separate from the business logic path. This ensures that voice latency is never affected by database load or API calls.</p>
+
+  <h3>Call Flow — End to End</h3>
+  <div class="flow">
+    <div class="flow-row">
+      <div class="flow-box accent">Caller dials restaurant number</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">Twilio PSTN receives call</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">Twilio webhook → NestJS /voice/incoming</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-box">NestJS returns TwiML (Stream + Connect)</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box accent">Twilio Media Stream → Go WebSocket Server</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-box">Go: Load tenant config from Redis</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">Go: Create OpenAI Realtime session</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box green">OpenAI processes audio</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-box">OpenAI streams audio response</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">Go re-encodes to µ-law 8kHz</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box accent">Twilio plays to caller</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-box green">Tool call triggered (e.g. check_availability)</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">Go dispatches to NestJS Tool Endpoint</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">NestJS calls ResDiary API</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-box">Tool result returned to Go</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">Go injects tool_result into OpenAI session</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box amber">AI continues conversation with real data</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-box">Call ends → Go notifies NestJS</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">BullMQ: SMS job + Analytics job</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box green">SMS sent, analytics stored</div>
+    </div>
+  </div>
+
+  <h2>Service Responsibilities</h2>
+  <table>
+    <tr><th>Service</th><th>Language</th><th>Responsibility</th></tr>
+    <tr><td><code>voice-engine</code></td><td>Go</td><td>WebSocket handling, audio transcoding, OpenAI session management, tool dispatch, VAD, barge-in</td></tr>
+    <tr><td><code>api-gateway</code></td><td>NestJS</td><td>Twilio webhooks, REST API, auth, rate limiting, tenant routing</td></tr>
+    <tr><td><code>booking-service</code></td><td>NestJS module</td><td>All booking CRUD, ResDiary sync, availability checking, conflict detection</td></tr>
+    <tr><td><code>sms-service</code></td><td>NestJS module</td><td>Twilio SMS dispatch, confirmation templates, delivery tracking</td></tr>
+    <tr><td><code>analytics-service</code></td><td>NestJS module</td><td>Call event ingestion, aggregation, dashboard data APIs</td></tr>
+    <tr><td><code>tenant-service</code></td><td>NestJS module</td><td>Restaurant config, FAQs, AI persona config, phone number management</td></tr>
+    <tr><td><code>worker</code></td><td>Node.js</td><td>BullMQ consumers for all async jobs</td></tr>
+    <tr><td><code>dashboard</code></td><td>Next.js</td><td>Restaurant admin portal, analytics UI, configuration</td></tr>
+  </table>
+</div>
+
+<!-- 4. Infrastructure Diagram -->
+<div id="infra-diag" class="section">
+  <h1>Infrastructure Diagram</h1>
+  <div class="section-meta"><span class="meta-tag">VPS MVP</span><span class="meta-tag">Docker Compose</span></div>
+
+  <h2>MVP Infrastructure (VPS)</h2>
+  <div class="card">
+    <h3>Single VPS Node — Docker Compose</h3>
+    <p>MVP deploys on a single high-memory VPS (Hetzner CX52 or equivalent: 16 vCPU, 32GB RAM, 1Gbps). All services run in Docker containers with Docker Compose orchestration.</p>
+    <pre><code>┌─────────────────────────────────────────────────────────────────┐
+│  VPS (Hetzner CX52 / 16 vCPU / 32GB / UK-AZ2)                  │
+│                                                                   │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
+│  │  Nginx       │  │  Go Voice    │  │  NestJS API          │   │
+│  │  Reverse     │→ │  Engine      │←→│  Gateway             │   │
+│  │  Proxy       │  │  :8080 (WS)  │  │  :3000               │   │
+│  └──────────────┘  └──────────────┘  └──────────────────────┘   │
+│                                                                   │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
+│  │  Redis       │  │  BullMQ      │  │  Next.js Dashboard   │   │
+│  │  :6379       │  │  Workers     │  │  :3001               │   │
+│  └──────────────┘  └──────────────┘  └──────────────────────┘   │
+│                                                                   │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │  Supabase (managed / external)                           │    │
+│  └──────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+
+External Services:
+  Twilio (PSTN + Media Streams + SMS)
+  OpenAI Realtime API
+  ResDiary API
+  AWS S3 (recordings)
+  Sentry (errors)
+  Better Stack (uptime)</code></pre>
+  </div>
+
+  <h2>Production Infrastructure (Multi-VPS)</h2>
+  <div class="card">
+    <p>At 50+ tenants, distribute across two VPS nodes with a load balancer. Sticky sessions ensure Twilio media streams connect to the same Go instance.</p>
+    <pre><code>                    ┌─────────────────┐
+                    │  Cloudflare      │
+                    │  (DDoS + CDN)    │
+                    └────────┬─────────┘
+                             │
+                    ┌────────┴─────────┐
+                    │  HAProxy / NGINX  │
+                    │  Load Balancer    │
+                    │  (Sticky WS)      │
+                    └────────┬─────────┘
+                    ┌────────┴─────────┐
+          ┌─────────┴──────┐  ┌────────┴───────┐
+          │  Node A         │  │  Node B         │
+          │  Voice + API    │  │  Voice + API    │
+          └─────────────────┘  └────────────────┘
+                    │                   │
+          ┌─────────┴───────────────────┴──┐
+          │      Redis Cluster (3 nodes)   │
+          └────────────────────────────────┘
+                    │
+          ┌─────────┴───────────────────────┐
+          │      Supabase Postgres (managed) │
+          └──────────────────────────────────┘</code></pre>
+  </div>
+
+  <h2>Network Security</h2>
+  <ul>
+    <li>Twilio IP allowlist on NestJS webhook endpoints</li>
+    <li>All internal service communication on private VLAN</li>
+    <li>TLS 1.3 everywhere (Cloudflare → Nginx → services)</li>
+    <li>Redis AUTH + TLS, no public exposure</li>
+    <li>Supabase connection via private pooler (PgBouncer)</li>
+    <li>Go voice engine only accessible via internal network — not public</li>
+  </ul>
+</div>
+
+<!-- 5. Realtime Voice Architecture -->
+<div id="voice-arch" class="section">
+  <h1>Realtime Voice Architecture</h1>
+  <div class="section-meta"><span class="meta-tag">Go</span><span class="meta-tag">OpenAI Realtime API</span><span class="meta-tag">Twilio Media Streams</span></div>
+
+  <h2>Audio Pipeline</h2>
+  <div class="callout callout-info">
+    <p><strong>Key insight:</strong> Twilio delivers audio as µ-law (G.711) 8kHz 8-bit mono. OpenAI Realtime expects PCM 16-bit 24kHz. The Go engine must transcode bidirectionally with zero-copy buffers to avoid GC pressure.</p>
+  </div>
+
+  <pre><code>Caller Audio Path (Inbound):
+  Twilio → WebSocket → Go
+    ↳ Receive mulaw-8kHz frames (20ms chunks)
+    ↳ Decode mulaw → linear PCM
+    ↳ Upsample 8kHz → 24kHz (linear interpolation)
+    ↳ Convert 8-bit → 16-bit signed
+    ↳ Forward to OpenAI Realtime API (input_audio_buffer.append)
+
+AI Audio Path (Outbound):
+  OpenAI → Go → Twilio
+    ↳ Receive response.audio.delta (PCM 24kHz 16-bit)
+    ↳ Downsample 24kHz → 8kHz
+    ↳ Encode PCM → mulaw
+    ↳ Base64 encode
+    ↳ Send via WebSocket media.write to Twilio</code></pre>
+
+  <h2>Go Session Handler</h2>
+  <pre><code>type VoiceSession struct {
+    SessionID     string
+    TenantID      string
+    CallSID       string
+    StreamSID     string
+    TwilioWS      *websocket.Conn
+    OpenAIWS      *websocket.Conn
+    State         ConversationState
+    Context       SessionContext     // booking data collected so far
+    Config        *TenantConfig      // loaded from Redis on session start
+    StartedAt     time.Time
+    LastActivity  time.Time
+    BargeInActive bool
+    mu            sync.RWMutex
+}
+
+// Main goroutines per session:
+// 1. twilioReader   — reads from Twilio WebSocket, forwards to OpenAI
+// 2. openaiReader   — reads from OpenAI WebSocket, processes events
+// 3. audioWriter    — writes to Twilio WebSocket
+// 4. toolHandler    — dispatches tool calls to NestJS, returns results
+// 5. healthMonitor  — detects silence/disconnects, triggers escalation</code></pre>
+
+  <h2>Barge-In / Interruption Handling</h2>
+  <div class="card">
+    <p>When a caller speaks while the AI is talking, the system must immediately stop audio playback and process the interruption.</p>
+    <ol>
+      <li>OpenAI Realtime API fires <span class="inline-code">input_audio_buffer.speech_started</span> event</li>
+      <li>Go handler immediately sends <span class="inline-code">response.cancel</span> to OpenAI</li>
+      <li>Go sends <span class="inline-code">{"event":"clear","streamSid":"..."}</span> to Twilio to flush audio buffer</li>
+      <li>Any queued audio frames are dropped (checked via sequence number)</li>
+      <li>OpenAI begins processing the new speech input</li>
+    </ol>
+    <div class="callout callout-success"><p><strong>Result:</strong> Interruption is handled in &lt;100ms. The caller feels heard immediately.</p></div>
+  </div>
+
+  <h2>Voice Activity Detection (VAD)</h2>
+  <p>OpenAI Realtime API handles server-side VAD with configurable silence thresholds. For restaurant calls:</p>
+  <table>
+    <tr><th>Parameter</th><th>Value</th><th>Reason</th></tr>
+    <tr><td>turn_detection.type</td><td>server_vad</td><td>Let OpenAI handle VAD for simplicity and reliability</td></tr>
+    <tr><td>turn_detection.threshold</td><td>0.5</td><td>Medium sensitivity — balanced for restaurant background noise</td></tr>
+    <tr><td>turn_detection.silence_duration_ms</td><td>700ms</td><td>Natural pause without cutting off hesitant callers</td></tr>
+    <tr><td>turn_detection.prefix_padding_ms</td><td>300ms</td><td>Capture the start of speech reliably</td></tr>
+  </table>
+
+  <h2>Silence & Hang-up Detection</h2>
+  <ul>
+    <li>After 8s of silence with no speech: AI plays a soft prompt ("Are you still there?")</li>
+    <li>After 15s total silence: AI politely closes the call</li>
+    <li>Twilio <span class="inline-code">disconnect</span> event on WebSocket triggers immediate session cleanup</li>
+    <li>All sessions have a 30-minute hard TTL in Redis</li>
+  </ul>
+</div>
+
+<!-- 6. Tool Calling Architecture -->
+<div id="tool-arch" class="section">
+  <h1>Tool Calling Architecture</h1>
+  <div class="section-meta"><span class="meta-tag">Function Calling</span><span class="meta-tag">OpenAI Realtime</span></div>
+
+  <div class="callout callout-warn">
+    <p><strong>Principle:</strong> Tools are the ONLY mechanism by which the AI touches real data. The AI cannot guess or invent. Every tool call goes through the NestJS backend which validates, authorises, and executes against real systems.</p>
+  </div>
+
+  <h2>MVP Tool Definitions</h2>
+  <table>
+    <tr><th>Tool Name</th><th>Description</th><th>Backend Action</th><th>Latency Budget</th></tr>
+    <tr><td><code>check_availability</code></td><td>Check table availability for date/time/party size</td><td>ResDiary API → available slots</td><td>&lt;300ms</td></tr>
+    <tr><td><code>create_booking</code></td><td>Create a confirmed reservation</td><td>ResDiary POST /reservations + Supabase log</td><td>&lt;500ms</td></tr>
+    <tr><td><code>modify_booking</code></td><td>Change date/time/party size of existing booking</td><td>ResDiary PATCH /reservations/:id</td><td>&lt;500ms</td></tr>
+    <tr><td><code>cancel_booking</code></td><td>Cancel a reservation by ref/phone</td><td>ResDiary DELETE /reservations/:id</td><td>&lt;400ms</td></tr>
+    <tr><td><code>find_booking</code></td><td>Look up existing booking by phone/name/ref</td><td>ResDiary GET /reservations + Supabase</td><td>&lt;300ms</td></tr>
+    <tr><td><code>get_restaurant_info</code></td><td>Get hours, address, parking, menu highlights</td><td>Redis cache → Tenant config</td><td>&lt;20ms</td></tr>
+    <tr><td><code>transfer_to_human</code></td><td>Initiate SIP transfer to staff phone</td><td>NestJS → Twilio SIP transfer</td><td>&lt;200ms</td></tr>
+    <tr><td><code>send_sms_confirmation</code></td><td>Queue SMS confirmation to caller</td><td>BullMQ SMS job → Twilio SMS</td><td>&lt;50ms (async)</td></tr>
+    <tr><td><code>log_complaint</code></td><td>Record caller complaint for follow-up</td><td>Supabase complaints table + notification</td><td>&lt;100ms</td></tr>
+    <tr><td><code>get_faq_answer</code></td><td>Retrieve FAQ response for common question</td><td>Redis FAQ cache (pre-embedded)</td><td>&lt;15ms</td></tr>
+  </table>
+
+  <h2>Tool Call Flow</h2>
+  <pre><code>OpenAI fires: response.function_call.arguments
+  ↓
+Go toolHandler receives: { name: "check_availability", arguments: {...} }
+  ↓
+Go validates tool is allowed in current state (state machine guard)
+  ↓
+Go HTTP POST to NestJS: /internal/tools/:toolName
+  Headers: X-Session-ID, X-Tenant-ID, X-Tool-Signature (HMAC)
+  ↓
+NestJS validates signature + tenant context
+  ↓
+NestJS executes tool (ResDiary call, DB query, etc.)
+  ↓
+NestJS returns JSON result (or structured error)
+  ↓
+Go sends: conversation.item.create (type: function_call_output)
+  ↓
+OpenAI continues conversation with real data injected</code></pre>
+
+  <h2>Tool Call Security</h2>
+  <ul>
+    <li>All tool calls are HMAC-signed with a shared secret per tenant</li>
+    <li>NestJS validates signature before executing any tool</li>
+    <li>Tools are scoped to the tenant — a tool call from tenant A cannot access tenant B's bookings</li>
+    <li>Tool call rate limiting: max 10 tool calls per session to prevent runaway loops</li>
+    <li>Tool timeout: 3s max — if backend doesn't respond, tool returns a graceful error message</li>
+  </ul>
+
+  <h2>Error Response Design</h2>
+  <pre><code>// Tool errors are returned as structured data, NOT as exceptions
+// The AI reads the error and responds naturally
+
+// Example: availability check with no slots
+{
+  "success": false,
+  "error_type": "no_availability",
+  "message": "No tables available for 4 people on Friday 14th June at 19:30",
+  "alternatives": [
+    { "time": "18:00", "available": true },
+    { "time": "21:00", "available": true }
+  ]
+}
+
+// AI will naturally say:
+// "I'm afraid we're fully booked at 7:30 on Friday, but I can see we 
+//  have availability at 6pm or 9pm. Would either of those work for you?"</code></pre>
+</div>
+
+<!-- 7. Database Schema -->
+<div id="db-schema" class="section">
+  <h1>Database Schema</h1>
+  <div class="section-meta"><span class="meta-tag">Supabase Postgres</span><span class="meta-tag">Row Level Security</span></div>
+
+  <h2>Multi-Tenant Architecture Note</h2>
+  <div class="callout callout-info">
+    <p>All tables include a <code>tenant_id</code> column. Supabase Row Level Security (RLS) policies enforce tenant isolation at the database level — a compromised API token cannot leak cross-tenant data.</p>
+  </div>
+
+  <h2>Core Tables</h2>
+
+  <div class="schema-table">
+    <div class="schema-table-header">
+      <span class="schema-table-name">tenants</span>
+      <span class="badge badge-blue">Core</span>
+    </div>
+    <div class="schema-fields">
+      <div class="schema-field"><span class="field-name">id</span><span class="field-type">uuid PK</span><span class="field-desc">Auto-generated</span></div>
+      <div class="schema-field"><span class="field-name">name</span><span class="field-type">text</span><span class="field-desc">Restaurant group name</span></div>
+      <div class="schema-field"><span class="field-name">plan</span><span class="field-type">enum</span><span class="field-desc">starter | growth | enterprise</span></div>
+      <div class="schema-field"><span class="field-name">status</span><span class="field-type">enum</span><span class="field-desc">active | suspended | trial</span></div>
+      <div class="schema-field"><span class="field-name">created_at</span><span class="field-type">timestamptz</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">stripe_customer_id</span><span class="field-type">text</span><span class="field-desc">Billing reference</span></div>
+    </div>
+  </div>
+
+  <div class="schema-table">
+    <div class="schema-table-header">
+      <span class="schema-table-name">locations</span>
+      <span class="badge badge-blue">Core</span>
+    </div>
+    <div class="schema-fields">
+      <div class="schema-field"><span class="field-name">id</span><span class="field-type">uuid PK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">tenant_id</span><span class="field-type">uuid FK</span><span class="field-desc">→ tenants.id</span></div>
+      <div class="schema-field"><span class="field-name">name</span><span class="field-type">text</span><span class="field-desc">e.g. "Mayfair Branch"</span></div>
+      <div class="schema-field"><span class="field-name">phone_number</span><span class="field-type">text</span><span class="field-desc">Twilio number assigned to this location</span></div>
+      <div class="schema-field"><span class="field-name">resdiary_venue_id</span><span class="field-type">text</span><span class="field-desc">ResDiary venue identifier</span></div>
+      <div class="schema-field"><span class="field-name">transfer_number</span><span class="field-type">text</span><span class="field-desc">Phone number for human transfer</span></div>
+      <div class="schema-field"><span class="field-name">ai_persona</span><span class="field-type">jsonb</span><span class="field-desc">{name, voice, greeting, language}</span></div>
+      <div class="schema-field"><span class="field-name">business_hours</span><span class="field-type">jsonb</span><span class="field-desc">Opening hours per day</span></div>
+      <div class="schema-field"><span class="field-name">is_active</span><span class="field-type">bool</span><span class="field-desc">Enable/disable AI answering</span></div>
+    </div>
+  </div>
+
+  <div class="schema-table">
+    <div class="schema-table-header">
+      <span class="schema-table-name">call_sessions</span>
+      <span class="badge badge-teal">Voice</span>
+    </div>
+    <div class="schema-fields">
+      <div class="schema-field"><span class="field-name">id</span><span class="field-type">uuid PK</span><span class="field-desc">Internal session ID</span></div>
+      <div class="schema-field"><span class="field-name">tenant_id</span><span class="field-type">uuid FK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">location_id</span><span class="field-type">uuid FK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">twilio_call_sid</span><span class="field-type">text</span><span class="field-desc">Unique Twilio call identifier</span></div>
+      <div class="schema-field"><span class="field-name">caller_phone</span><span class="field-type">text</span><span class="field-desc">Encrypted E.164 format</span></div>
+      <div class="schema-field"><span class="field-name">started_at</span><span class="field-type">timestamptz</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">ended_at</span><span class="field-type">timestamptz</span><span class="field-desc">Null if active</span></div>
+      <div class="schema-field"><span class="field-name">duration_seconds</span><span class="field-type">int</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">outcome</span><span class="field-type">enum</span><span class="field-desc">booking_made | modified | cancelled | transferred | faq_only | abandoned</span></div>
+      <div class="schema-field"><span class="field-name">final_state</span><span class="field-type">text</span><span class="field-desc">Last conversation state</span></div>
+      <div class="schema-field"><span class="field-name">tool_calls_count</span><span class="field-type">int</span><span class="field-desc">Number of tool calls made</span></div>
+      <div class="schema-field"><span class="field-name">ai_tokens_used</span><span class="field-type">int</span><span class="field-desc">For cost tracking</span></div>
+      <div class="schema-field"><span class="field-name">recording_url</span><span class="field-type">text</span><span class="field-desc">S3 URL (encrypted)</span></div>
+    </div>
+  </div>
+
+  <div class="schema-table">
+    <div class="schema-table-header">
+      <span class="schema-table-name">bookings</span>
+      <span class="badge badge-green">Business</span>
+    </div>
+    <div class="schema-fields">
+      <div class="schema-field"><span class="field-name">id</span><span class="field-type">uuid PK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">tenant_id</span><span class="field-type">uuid FK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">location_id</span><span class="field-type">uuid FK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">call_session_id</span><span class="field-type">uuid FK</span><span class="field-desc">Which call created this</span></div>
+      <div class="schema-field"><span class="field-name">resdiary_booking_id</span><span class="field-type">text</span><span class="field-desc">ResDiary's own reference</span></div>
+      <div class="schema-field"><span class="field-name">guest_name</span><span class="field-type">text</span><span class="field-desc">Encrypted at rest</span></div>
+      <div class="schema-field"><span class="field-name">guest_phone</span><span class="field-type">text</span><span class="field-desc">Encrypted at rest</span></div>
+      <div class="schema-field"><span class="field-name">party_size</span><span class="field-type">int</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">booking_date</span><span class="field-type">date</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">booking_time</span><span class="field-type">time</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">special_requests</span><span class="field-type">text</span><span class="field-desc">Dietary, occasion, etc.</span></div>
+      <div class="schema-field"><span class="field-name">status</span><span class="field-type">enum</span><span class="field-desc">confirmed | modified | cancelled | no_show</span></div>
+      <div class="schema-field"><span class="field-name">sms_sent</span><span class="field-type">bool</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">created_at</span><span class="field-type">timestamptz</span><span class="field-desc"></span></div>
+    </div>
+  </div>
+
+  <div class="schema-table">
+    <div class="schema-table-header">
+      <span class="schema-table-name">faq_entries</span>
+      <span class="badge badge-purple">Configuration</span>
+    </div>
+    <div class="schema-fields">
+      <div class="schema-field"><span class="field-name">id</span><span class="field-type">uuid PK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">tenant_id</span><span class="field-type">uuid FK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">location_id</span><span class="field-type">uuid FK</span><span class="field-desc">Null = applies to all locations</span></div>
+      <div class="schema-field"><span class="field-name">question</span><span class="field-type">text</span><span class="field-desc">Example question (for matching)</span></div>
+      <div class="schema-field"><span class="field-name">answer</span><span class="field-type">text</span><span class="field-desc">Answer the AI will speak</span></div>
+      <div class="schema-field"><span class="field-name">category</span><span class="field-type">text</span><span class="field-desc">hours | location | menu | parking | other</span></div>
+      <div class="schema-field"><span class="field-name">is_active</span><span class="field-type">bool</span><span class="field-desc"></span></div>
+    </div>
+  </div>
+
+  <div class="schema-table">
+    <div class="schema-table-header">
+      <span class="schema-table-name">complaints</span>
+      <span class="badge badge-coral">Support</span>
+    </div>
+    <div class="schema-fields">
+      <div class="schema-field"><span class="field-name">id</span><span class="field-type">uuid PK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">tenant_id</span><span class="field-type">uuid FK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">call_session_id</span><span class="field-type">uuid FK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">caller_phone</span><span class="field-type">text</span><span class="field-desc">Encrypted</span></div>
+      <div class="schema-field"><span class="field-name">summary</span><span class="field-type">text</span><span class="field-desc">AI-generated summary</span></div>
+      <div class="schema-field"><span class="field-name">severity</span><span class="field-type">enum</span><span class="field-desc">low | medium | high | urgent</span></div>
+      <div class="schema-field"><span class="field-name">status</span><span class="field-type">enum</span><span class="field-desc">open | in_review | resolved</span></div>
+      <div class="schema-field"><span class="field-name">created_at</span><span class="field-type">timestamptz</span><span class="field-desc"></span></div>
+    </div>
+  </div>
+
+  <div class="schema-table">
+    <div class="schema-table-header">
+      <span class="schema-table-name">call_analytics_hourly</span>
+      <span class="badge badge-amber">Analytics</span>
+    </div>
+    <div class="schema-fields">
+      <div class="schema-field"><span class="field-name">id</span><span class="field-type">uuid PK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">tenant_id</span><span class="field-type">uuid FK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">location_id</span><span class="field-type">uuid FK</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">hour_bucket</span><span class="field-type">timestamptz</span><span class="field-desc">Truncated to hour</span></div>
+      <div class="schema-field"><span class="field-name">total_calls</span><span class="field-type">int</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">bookings_made</span><span class="field-type">int</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">transfers_to_human</span><span class="field-type">int</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">avg_duration_seconds</span><span class="field-type">float</span><span class="field-desc"></span></div>
+      <div class="schema-field"><span class="field-name">total_ai_cost_gbp</span><span class="field-type">decimal</span><span class="field-desc">Summed AI API costs</span></div>
+    </div>
+  </div>
+
+  <h2>Indexing Strategy</h2>
+  <ul>
+    <li><code>call_sessions(tenant_id, started_at)</code> — analytics time-range queries</li>
+    <li><code>bookings(tenant_id, booking_date)</code> — per-day booking queries</li>
+    <li><code>bookings(guest_phone)</code> — caller lookup (partial, for modify/cancel)</li>
+    <li><code>bookings(resdiary_booking_id)</code> — sync lookups</li>
+    <li><code>faq_entries(tenant_id, location_id, category)</code> — FAQ lookups</li>
+  </ul>
+</div>
+
+<!-- 8. API Structure -->
+<div id="api-structure" class="section">
+  <h1>API Structure</h1>
+  <div class="section-meta"><span class="meta-tag">NestJS / Fastify</span><span class="meta-tag">REST + WebSocket</span></div>
+
+  <h2>Public API Groups</h2>
+
+  <h3>Twilio Webhook Endpoints</h3>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+    <tr><td><span class="badge badge-green">POST</span></td><td><code>/voice/incoming</code></td><td>Twilio inbound call webhook → returns TwiML</td></tr>
+    <tr><td><span class="badge badge-green">POST</span></td><td><code>/voice/status</code></td><td>Twilio call status callbacks (answered, completed, failed)</td></tr>
+    <tr><td><span class="badge badge-blue">WS</span></td><td><code>/voice/stream/:sessionId</code></td><td>Twilio Media Stream WebSocket (proxied to Go engine)</td></tr>
+    <tr><td><span class="badge badge-green">POST</span></td><td><code>/sms/status</code></td><td>Twilio SMS delivery status callbacks</td></tr>
+  </table>
+
+  <h3>Internal Tool Endpoint (Go → NestJS)</h3>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+    <tr><td><span class="badge badge-green">POST</span></td><td><code>/internal/tools/:toolName</code></td><td>Tool execution endpoint — HMAC authenticated</td></tr>
+    <tr><td><span class="badge badge-blue">GET</span></td><td><code>/internal/config/:tenantId/:locationId</code></td><td>Tenant config fetch for Go (cached in Redis)</td></tr>
+  </table>
+
+  <h3>Dashboard API (authenticated, JWT)</h3>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+    <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/locations</code></td><td>List locations for current tenant</td></tr>
+    <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/locations</code></td><td>Create location</td></tr>
+    <tr><td><span class="badge badge-amber">PATCH</span></td><td><code>/api/locations/:id</code></td><td>Update location config</td></tr>
+    <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/calls</code></td><td>Call history (paginated, filtered)</td></tr>
+    <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/bookings</code></td><td>Bookings from AI calls</td></tr>
+    <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/analytics/summary</code></td><td>Dashboard summary stats</td></tr>
+    <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/analytics/hourly</code></td><td>Hourly call volume / bookings</td></tr>
+    <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/faqs</code></td><td>List FAQ entries</td></tr>
+    <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/faqs</code></td><td>Create FAQ entry</td></tr>
+    <tr><td><span class="badge badge-red">DELETE</span></td><td><code>/api/faqs/:id</code></td><td>Delete FAQ entry</td></tr>
+    <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/complaints</code></td><td>List complaints</td></tr>
+    <tr><td><span class="badge badge-amber">PATCH</span></td><td><code>/api/complaints/:id</code></td><td>Update complaint status</td></tr>
+  </table>
+
+  <h3>Authentication</h3>
+  <ul>
+    <li>Dashboard uses Supabase Auth (email + password, Google OAuth)</li>
+    <li>JWT tokens with 24h expiry, refresh token rotation</li>
+    <li>Internal Go ↔ NestJS uses HMAC-SHA256 signed requests with session-derived keys</li>
+    <li>Twilio webhooks validated via Twilio signature header</li>
+    <li>Rate limiting: 1000 req/min per tenant on API, 100 req/min on webhooks</li>
+  </ul>
+</div>
+
+<!-- 9. Queue Architecture -->
+<div id="queue-arch" class="section">
+  <h1>Queue Architecture</h1>
+  <div class="section-meta"><span class="meta-tag">BullMQ</span><span class="meta-tag">Redis</span></div>
+
+  <h2>Queue Definitions</h2>
+  <table>
+    <tr><th>Queue Name</th><th>Purpose</th><th>Concurrency</th><th>Retry</th><th>TTL</th></tr>
+    <tr><td><code>sms-dispatch</code></td><td>Send SMS confirmations post-call</td><td>20</td><td>3× backoff</td><td>24h</td></tr>
+    <tr><td><code>analytics-events</code></td><td>Ingest call events, aggregate into hourly buckets</td><td>50</td><td>5× backoff</td><td>72h</td></tr>
+    <tr><td><code>resdiary-sync</code></td><td>Async sync of booking changes back to ResDiary</td><td>10</td><td>5× exp backoff</td><td>48h</td></tr>
+    <tr><td><code>recording-process</code></td><td>Compress + upload call recordings to S3</td><td>5</td><td>3× backoff</td><td>7d</td></tr>
+    <tr><td><code>session-cleanup</code></td><td>Purge expired sessions from Redis</td><td>2</td><td>2×</td><td>1h</td></tr>
+    <tr><td><code>notification-dispatch</code></td><td>Email notifications to restaurant staff</td><td>10</td><td>3× backoff</td><td>24h</td></tr>
+    <tr><td><code>complaint-analysis</code></td><td>Run DeepSeek analysis on complaint transcripts</td><td>5</td><td>2×</td><td>48h</td></tr>
+  </table>
+
+  <h2>SMS Queue Detail</h2>
+  <div class="card">
+    <p>SMS jobs are enqueued immediately when a booking action completes, but with a 5-second delay to ensure the call has fully ended before the SMS lands.</p>
+    <pre><code>await smsQueue.add('send-booking-confirmation', {
+  tenantId: session.tenantId,
+  locationId: session.locationId,
+  callerPhone: session.callerPhone,
+  bookingRef: booking.resdiary_booking_id,
+  guestName: booking.guest_name,
+  bookingDate: booking.booking_date,
+  bookingTime: booking.booking_time,
+  partySize: booking.party_size,
+  restaurantName: location.name,
+}, {
+  delay: 5000,           // 5s after call ends
+  attempts: 3,
+  backoff: { type: 'exponential', delay: 10000 },
+  removeOnComplete: 100, // keep last 100 completed
+  removeOnFail: 500,
+});</code></pre>
+  </div>
+
+  <h2>Dead Letter Handling</h2>
+  <ul>
+    <li>Failed jobs after max retries move to <code>failed</code> state in BullMQ</li>
+    <li>Bull Board dashboard provides visibility at <code>/admin/queues</code> (internal only)</li>
+    <li>SMS failures trigger fallback: email notification to restaurant manager</li>
+    <li>ResDiary sync failures create a manual reconciliation task for staff dashboard</li>
+    <li>Critical queue failures (3+ consecutive) trigger PagerDuty alert</li>
+  </ul>
+</div>
+
+<!-- 10. Session Management -->
+<div id="session-mgmt" class="section">
+  <h1>Realtime Session Management</h1>
+  <div class="section-meta"><span class="meta-tag">Redis</span><span class="meta-tag">Go</span></div>
+
+  <h2>Session Lifecycle</h2>
+  <div class="flow">
+    <div class="flow-row">
+      <div class="flow-box accent">Call arrives at Twilio</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">NestJS creates session record in Supabase (status: initiated)</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-box">NestJS returns TwiML with Stream URL</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box accent">Go WebSocket connection opens</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-box green">Go loads tenant config from Redis</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box green">Go creates session in Redis (TTL: 30min)</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-box">Go opens OpenAI Realtime WebSocket</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box amber">Session status: ACTIVE</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-box">Call ends (caller hangs up OR transfer)</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">Go flushes session to NestJS POST /internal/session-end</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-box">NestJS updates Supabase call_sessions row</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box green">Queue SMS + analytics jobs</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">Redis session key expires</div>
+    </div>
+  </div>
+
+  <h2>Redis Session Schema</h2>
+  <pre><code>Key: session:{sessionId}
+TTL: 30 minutes (rolling refresh on activity)
+
+{
+  "sessionId": "sess_01HXYZ...",
+  "tenantId": "ten_abc123",
+  "locationId": "loc_def456",
+  "callSid": "CAxxxxxx",
+  "streamSid": "MZxxxxxx",
+  "callerPhone": "+447700900123",
+  "state": "Booking",
+  "context": {
+    "intent": "new_booking",
+    "collected": {
+      "name": "Sarah Johnson",
+      "partySize": 4,
+      "preferredDate": "2025-06-14",
+      "preferredTime": "19:30",
+      "specialRequests": "window table if possible"
+    },
+    "bookingRef": null,         // filled after create_booking tool call
+    "toolCallCount": 2,
+    "stateHistory": ["Greeting", "Booking"]
+  },
+  "startedAt": "2025-06-10T19:34:22Z",
+  "lastActivity": "2025-06-10T19:35:41Z"
+}</code></pre>
+
+  <h2>Horizontal Scaling Concern</h2>
+  <div class="callout callout-warn">
+    <p><strong>Critical:</strong> Twilio Media Streams maintain a WebSocket connection to a specific server. When scaling horizontally, load balancer MUST use sticky sessions (IP hash or session cookie) to ensure the same Go instance handles all messages for a given call. Redis-backed session state means any Go node can read the context, but the live WebSocket must be on the same node.</p>
+  </div>
+</div>
+
+<!-- 11. State Machine -->
+<div id="state-machine" class="section">
+  <h1>Conversation State Machine</h1>
+  <div class="section-meta"><span class="meta-tag">8 States</span><span class="meta-tag">Deterministic Transitions</span></div>
+
+  <div class="callout callout-info">
+    <p><strong>Design Rule:</strong> Each state loads a minimal, focused system prompt extension. The base system prompt is tiny. State-specific context is injected only when needed. This dramatically reduces token usage and prevents the AI from wandering.</p>
+  </div>
+
+  <h2>States</h2>
+  <div class="state-grid">
+    <div class="state-card state-greeting">
+      <div class="state-name" style="color:#3d7eff">Greeting</div>
+      <div class="state-desc">Initial call answer. AI introduces itself and detects intent.</div>
+      <div class="state-transitions"><div class="state-arrow">→ Booking, ModifyBooking, Cancellation, FAQ, Complaint, HumanTransfer</div></div>
+    </div>
+    <div class="state-card state-booking">
+      <div class="state-name" style="color:#2dd4a0">Booking</div>
+      <div class="state-desc">Collect name, date, time, party size. Check availability. Confirm reservation.</div>
+      <div class="state-transitions"><div class="state-arrow">→ Closing, HumanTransfer</div></div>
+    </div>
+    <div class="state-card state-modify">
+      <div class="state-name" style="color:#a78bfa">ModifyBooking</div>
+      <div class="state-desc">Find existing booking by phone/name/ref. Collect changes. Update via tool.</div>
+      <div class="state-transitions"><div class="state-arrow">→ Closing, HumanTransfer</div></div>
+    </div>
+    <div class="state-card state-cancel">
+      <div class="state-name" style="color:#f5a623">Cancellation</div>
+      <div class="state-desc">Locate booking. Confirm cancellation intent. Execute cancellation tool.</div>
+      <div class="state-transitions"><div class="state-arrow">→ Closing, HumanTransfer</div></div>
+    </div>
+    <div class="state-card state-complaint">
+      <div class="state-name" style="color:#fb7185">Complaint</div>
+      <div class="state-desc">Listen empathetically. Capture details. Log complaint. Offer transfer.</div>
+      <div class="state-transitions"><div class="state-arrow">→ HumanTransfer, Closing</div></div>
+    </div>
+    <div class="state-card state-faq">
+      <div class="state-name" style="color:#22d3ee">FAQ</div>
+      <div class="state-desc">Retrieve FAQ answer from tool. Answer question. Detect follow-up intent.</div>
+      <div class="state-transitions"><div class="state-arrow">→ Greeting, Booking, Closing</div></div>
+    </div>
+    <div class="state-card state-transfer">
+      <div class="state-name" style="color:#f05252">HumanTransfer</div>
+      <div class="state-desc">Acknowledge transfer request. Warm-transfer to SIP number. Notify staff.</div>
+      <div class="state-transitions"><div class="state-arrow">→ [Call ends]</div></div>
+    </div>
+    <div class="state-card state-closing">
+      <div class="state-name" style="color:#9ca3af">Closing</div>
+      <div class="state-desc">Summarise what was done. Confirm SMS sent. Polite farewell.</div>
+      <div class="state-transitions"><div class="state-arrow">→ [Call ends]</div></div>
+    </div>
+  </div>
+
+  <h2>Transition Rules</h2>
+  <pre><code>// State transitions are enforced in Go BEFORE injecting into OpenAI context
+// This prevents the AI from spontaneously jumping states
+
+const VALID_TRANSITIONS: Record&lt;ConversationState, ConversationState[]&gt; = {
+  Greeting:       ['Booking', 'ModifyBooking', 'Cancellation', 'FAQ', 'Complaint', 'HumanTransfer'],
+  Booking:        ['Closing', 'HumanTransfer', 'FAQ'],
+  ModifyBooking:  ['Closing', 'HumanTransfer'],
+  Cancellation:   ['Closing', 'HumanTransfer'],
+  Complaint:      ['HumanTransfer', 'Closing'],
+  FAQ:            ['Greeting', 'Booking', 'Closing', 'HumanTransfer'],
+  HumanTransfer:  [],  // terminal state
+  Closing:        [],  // terminal state
+}
+
+// Forced transitions (server-side, not AI-driven):
+// - 3 failed availability checks → HumanTransfer
+// - ResDiary API error → HumanTransfer
+// - Caller says "speak to someone" → HumanTransfer
+// - Silence &gt;15s in non-closing state → Closing
+// - tool_calls &gt; 10 → HumanTransfer</code></pre>
+
+  <h2>State Prompt Injection Strategy</h2>
+  <table>
+    <tr><th>State</th><th>Prompt Addition (tokens)</th><th>Tools Available</th></tr>
+    <tr><td>Greeting</td><td>~80 tokens (persona + restaurant name)</td><td>get_restaurant_info</td></tr>
+    <tr><td>Booking</td><td>~120 tokens (booking rules + date context)</td><td>check_availability, create_booking, get_restaurant_info</td></tr>
+    <tr><td>ModifyBooking</td><td>~100 tokens</td><td>find_booking, modify_booking</td></tr>
+    <tr><td>Cancellation</td><td>~80 tokens</td><td>find_booking, cancel_booking</td></tr>
+    <tr><td>Complaint</td><td>~60 tokens (empathy guidance)</td><td>log_complaint, transfer_to_human</td></tr>
+    <tr><td>FAQ</td><td>~40 tokens</td><td>get_faq_answer, get_restaurant_info</td></tr>
+    <tr><td>HumanTransfer</td><td>~50 tokens</td><td>transfer_to_human</td></tr>
+    <tr><td>Closing</td><td>~40 tokens</td><td>send_sms_confirmation</td></tr>
+  </table>
+</div>
+
+<!-- 12. AI Orchestration -->
+<div id="ai-orch" class="section">
+  <h1>AI Orchestration Design</h1>
+  <div class="section-meta"><span class="meta-tag">OpenAI Realtime API</span><span class="meta-tag">DeepSeek V4</span><span class="meta-tag">Kimi K2.7</span></div>
+
+  <h2>Two-Tier AI Strategy</h2>
+  <div class="card-grid">
+    <div class="card">
+      <div class="badge badge-blue" style="margin-bottom:10px">Tier 1 — Realtime Voice</div>
+      <h3>OpenAI Realtime API (gpt-4o-realtime)</h3>
+      <p><strong>Used for:</strong> All live voice conversations</p>
+      <p><strong>Why:</strong> End-to-end audio processing, no STT/TTS chain, native barge-in support, &lt;300ms latency</p>
+      <p><strong>Cost:</strong> ~$0.06/min (input audio) + $0.24/min (output audio)</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-purple" style="margin-bottom:10px">Tier 2 — Async Intelligence</div>
+      <h3>DeepSeek V4 / Kimi K2.7</h3>
+      <p><strong>Used for:</strong> Post-call analysis, complaint summarisation, FAQ generation, analytics insights, daily reports</p>
+      <p><strong>Why:</strong> 10–50× cheaper for non-latency tasks. Equal or better reasoning for text tasks.</p>
+      <p><strong>Cost:</strong> ~$0.0005/1K tokens (DeepSeek V4)</p>
+    </div>
+  </div>
+
+  <h2>OpenAI Session Configuration</h2>
+  <pre><code>// Sent on session.create when Go connects to OpenAI Realtime
+{
+  "type": "session.update",
+  "session": {
+    "modalities": ["audio", "text"],
+    "model": "gpt-4o-realtime-preview",
+    "voice": "alloy",               // configurable per tenant
+    "instructions": buildSystemPrompt(state, tenantConfig),
+    "tools": getToolsForState(state),
+    "tool_choice": "auto",
+    "turn_detection": {
+      "type": "server_vad",
+      "threshold": 0.5,
+      "prefix_padding_ms": 300,
+      "silence_duration_ms": 700
+    },
+    "input_audio_format": "pcm16",
+    "output_audio_format": "pcm16",
+    "input_audio_transcription": { "model": "whisper-1" },
+    "temperature": 0.6,             // Lower = less hallucination
+    "max_response_output_tokens": 800  // Prevent verbosity
+  }
+}</code></pre>
+
+  <h2>Hallucination Prevention</h2>
+  <div class="callout callout-danger">
+    <p><strong>Critical Architecture Decision:</strong> The AI is explicitly instructed that it CANNOT answer questions about availability, specific prices, or booking status from memory. It MUST use tools. Any attempt to answer these from training data is blocked by instruction.</p>
+  </div>
+  <pre><code>// Core anti-hallucination instructions (included in every state)
+"CRITICAL RULES:
+1. You CANNOT tell a caller a table is available without calling check_availability.
+2. You CANNOT confirm a booking without calling create_booking successfully.
+3. You CANNOT quote specific prices or menu items - use get_restaurant_info.
+4. If a tool call fails, say 'I need to transfer you to our team' and call transfer_to_human.
+5. Never invent booking references, confirmation numbers, or times."</code></pre>
+</div>
+
+<!-- 13. Human Escalation -->
+<div id="human-escalation" class="section">
+  <h1>Human Escalation Logic</h1>
+  <div class="section-meta"><span class="meta-tag">SIP Transfer</span><span class="meta-tag">Twilio</span></div>
+
+  <h2>Escalation Triggers</h2>
+  <table>
+    <tr><th>Trigger</th><th>Type</th><th>Action</th></tr>
+    <tr><td>Caller explicitly asks for human</td><td>Voluntary</td><td>Immediate warm transfer</td></tr>
+    <tr><td>Complaint state entered</td><td>Suggested</td><td>AI offers transfer, caller chooses</td></tr>
+    <tr><td>ResDiary API fails 2× for same action</td><td>Forced</td><td>Immediate transfer with apology</td></tr>
+    <tr><td>Unrecognised intent after 3 attempts</td><td>Forced</td><td>Transfer with context handoff</td></tr>
+    <tr><td>tool_call_count &gt; 10 in session</td><td>Safety</td><td>Transfer (prevent infinite loops)</td></tr>
+    <tr><td>Caller distress detected (tone analysis)</td><td>Proactive</td><td>Offer transfer</td></tr>
+    <tr><td>Out-of-hours (human unavailable)</td><td>Modified</td><td>Take message, promise callback</td></tr>
+  </table>
+
+  <h2>Warm Transfer Flow</h2>
+  <pre><code>1. AI says: "Let me connect you with our team right now — please hold for just a moment."
+
+2. Go calls NestJS POST /internal/tools/transfer_to_human
+   {
+     "sessionId": "...",
+     "transferTo": "+441234567890",   // location.transfer_number
+     "context": {
+       "callerName": "Sarah",
+       "intent": "booking modification",
+       "bookingRef": "RD-12345",
+       "summary": "Caller wants to change 4-person booking on Friday to 6 people"
+     }
+   }
+
+3. NestJS calls Twilio API to initiate conference/bridge:
+   - Creates TwiML with &lt;Dial&gt;&lt;Number&gt; or SIP endpoint
+   - Sends SMS to staff: "Incoming transfer: Sarah re: booking RD-12345 (change to 6 ppl)"
+
+4. Twilio bridges call to staff phone
+
+5. Go session is marked as TRANSFERRED
+   - OpenAI session closed
+   - Call session updated in Supabase
+   - Analytics event queued</code></pre>
+
+  <h2>Out-of-Hours Escalation</h2>
+  <p>When transfer number is unavailable (outside business hours or no answer):</p>
+  <ol>
+    <li>AI acknowledges the situation warmly</li>
+    <li>AI offers to: take a message / send SMS so team can call back / complete booking through AI</li>
+    <li>If message taken: logged as complaint/enquiry in Supabase + email alert to manager</li>
+    <li>Caller receives SMS: "Thanks for calling [Restaurant]. Our team will call you back within [X] hours."</li>
+  </ol>
+</div>
+
+<!-- 14. Security -->
+<div id="security" class="section">
+  <h1>Security Model</h1>
+  <div class="section-meta"><span class="meta-tag">Zero-Trust</span><span class="meta-tag">Encryption at Rest</span><span class="meta-tag">UK Data Residency</span></div>
+
+  <h2>Authentication & Authorisation</h2>
+  <table>
+    <tr><th>Layer</th><th>Mechanism</th><th>Details</th></tr>
+    <tr><td>Dashboard login</td><td>Supabase Auth</td><td>Email+password or OAuth. MFA available on Growth+ plans.</td></tr>
+    <tr><td>Dashboard API</td><td>JWT (RS256)</td><td>24h access token, 7-day refresh with rotation</td></tr>
+    <tr><td>Twilio webhooks</td><td>Twilio Signature</td><td>X-Twilio-Signature validated on every webhook</td></tr>
+    <tr><td>Go → NestJS tools</td><td>HMAC-SHA256</td><td>Per-session key derived from tenant secret + session ID</td></tr>
+    <tr><td>Database RLS</td><td>Supabase RLS</td><td>Row-level security: every query scoped to tenant_id</td></tr>
+    <tr><td>Service-to-service</td><td>mTLS</td><td>Internal services use mutual TLS (Phase 2 with K8s)</td></tr>
+  </table>
+
+  <h2>Data Encryption</h2>
+  <ul>
+    <li><strong>In transit:</strong> TLS 1.3 minimum on all connections (Nginx, WebSocket, API calls)</li>
+    <li><strong>At rest (PII):</strong> <code>guest_name</code>, <code>guest_phone</code>, <code>caller_phone</code> encrypted with AES-256-GCM using per-tenant encryption keys stored in AWS Secrets Manager / HashiCorp Vault</li>
+    <li><strong>Call recordings:</strong> Encrypted with S3 SSE-KMS</li>
+    <li><strong>Redis:</strong> Sensitive session data (caller phone) hashed with BLAKE2b; full phone only in Postgres</li>
+  </ul>
+
+  <h2>API Key Management</h2>
+  <ul>
+    <li>OpenAI API key stored in environment variables / Vault — never in code</li>
+    <li>ResDiary API credentials stored per-tenant in Supabase Vault (encrypted column)</li>
+    <li>Twilio credentials in environment (not per-tenant in MVP; per-tenant sub-accounts in enterprise)</li>
+    <li>Key rotation mechanism built into tenant service (zero-downtime rotation)</li>
+  </ul>
+
+  <h2>Network Security</h2>
+  <ul>
+    <li>Twilio IP CIDR allowlist on webhook endpoints</li>
+    <li>Go voice engine not exposed to public internet — only reachable via internal network or load balancer</li>
+    <li>Rate limiting: per-IP, per-tenant, per-endpoint</li>
+    <li>DDoS protection via Cloudflare Pro</li>
+    <li>Admin dashboard behind additional IP allowlist or VPN</li>
+  </ul>
+
+  <h2>Secrets Audit Trail</h2>
+  <p>All access to encrypted PII fields logged to <code>audit_log</code> table with timestamp, user, action, and data class. Supabase pg_audit extension enabled.</p>
+</div>
+
+<!-- 15. GDPR -->
+<div id="gdpr" class="section">
+  <h1>GDPR Compliance Plan</h1>
+  <div class="section-meta"><span class="meta-tag">UK GDPR</span><span class="meta-tag">Data Protection Act 2018</span><span class="meta-tag">ICO</span></div>
+
+  <h2>Lawful Basis for Processing</h2>
+  <table>
+    <tr><th>Processing Activity</th><th>Lawful Basis</th><th>Notes</th></tr>
+    <tr><td>Recording call audio</td><td>Legitimate Interest + Consent</td><td>Caller informed at start of call: "This call may be recorded for quality purposes"</td></tr>
+    <tr><td>Storing booking data (name, phone)</td><td>Contractual Necessity</td><td>Required to fulfil the booking service</td></tr>
+    <tr><td>Sending SMS confirmations</td><td>Contractual Necessity</td><td>Part of the booking service the caller requested</td></tr>
+    <tr><td>Call analytics (aggregated)</td><td>Legitimate Interest</td><td>Anonymised — no individual identification possible from aggregates</td></tr>
+    <tr><td>Complaint logging</td><td>Legitimate Interest</td><td>For service improvement and safety</td></tr>
+  </table>
+
+  <h2>Data Subject Rights Implementation</h2>
+  <ul>
+    <li><strong>Right to Access (SAR):</strong> Dashboard allows restaurant to export all data for a caller phone number. API endpoint for programmatic SARs.</li>
+    <li><strong>Right to Erasure:</strong> <code>/api/gdpr/erase</code> endpoint hard-deletes all PII for a phone number across all tables. Call recordings deleted from S3. 30-day processing SLA.</li>
+    <li><strong>Right to Rectification:</strong> Booking data editable via dashboard by restaurant staff.</li>
+    <li><strong>Right to Object:</strong> Caller can say "don't record me" → recording disabled for that session (flagged in session context).</li>
+    <li><strong>Data Portability:</strong> Tenant data exportable as JSON/CSV from dashboard.</li>
+  </ul>
+
+  <h2>Data Retention Policy</h2>
+  <table>
+    <tr><th>Data Type</th><th>Retention Period</th><th>Deletion Method</th></tr>
+    <tr><td>Call recordings</td><td>90 days (configurable)</td><td>S3 lifecycle rule</td></tr>
+    <tr><td>Call session metadata</td><td>24 months</td><td>Scheduled Postgres job</td></tr>
+    <tr><td>Booking records</td><td>36 months</td><td>Scheduled Postgres job</td></tr>
+    <tr><td>Complaint records</td><td>60 months</td><td>Manual review + scheduled job</td></tr>
+    <tr><td>Analytics aggregates</td><td>Indefinite</td><td>Never (no PII)</td></tr>
+    <tr><td>Redis session data</td><td>30 min TTL</td><td>Automatic TTL expiry</td></tr>
+  </table>
+
+  <h2>Data Residency</h2>
+  <p>All data stored in EU/UK data centres. Supabase configured for EU (Ireland) region. S3 bucket in eu-west-2 (London). Cloudflare EU data localisation option enabled. OpenAI data processing agreement (DPA) in place — zero data retention on API calls selected.</p>
+
+  <h2>Privacy by Design</h2>
+  <ul>
+    <li>Phone numbers encrypted at rest in all tables</li>
+    <li>Call transcripts stored only for active sessions in Redis (purged on call end)</li>
+    <li>Aggregate analytics contain no individually identifiable data</li>
+    <li>Privacy notice displayed on restaurant website and played at start of call</li>
+    <li>DPA templates provided to restaurant tenants covering their use of the platform</li>
+  </ul>
+</div>
+
+<!-- 16. Cost Analysis -->
+<div id="cost-analysis" class="section">
+  <h1>Cost Analysis</h1>
+  <div class="section-meta"><span class="meta-tag">Per-Call Economics</span><span class="meta-tag">Break-Even Analysis</span></div>
+
+  <h2>Per-Call Cost Breakdown (Average 3-Minute Call)</h2>
+  <table>
+    <tr><th>Component</th><th>Unit Cost</th><th>Per 3-Min Call</th><th>Notes</th></tr>
+    <tr><td>OpenAI Realtime API (input audio)</td><td>$0.06/min</td><td>$0.18</td><td>3 min average</td></tr>
+    <tr><td>OpenAI Realtime API (output audio)</td><td>$0.24/min</td><td>$0.36</td><td>~1.5 min AI speaking</td></tr>
+    <tr><td>Twilio inbound call (UK)</td><td>$0.0085/min</td><td>$0.025</td><td>Per minute</td></tr>
+    <tr><td>Twilio Media Streams</td><td>$0.004/min</td><td>$0.012</td><td>Per minute streaming</td></tr>
+    <tr><td>Twilio SMS</td><td>$0.0079/SMS</td><td>$0.008</td><td>1 SMS per completed booking</td></tr>
+    <tr><td>Supabase DB writes</td><td>~$0.001</td><td>$0.001</td><td>Negligible</td></tr>
+    <tr><td>Compute (Go + NestJS)</td><td>~$0.002</td><td>$0.002</td><td>Per call (VPS shared)</td></tr>
+    <tr><td><strong>Total per call</strong></td><td></td><td><strong>~$0.59 (~£0.47)</strong></td><td></td></tr>
+  </table>
+
+  <div class="callout callout-warn">
+    <p><strong>Cost Driver:</strong> OpenAI Realtime API output audio is the dominant cost at ~91% of AI spend. Minimising AI speaking time (concise responses, fast tool resolution) is the #1 cost lever.</p>
+  </div>
+
+  <h2>Cost Optimisation Strategies</h2>
+  <ul>
+    <li><strong>Concise AI responses:</strong> max_response_output_tokens: 800 — prevents long-winded answers</li>
+    <li><strong>State-specific tools only:</strong> Only expose tools relevant to current state — reduces tool schema token overhead</li>
+    <li><strong>FAQ caching:</strong> FAQ answers served from Redis in &lt;15ms — no AI tokens needed for common questions</li>
+    <li><strong>Early call resolution:</strong> Target &lt;2-min average for booking calls — reduces Twilio + AI cost</li>
+    <li><strong>Async LLM for non-voice tasks:</strong> DeepSeek V4 at ~$0.0005/1K tokens vs OpenAI at ~$0.015/1K</li>
+  </ul>
+
+  <h2>Break-Even Analysis (per location)</h2>
+  <table>
+    <tr><th>Plan</th><th>Price/Month</th><th>Calls/Month Allowance</th><th>Cost at 100% utilisation</th><th>Gross Margin</th></tr>
+    <tr><td>Starter</td><td>£149</td><td>300 calls</td><td>~£141</td><td>~5%</td></tr>
+    <tr><td>Growth</td><td>£299</td><td>800 calls</td><td>~£376 (overage pricing kicks in)</td><td>~27% net plan</td></tr>
+    <tr><td>Scale</td><td>£549</td><td>2,000 calls</td><td>~£940 (overage pricing)</td><td>~40% blended</td></tr>
+    <tr><td>Enterprise</td><td>Custom</td><td>Unlimited</td><td>Cost-plus negotiated</td><td>~50%+</td></tr>
+  </table>
+
+  <div class="cost-highlight">
+    <p><strong>Key Insight:</strong> Average restaurant takes 150–400 calls/month. Starter plan at £149 captures most of this. Margin improves sharply at Growth+ as overages are billed at £0.65/call (vs £0.47 cost). Target 60%+ gross margin at steady-state via cost optimisation and plan mix.</p>
+  </div>
+
+  <h2>Infrastructure Cost (VPS MVP)</h2>
+  <table>
+    <tr><th>Resource</th><th>Provider</th><th>Monthly Cost</th></tr>
+    <tr><td>Primary VPS (16 vCPU, 32GB)</td><td>Hetzner CX52</td><td>~£55</td></tr>
+    <tr><td>Supabase Pro</td><td>Supabase</td><td>$25/mo (~£20)</td></tr>
+    <tr><td>Cloudflare Pro</td><td>Cloudflare</td><td>$20/mo (~£16)</td></tr>
+    <tr><td>S3 recordings (est.)</td><td>AWS eu-west-2</td><td>~£10–30</td></tr>
+    <tr><td>Monitoring (Sentry + Better Stack)</td><td>Various</td><td>~£40</td></tr>
+    <tr><td><strong>Total Infrastructure</strong></td><td></td><td><strong>~£141–161/mo</strong></td></tr>
+  </table>
+  <p>Break-even on infrastructure at ~3 paying Starter customers.</p>
+</div>
+
+<!-- 17. Pricing -->
+<div id="pricing" class="section">
+  <h1>SaaS Pricing Architecture</h1>
+  <div class="section-meta"><span class="meta-tag">Per-Location Billing</span><span class="meta-tag">Usage-Based Overages</span></div>
+
+  <h2>Pricing Plans</h2>
+  <div class="pricing-grid">
+    <div class="pricing-card">
+      <div class="pricing-tier">Starter</div>
+      <div class="pricing-price">£149</div>
+      <div class="pricing-period">per location / month</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> 300 calls included</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Booking + FAQ + Transfer</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> SMS confirmations</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Basic analytics</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> 1 location</div>
+      <div class="pricing-feature" style="opacity:0.4">✗ Call recording</div>
+      <div class="pricing-feature" style="opacity:0.4">✗ Custom AI persona</div>
+    </div>
+    <div class="pricing-card featured">
+      <div class="pricing-tier">Growth</div>
+      <div class="pricing-price">£299</div>
+      <div class="pricing-period">per location / month</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> 800 calls included</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> All Starter features</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Call recording (90 days)</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Custom AI name + voice</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Advanced analytics</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Complaint management</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Priority support</div>
+    </div>
+    <div class="pricing-card">
+      <div class="pricing-tier">Scale</div>
+      <div class="pricing-price">£549</div>
+      <div class="pricing-period">per location / month</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> 2,000 calls included</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> All Growth features</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Multi-location dashboard</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Staff notification rules</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Webhook integrations</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> SLA guarantee</div>
+    </div>
+    <div class="pricing-card">
+      <div class="pricing-tier">Enterprise</div>
+      <div class="pricing-price">Custom</div>
+      <div class="pricing-period">annual contract</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Unlimited calls</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Dedicated infrastructure</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Custom integrations</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> White-label option</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> 99.95% SLA</div>
+      <div class="pricing-feature"><span class="pricing-check">✓</span> Account manager</div>
+    </div>
+  </div>
+
+  <h2>Overage Pricing</h2>
+  <table>
+    <tr><th>Plan</th><th>Overage Rate</th><th>Cap</th></tr>
+    <tr><td>Starter</td><td>£0.65/call</td><td>No cap (upgrade encouraged)</td></tr>
+    <tr><td>Growth</td><td>£0.55/call</td><td>No cap</td></tr>
+    <tr><td>Scale</td><td>£0.45/call</td><td>No cap</td></tr>
+  </table>
+
+  <h2>Multi-Location Discounts</h2>
+  <table>
+    <tr><th>Locations</th><th>Discount</th></tr>
+    <tr><td>2–4 locations</td><td>10% per location</td></tr>
+    <tr><td>5–9 locations</td><td>20% per location</td></tr>
+    <tr><td>10+ locations</td><td>Custom enterprise pricing</td></tr>
+  </table>
+
+  <h2>Billing Implementation</h2>
+  <ul>
+    <li>Stripe for subscription billing (monthly or annual with 15% discount)</li>
+    <li>Usage-based overages calculated daily, billed at month end</li>
+    <li>Free 14-day trial (no credit card required) — limited to 50 calls</li>
+    <li>Plan changes take effect immediately (pro-rated billing)</li>
+  </ul>
+</div>
+
+<!-- 18. Multi-Tenant -->
+<div id="multi-tenant" class="section">
+  <h1>Multi-Tenant Architecture</h1>
+  <div class="section-meta"><span class="meta-tag">Shared Infrastructure</span><span class="meta-tag">Data Isolation</span></div>
+
+  <h2>Isolation Model</h2>
+  <p>VoxLane uses a <strong>shared infrastructure, data-isolated</strong> multi-tenant model. All tenants share the same application code and infrastructure, but data is rigorously isolated via:</p>
+  <ul>
+    <li><strong>Supabase RLS:</strong> Every table has a policy <code>USING (tenant_id = auth.jwt() ->> 'tenant_id')</code></li>
+    <li><strong>Application-level tenancy:</strong> Every API request extracts <code>tenant_id</code> from JWT and passes it to all service calls</li>
+    <li><strong>Redis key namespacing:</strong> All Redis keys prefixed with <code>tenant:{tenantId}:</code></li>
+    <li><strong>Encryption key isolation:</strong> Each tenant has a unique data encryption key (DEK) managed via AWS KMS / Vault</li>
+  </ul>
+
+  <h2>Tenant Configuration</h2>
+  <p>Each tenant (restaurant group) contains one or more locations. Each location has independent configuration:</p>
+  <pre><code>TenantConfig (cached in Redis, TTL 5min):
+{
+  tenantId: string,
+  locationId: string,
+  restaurantName: "The Oak Room",
+  aiPersona: {
+    name: "Olivia",
+    voice: "alloy",          // OpenAI voice
+    greeting: "Good evening, The Oak Room. This is Olivia, how can I help?",
+    style: "warm_professional"
+  },
+  resdiary: {
+    venueId: "RD-1234",
+    apiKey: "[encrypted]",
+    maxPartySize: 12,
+    advanceBookingDays: 60
+  },
+  businessHours: {
+    monday: { open: "12:00", close: "22:00" },
+    // ...
+  },
+  transferNumber: "+441234567890",
+  smsEnabled: true,
+  recordingEnabled: true,
+  faqs: [...],               // Pre-loaded for performance
+  features: ["booking", "faq", "transfer", "complaint", "sms"]
+}</code></pre>
+
+  <h2>Phone Number Routing</h2>
+  <p>Each location is assigned a Twilio phone number. When a call arrives, NestJS looks up the <code>To</code> number from the Twilio webhook against a <code>phone_numbers</code> table to identify the tenant and location. This lookup is cached in Redis for &lt;5ms resolution.</p>
+
+  <h2>Enterprise Isolation Option</h2>
+  <p>For enterprise customers requiring stricter isolation (separate Supabase schema, dedicated Redis database, dedicated Go voice instance), an <code>isolation_level: "dedicated"</code> flag on the tenant triggers infrastructure provisioning via Terraform. Offered at Enterprise tier only.</p>
+</div>
+
+<!-- 19. ResDiary Integration -->
+<div id="resdiary" class="section">
+  <h1>ResDiary Integration Architecture</h1>
+  <div class="section-meta"><span class="meta-tag">REST API</span><span class="meta-tag">OAuth 2.0</span><span class="meta-tag">Real-time Sync</span></div>
+
+  <h2>Integration Approach</h2>
+  <div class="callout callout-info">
+    <p><strong>Synchronous First:</strong> Tool calls during active calls are synchronous — we call ResDiary and wait. This ensures the AI has real data before speaking. Async queue is only for reconciliation and retry on failure.</p>
+  </div>
+
+  <h2>ResDiary API Operations</h2>
+  <table>
+    <tr><th>VoxLane Tool</th><th>ResDiary Endpoint</th><th>Method</th><th>Notes</th></tr>
+    <tr><td>check_availability</td><td>/api/v2/venues/{id}/availability</td><td>GET</td><td>Params: date, time, covers</td></tr>
+    <tr><td>create_booking</td><td>/api/v2/venues/{id}/reservations</td><td>POST</td><td>Returns booking ID + confirmation</td></tr>
+    <tr><td>find_booking</td><td>/api/v2/venues/{id}/reservations</td><td>GET</td><td>Filter by phone or surname</td></tr>
+    <tr><td>modify_booking</td><td>/api/v2/venues/{id}/reservations/{bookingId}</td><td>PATCH</td><td>Update date/time/covers</td></tr>
+    <tr><td>cancel_booking</td><td>/api/v2/venues/{id}/reservations/{bookingId}/cancel</td><td>POST</td><td>Sends cancellation to ResDiary</td></tr>
+  </table>
+
+  <h2>Authentication</h2>
+  <p>ResDiary uses OAuth 2.0 client credentials flow. Each tenant's ResDiary API key is stored encrypted in Supabase Vault. Access tokens are cached in Redis per tenant (TTL: token expiry - 60s) to avoid token refresh on every tool call.</p>
+  <pre><code>// ResDiary token management
+class ResdiartyAuthService {
+  async getAccessToken(tenantId: string): Promise&lt;string&gt; {
+    const cacheKey = `resdiary:token:${tenantId}`;
+    const cached = await redis.get(cacheKey);
+    if (cached) return cached;
+
+    const creds = await this.vaultService.getCredentials(tenantId, 'resdiary');
+    const token = await this.fetchOAuthToken(creds);
+    
+    await redis.setex(cacheKey, token.expires_in - 60, token.access_token);
+    return token.access_token;
+  }
+}</code></pre>
+
+  <h2>Error Handling</h2>
+  <table>
+    <tr><th>Error</th><th>Handling</th></tr>
+    <tr><td>No availability</td><td>Return structured alternatives — AI offers nearby times</td></tr>
+    <tr><td>Booking conflict</td><td>Return conflict detail — AI explains and offers alternatives</td></tr>
+    <tr><td>ResDiary 5xx / timeout</td><td>First attempt: retry once after 1s. Second attempt: transfer to human</td></tr>
+    <tr><td>Booking not found</td><td>Return not_found — AI asks caller to double-check details</td></tr>
+    <tr><td>Auth failure</td><td>Alert ops, transfer to human — credential rotation needed</td></tr>
+    <tr><td>Rate limit (429)</td><td>Queue for async retry (non-time-sensitive), immediate human transfer for live calls</td></tr>
+  </table>
+
+  <h2>Future Integration Expansion</h2>
+  <p>The <code>booking-service</code> is designed with an adapter pattern. Adding OpenTable, Resy, or SevenRooms in future requires only a new adapter implementing the <code>IBookingProvider</code> interface — no changes to the AI or voice engine layer.</p>
+  <pre><code>interface IBookingProvider {
+  checkAvailability(params: AvailabilityParams): Promise&lt;AvailabilityResult&gt;
+  createBooking(params: CreateBookingParams): Promise&lt;BookingResult&gt;
+  findBooking(params: FindBookingParams): Promise&lt;Booking[]&gt;
+  modifyBooking(id: string, params: ModifyBookingParams): Promise&lt;BookingResult&gt;
+  cancelBooking(id: string): Promise&lt;CancelResult&gt;
+}</code></pre>
+</div>
+
+<!-- 20. Failure Handling -->
+<div id="failure-handling" class="section">
+  <h1>Failure Handling Strategy</h1>
+  <div class="section-meta"><span class="meta-tag">Circuit Breakers</span><span class="meta-tag">Graceful Degradation</span></div>
+
+  <h2>Failure Modes & Responses</h2>
+  <table>
+    <tr><th>Failure</th><th>Severity</th><th>Response</th></tr>
+    <tr><td>OpenAI Realtime API down</td><td>Critical</td><td>Fallback TTS: "We're experiencing technical difficulties. Please call back shortly or I'll transfer you." → SIP transfer to human. Alert PagerDuty.</td></tr>
+    <tr><td>ResDiary API down</td><td>High</td><td>AI: "Our booking system is temporarily unavailable. Can I take your details and have someone call you back?" → Log callback request.</td></tr>
+    <tr><td>Go voice engine crash</td><td>Critical</td><td>Docker restart policy: always. Health check every 5s. Twilio call drops and caller gets voicemail. PagerDuty alert.</td></tr>
+    <tr><td>NestJS API down</td><td>High</td><td>Go engine cannot execute tools — escalates all tool calls to "system error" → human transfer.</td></tr>
+    <tr><td>Redis down</td><td>High</td><td>Sessions cannot load tenant config → fallback to generic greeting, attempt in-memory config load from last known state.</td></tr>
+    <tr><td>Supabase down</td><td>Medium</td><td>Read-only degradation. Bookings buffered in Redis for later write. Analytics queued in BullMQ.</td></tr>
+    <tr><td>Twilio partial outage</td><td>Medium</td><td>Calls that connected continue unaffected. New inbound calls may fail — Twilio's own redundancy handles routing. Status page monitoring.</td></tr>
+    <tr><td>SMS delivery failure</td><td>Low</td><td>BullMQ retry × 3. On final failure: email to restaurant manager with booking details.</td></tr>
+  </table>
+
+  <h2>Circuit Breaker Configuration</h2>
+  <pre><code>// ResDiary circuit breaker (using opossum in NestJS)
+const resdiary_breaker = new CircuitBreaker(resdiary_call, {
+  timeout: 3000,        // 3s timeout per call
+  errorThresholdPercentage: 50,  // Open at 50% failure rate
+  resetTimeout: 30000,  // Try again after 30s
+  volumeThreshold: 5,   // Min 5 calls to calculate rate
+});
+
+resdiary_breaker.fallback(() => ({
+  success: false,
+  error_type: 'service_unavailable',
+  message: 'Booking system temporarily unavailable',
+  should_transfer: true
+}));</code></pre>
+
+  <h2>Health Check Architecture</h2>
+  <ul>
+    <li><code>GET /health</code> on NestJS: checks DB, Redis, ResDiary connectivity</li>
+    <li><code>GET /health</code> on Go voice engine: checks OpenAI connection, WebSocket capacity</li>
+    <li>Better Stack uptime monitoring (30s interval) with SMS/phone alerts</li>
+    <li>Synthetic call test runs every 15 minutes: places a test call, checks AI responds, verifies tool calls succeed</li>
+  </ul>
+</div>
+
+<!-- 21. Retry Logic -->
+<div id="retry-logic" class="section">
+  <h1>Retry Logic</h1>
+  <div class="section-meta"><span class="meta-tag">Exponential Backoff</span><span class="meta-tag">Idempotency</span></div>
+
+  <h2>Retry Strategy by Context</h2>
+  <table>
+    <tr><th>Context</th><th>Strategy</th><th>Max Attempts</th><th>Backoff</th></tr>
+    <tr><td>Synchronous tool call (in-call)</td><td>Immediate retry ×1</td><td>2</td><td>1s fixed</td></tr>
+    <tr><td>ResDiary create_booking</td><td>Idempotency key, retry on 5xx only</td><td>2</td><td>500ms</td></tr>
+    <tr><td>SMS dispatch (BullMQ)</td><td>Exponential backoff</td><td>3</td><td>10s, 60s, 5min</td></tr>
+    <tr><td>Analytics event write</td><td>Exponential backoff</td><td>5</td><td>5s, 30s, 2min, 10min, 30min</td></tr>
+    <tr><td>OpenAI session reconnect</td><td>Immediate then backoff</td><td>3</td><td>0, 1s, 5s</td></tr>
+    <tr><td>Redis connection</td><td>Exponential backoff with jitter</td><td>10</td><td>100ms base + jitter</td></tr>
+  </table>
+
+  <h2>Idempotency</h2>
+  <p>All booking mutations include an idempotency key (<code>X-Idempotency-Key: {sessionId}-{action}-{timestamp}</code>) in ResDiary API calls. This prevents duplicate bookings if a create_booking call is retried after a timeout where the first call actually succeeded.</p>
+
+  <h2>Retry Guard (In-Call)</h2>
+  <pre><code>// During a live call, we cannot afford unlimited retries
+// After 2 tool failures for the same action, escalate to human
+
+if (session.context.failedToolAttempts[toolName] >= 2) {
+  await dispatchTool('transfer_to_human', {
+    reason: 'repeated_tool_failure',
+    failedTool: toolName,
+    message: "I'm having trouble with our booking system right now. Let me transfer you to our team."
+  });
+}</code></pre>
+</div>
+
+<!-- 22. Observability -->
+<div id="observability" class="section">
+  <h1>Observability & Logging Design</h1>
+  <div class="section-meta"><span class="meta-tag">Structured Logging</span><span class="meta-tag">Distributed Tracing</span><span class="meta-tag">Metrics</span></div>
+
+  <h2>Logging Architecture</h2>
+  <p>All services emit structured JSON logs. Go uses <span class="inline-code">zerolog</span>. NestJS uses <span class="inline-code">pino</span>. Logs shipped to managed log aggregation (Grafana Loki or Better Stack Logs).</p>
+
+  <h3>Standard Log Fields</h3>
+  <pre><code>{
+  "timestamp": "2025-06-10T19:34:22.123Z",
+  "level": "info",
+  "service": "voice-engine",
+  "sessionId": "sess_01HXYZ...",
+  "tenantId": "ten_abc123",
+  "locationId": "loc_def456",
+  "callSid": "CAxxxxxx",
+  "event": "tool_call_dispatched",
+  "toolName": "check_availability",
+  "durationMs": 142,
+  "state": "Booking",
+  "traceId": "abc123..."
+}</code></pre>
+
+  <h2>Key Metrics (Prometheus / Grafana)</h2>
+  <table>
+    <tr><th>Metric</th><th>Type</th><th>Alert Threshold</th></tr>
+    <tr><td>active_voice_sessions</td><td>Gauge</td><td>&gt;400 (capacity warning)</td></tr>
+    <tr><td>call_first_response_latency_ms</td><td>Histogram</td><td>p95 &gt; 1500ms</td></tr>
+    <tr><td>tool_call_duration_ms</td><td>Histogram</td><td>p95 &gt; 500ms per tool</td></tr>
+    <tr><td>resdiary_error_rate</td><td>Counter/rate</td><td>&gt;5% over 5min window</td></tr>
+    <tr><td>openai_api_errors_total</td><td>Counter</td><td>&gt;5 in 5min</td></tr>
+    <tr><td>sms_delivery_failure_rate</td><td>Rate</td><td>&gt;2%</td></tr>
+    <tr><td>session_escalation_rate</td><td>Rate</td><td>&gt;30% (per tenant, per hour)</td></tr>
+    <tr><td>booking_completion_rate</td><td>Rate</td><td>&lt;60% (per tenant, per day)</td></tr>
+  </table>
+
+  <h2>Distributed Tracing</h2>
+  <p>OpenTelemetry spans propagated across: Twilio webhook → NestJS → Go → OpenAI → NestJS tool endpoint → ResDiary. Full call trace visible in single view showing every tool call latency and state transition.</p>
+
+  <h2>Error Tracking</h2>
+  <ul>
+    <li>Sentry for exception capture on NestJS and Go services</li>
+    <li>Custom Sentry fingerprinting to group errors by tenant + tool + error type</li>
+    <li>PagerDuty integration for P1/P2 alerts (OpenAI down, Go crashes, Supabase unreachable)</li>
+  </ul>
+
+  <h2>Call Replay</h2>
+  <p>Every call session stores a structured event log in Supabase (<code>call_events</code> table): state transitions, tool calls, tool results, timing. This enables full call replay in the dashboard — restaurant owners can review exactly what the AI said and did on any call.</p>
+</div>
+
+<!-- 23. Twilio Media Streams -->
+<div id="twilio-streams" class="section">
+  <h1>Twilio Media Stream Handling</h1>
+  <div class="section-meta"><span class="meta-tag">WebSocket</span><span class="meta-tag">Go</span><span class="meta-tag">µ-law Audio</span></div>
+
+  <h2>TwiML Response</h2>
+  <pre><code>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;Response&gt;
+  &lt;Connect&gt;
+    &lt;Stream url="wss://voice.voxlane.com/voice/stream/{sessionId}"&gt;
+      &lt;Parameter name="sessionId" value="{sessionId}"/&gt;
+      &lt;Parameter name="tenantId" value="{tenantId}"/&gt;
+      &lt;Parameter name="locationId" value="{locationId}"/&gt;
+    &lt;/Stream&gt;
+  &lt;/Connect&gt;
+&lt;/Response&gt;</code></pre>
+
+  <h2>Twilio WebSocket Message Types (Go handles these)</h2>
+  <table>
+    <tr><th>Message Type</th><th>Direction</th><th>Go Handler Action</th></tr>
+    <tr><td>connected</td><td>Twilio → Go</td><td>Log connection, await start</td></tr>
+    <tr><td>start</td><td>Twilio → Go</td><td>Extract streamSid, callSid, load tenant config, open OpenAI session</td></tr>
+    <tr><td>media</td><td>Twilio → Go</td><td>Decode base64 payload, decode mulaw→PCM, upsample 8→24kHz, send to OpenAI</td></tr>
+    <tr><td>stop</td><td>Twilio → Go</td><td>Close OpenAI session, flush session to NestJS, clean up</td></tr>
+    <tr><td>mark</td><td>Twilio → Go</td><td>Track audio playback progress for barge-in detection</td></tr>
+    <tr><td>media (write)</td><td>Go → Twilio</td><td>Base64-encoded mulaw audio from OpenAI response</td></tr>
+    <tr><td>clear</td><td>Go → Twilio</td><td>Flush audio buffer on barge-in</td></tr>
+    <tr><td>mark (send)</td><td>Go → Twilio</td><td>Track which audio chunks have been sent vs confirmed played</td></tr>
+  </table>
+
+  <h2>Audio Transcoding (Go)</h2>
+  <pre><code>// Go audio pipeline — zero-copy buffer design
+func (s *Session) handleTwilioMedia(payload []byte) {
+    // 1. Decode base64
+    mulaw := base64.Decode(payload)
+    
+    // 2. Decode µ-law → signed 16-bit PCM (lookup table, O(1) per sample)
+    pcm8k := decodeMulaw(mulaw)
+    
+    // 3. Upsample 8kHz → 24kHz (3:1 linear interpolation)
+    pcm24k := upsample8to24(pcm8k)
+    
+    // 4. Send to OpenAI Realtime API
+    s.openaiWS.Write(inputAudioAppend(pcm24k))
+}
+
+func (s *Session) handleOpenAIAudio(pcm24k []byte) {
+    // 1. Downsample 24kHz → 8kHz  
+    pcm8k := downsample24to8(pcm24k)
+    
+    // 2. Encode PCM → µ-law
+    mulaw := encodeMulaw(pcm8k)
+    
+    // 3. Base64 encode
+    encoded := base64.Encode(mulaw)
+    
+    // 4. Send to Twilio
+    s.twilioWS.Write(mediaWrite(encoded, s.streamSid))
+}</code></pre>
+
+  <h2>WebSocket Connection Management</h2>
+  <ul>
+    <li>Go uses <span class="inline-code">gorilla/websocket</span> with read/write goroutine separation per connection</li>
+    <li>Ping/pong heartbeat every 30s to detect stale connections</li>
+    <li>Write timeout: 5s — if Twilio doesn't ACK, close and cleanup</li>
+    <li>Max connections per Go instance: 500 concurrent (memory-bound: ~25MB per session including audio buffers)</li>
+    <li>Connection pool shared between Twilio WS and OpenAI WS per session</li>
+  </ul>
+</div>
+
+<!-- 24. SIP Transfer -->
+<div id="sip-transfer" class="section">
+  <h1>SIP Transfer Implementation</h1>
+  <div class="section-meta"><span class="meta-tag">Twilio Voice</span><span class="meta-tag">Warm Transfer</span></div>
+
+  <h2>Transfer Mechanism</h2>
+  <p>VoxLane uses Twilio's <strong>warm transfer</strong> pattern: the AI stays on the line briefly while the destination phone rings, then bridges the caller when staff answers. If no answer, AI can take a message instead.</p>
+
+  <pre><code>// NestJS transfer_to_human tool handler
+async transferToHuman(params: TransferParams): Promise&lt;ToolResult&gt; {
+  const location = await this.tenantService.getLocation(params.locationId);
+  
+  // 1. Update Twilio call with new TwiML via REST API
+  await this.twilioClient.calls(params.callSid).update({
+    twiml: `&lt;Response&gt;
+      &lt;Say voice="alice"&gt;Please hold while I connect you to our team.&lt;/Say&gt;
+      &lt;Dial timeout="30" 
+            action="/voice/transfer-complete/${params.sessionId}"
+            method="POST"&gt;
+        &lt;Number statusCallbackEvent="initiated ringing answered completed"
+                statusCallback="/voice/transfer-status"&gt;
+          ${location.transferNumber}
+        &lt;/Number&gt;
+      &lt;/Dial&gt;
+      &lt;Say&gt;I'm sorry, our team is unavailable. Let me take a message.&lt;/Say&gt;
+      &lt;Redirect&gt;/voice/take-message/${params.sessionId}&lt;/Redirect&gt;
+    &lt;/Response&gt;`
+  });
+  
+  // 2. Send context SMS to staff
+  await this.smsService.sendStaffAlert(location.transferNumber, {
+    callerName: params.context.callerName,
+    intent: params.context.intent,
+    summary: params.context.summary
+  });
+  
+  // 3. Mark session as transferring
+  await this.sessionService.updateState(params.sessionId, 'HumanTransfer');
+  
+  return { success: true, message: "Transferring now" };
+}</code></pre>
+
+  <h2>Transfer Fallback</h2>
+  <pre><code>// If staff doesn't answer (30s timeout), Twilio hits /voice/transfer-complete
+// with DialCallStatus: no-answer → VoxLane falls back gracefully
+
+POST /voice/transfer-complete/:sessionId
+  DialCallStatus: "no-answer"
+  →
+  Resume AI session with context: "Staff unavailable"
+  AI: "I wasn't able to reach our team just now. Can I take your name and 
+       a brief message, and have someone call you back?"</code></pre>
+
+  <h2>SIP vs PSTN Transfer</h2>
+  <p>For restaurant groups with PBX/SIP infrastructure, transfer can use <code>&lt;Sip&gt;</code> instead of <code>&lt;Number&gt;</code> — enabling transfer to extension numbers, ring groups, or hunt groups without PSTN costs.</p>
+</div>
+
+<!-- 25. Token Optimisation -->
+<div id="token-opt" class="section">
+  <h1>Token Optimisation Strategy</h1>
+  <div class="section-meta"><span class="meta-tag">Cost Reduction</span><span class="meta-tag">Latency Improvement</span></div>
+
+  <h2>Token Budget per Session</h2>
+  <table>
+    <tr><th>Component</th><th>Token Count</th><th>Frequency</th></tr>
+    <tr><td>Base system prompt</td><td>~150 tokens</td><td>Once per session</td></tr>
+    <tr><td>State-specific prompt addition</td><td>~80–120 tokens</td><td>Per state transition</td></tr>
+    <tr><td>Tenant config injection (name, hours)</td><td>~100 tokens</td><td>Once per session</td></tr>
+    <tr><td>Tool schema per tool</td><td>~60–80 tokens</td><td>Per session, only active tools</td></tr>
+    <tr><td>Tool call result (booking data)</td><td>~150–300 tokens</td><td>Per tool call</td></tr>
+    <tr><td>AI audio response</td><td>~50–200 tokens eq.</td><td>Per turn</td></tr>
+    <tr><td><strong>Total per booking call (~4 turns)</strong></td><td><strong>~1,800–2,500 tokens</strong></td><td>Per call</td></tr>
+  </table>
+
+  <h2>Optimisation Techniques</h2>
+  <h3>1. State-Scoped Tool Schema</h3>
+  <p>Only include tool definitions for tools valid in the current state. In Greeting state, send 1 tool definition (~70 tokens). In Booking state, send 3 (~210 tokens). Never send all 10 tools at once.</p>
+
+  <h3>2. Compact Tool Responses</h3>
+  <pre><code>// Bad — verbose tool response (400 tokens):
+{
+  "status": "success",
+  "data": {
+    "venue": { "id": "RD-1234", "name": "The Oak Room", "address": "...", ... },
+    "reservation": { "id": "...", "date": "2025-06-14", "time": "19:30", ... },
+    "confirmation": { "email": true, "sms": false },
+    ...
+  }
+}
+
+// Good — minimal tool response (80 tokens):
+{
+  "success": true,
+  "booking_ref": "RD-12345",
+  "date": "Saturday 14th June",
+  "time": "7:30 PM",
+  "covers": 4
+}</code></pre>
+
+  <h3>3. Conversation Context Pruning</h3>
+  <p>OpenAI Realtime maintains its own conversation history. For sessions exceeding 15 turns, inject a context summary replacing the early conversation: <code>"Summary so far: Caller Sarah booked a table for 4 on Friday 14th June at 7:30pm. Now asking about parking."</code></p>
+
+  <h3>4. FAQ Short-Circuit</h3>
+  <p>Common FAQs (hours, address, parking) are served from Redis without AI involvement. The Go engine detects simple FAQ patterns via keyword matching and injects the pre-written answer directly as a tool result — bypassing AI generation for purely factual answers.</p>
+
+  <h3>5. Temperature Optimisation</h3>
+  <p>Temperature 0.6 balances naturalness with predictability. Booking confirmation steps use temperature 0.4 (highly reliable structured output). General chat uses 0.7 (more natural-sounding).</p>
+</div>
+
+<!-- 26. Prompt Architecture -->
+<div id="prompt-arch" class="section">
+  <h1>AI Prompt Architecture</h1>
+  <div class="section-meta"><span class="meta-tag">State-Driven Prompts</span><span class="meta-tag">Anti-Hallucination</span></div>
+
+  <h2>Prompt Composition Model</h2>
+  <pre><code>Final system prompt = BASE_PROMPT + STATE_PROMPT[currentState] + TENANT_CONTEXT
+
+// Assembled in Go before session.update or state transition</code></pre>
+
+  <h2>BASE_PROMPT (static, ~150 tokens)</h2>
+  <pre><code>You are a professional AI voice receptionist for a restaurant.
+Your name is {ai_name}. You speak naturally, warmly, and concisely.
+
+CORE RULES:
+- Never invent availability, prices, or booking details. Always use tools.
+- If a tool fails twice, transfer to a human without apologising excessively.
+- Be concise. Spoken responses should be under 3 sentences unless explaining options.
+- Respond ONLY to restaurant-relevant queries.
+- Never discuss AI, technology, or how you work.
+- Today is {current_date}. Current time is {current_time} UK time.</code></pre>
+
+  <h2>STATE_PROMPTS (injected on state entry)</h2>
+  <pre><code>// Greeting state
+"Greet the caller warmly. Your restaurant is {restaurant_name}.
+Listen for their intent: new booking, existing booking change/cancel, question, or complaint.
+Do not assume intent — ask if unclear."
+
+// Booking state  
+"Collect: caller's name, party size (1-{max_party}), preferred date and time.
+Use check_availability before confirming any slot.
+Confirm all details clearly before calling create_booking.
+Once booked, say the booking reference and offer SMS confirmation."
+
+// ModifyBooking state
+"Find the booking first using find_booking with caller's phone or name+date.
+Confirm which booking before making any changes.
+Collect the new date/time/party size.
+Check availability for the new slot before modifying."
+
+// Complaint state
+"Listen with empathy. Do not argue or make promises about compensation.
+Summarise what you've heard back to the caller.
+Offer to connect them with the manager or note their feedback for follow-up.
+Do not say the problem will definitely be fixed — say it will be reviewed."</code></pre>
+
+  <h2>TENANT_CONTEXT (per-restaurant, injected once)</h2>
+  <pre><code>{
+  restaurant_name: "The Oak Room",
+  ai_name: "Olivia",
+  address: "12 High Street, London SW1A 1AA",
+  phone_display: "020 7123 4567",
+  today_hours: "12:00 PM to 10:30 PM",
+  tomorrow_closed: false,
+  max_party_size: 12,
+  special_note: "We are fully booked on Saturday 15th June — do not check availability for that date."
+}</code></pre>
+
+  <h2>Anti-Prompt-Injection</h2>
+  <p>Caller speech is processed as audio (not text). The OpenAI Realtime API transcribes internally. However, as a defence-in-depth measure, all tool call arguments are validated server-side — any attempt to inject SQL, override tool parameters, or supply adversarial dates/names is sanitised before reaching the database or ResDiary API.</p>
+</div>
+
+<!-- 27. Scaling Roadmap -->
+<div id="scaling-roadmap" class="section">
+  <h1>Infrastructure Scaling Roadmap</h1>
+  <div class="section-meta"><span class="meta-tag">VPS → Multi-VPS → Kubernetes</span></div>
+
+  <table>
+    <tr><th>Phase</th><th>Timeline</th><th>Tenants</th><th>Concurrent Calls</th><th>Infrastructure</th></tr>
+    <tr><td>Phase 0: MVP</td><td>Months 1–3</td><td>1–10</td><td>~20</td><td>Single VPS (Hetzner CX52), Docker Compose</td></tr>
+    <tr><td>Phase 1: Growth</td><td>Months 4–9</td><td>10–50</td><td>~100</td><td>2× VPS + HAProxy, Redis Sentinel, separate DB VPS</td></tr>
+    <tr><td>Phase 2: Scale</td><td>Months 10–18</td><td>50–200</td><td>~500</td><td>3–5× VPS, Redis Cluster (3 nodes), Supabase dedicated, WAF</td></tr>
+    <tr><td>Phase 3: Enterprise</td><td>Month 18+</td><td>200+</td><td>2,000+</td><td>Kubernetes (GKE/EKS), Horizontal Pod Autoscaler, Global Load Balancing</td></tr>
+    <tr><td>Phase 4: Global</td><td>Year 3+</td><td>1,000+</td><td>10,000+</td><td>Multi-region K8s, Cloudflare Workers for edge routing, dedicated enterprise clusters</td></tr>
+  </table>
+
+  <h2>Scaling Triggers</h2>
+  <ul>
+    <li><strong>Add VPS node:</strong> When active_voice_sessions routinely exceeds 60% of capacity</li>
+    <li><strong>Redis Sentinel → Cluster:</strong> When Redis memory exceeds 16GB or ops/sec &gt; 50k</li>
+    <li><strong>Migrate to K8s:</strong> When managing &gt;5 VPS nodes becomes operationally complex, or when needing auto-scaling</li>
+    <li><strong>Multi-region:</strong> When expanding to non-UK markets with &gt;100ms latency to UK endpoints</li>
+  </ul>
+
+  <h2>Go Voice Engine Horizontal Scaling</h2>
+  <p>Each Go instance handles up to 500 concurrent WebSocket connections (voice sessions). To scale to 2,000 concurrent calls, deploy 4 Go instances behind an L4 load balancer with consistent hashing on <code>CallSid</code> for sticky sessions. All session state in Redis is instance-agnostic.</p>
+</div>
+
+<!-- 28. K8s Migration -->
+<div id="k8s-migration" class="section">
+  <h1>Kubernetes Migration Plan</h1>
+  <div class="section-meta"><span class="meta-tag">Phase 3</span><span class="meta-tag">GKE / EKS</span></div>
+
+  <h2>Migration Strategy</h2>
+  <p>Migration uses a strangler fig pattern: services migrate to K8s one at a time while VPS continues running. DNS cutover completes the migration for each service independently.</p>
+
+  <h2>K8s Resource Plan</h2>
+  <pre><code># voice-engine Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-engine
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: voice-engine }
+  template:
+    spec:
+      containers:
+      - name: voice-engine
+        image: voxlane/voice-engine:latest
+        resources:
+          requests: { cpu: "500m", memory: "512Mi" }
+          limits: { cpu: "2", memory: "2Gi" }
+        env:
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef: { name: redis-credentials, key: url }
+        livenessProbe:
+          httpGet: { path: /health, port: 8081 }
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        readinessProbe:
+          httpGet: { path: /ready, port: 8081 }
+
+---
+# Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: voice-engine-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: voice-engine
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+  - type: Custom
+    custom:
+      metric: { name: active_voice_sessions }
+      target: { type: AverageValue, averageValue: "300" }</code></pre>
+
+  <h2>Critical K8s Considerations</h2>
+  <ul>
+    <li><strong>Sticky sessions for WebSocket:</strong> Use NGINX Ingress with <code>nginx.ingress.kubernetes.io/affinity: cookie</code> to pin Twilio Media Stream WebSockets to a specific pod</li>
+    <li><strong>Pod Disruption Budget:</strong> Minimum 1 voice-engine pod always running — prevents simultaneous pod evictions during updates</li>
+    <li><strong>Graceful shutdown:</strong> Go voice engine catches SIGTERM, stops accepting new connections, waits for active sessions to complete (30s drain timeout), then exits</li>
+    <li><strong>Redis on K8s vs managed:</strong> Use managed Redis (Upstash, Elasticache) rather than Redis on K8s — stateful workloads on K8s add operational complexity</li>
+  </ul>
+</div>
+
+<!-- 29. CI/CD -->
+<div id="cicd" class="section">
+  <h1>CI/CD Architecture</h1>
+  <div class="section-meta"><span class="meta-tag">GitHub Actions</span><span class="meta-tag">Docker</span><span class="meta-tag">Zero-Downtime Deploys</span></div>
+
+  <h2>Pipeline Overview</h2>
+  <pre><code>Push to main / PR opened
+    ↓
+┌─────────────────────────────────────────────────────┐
+│  CI Pipeline (GitHub Actions)                        │
+│                                                       │
+│  1. Lint + Type Check (NestJS, Go, Next.js)          │
+│  2. Unit Tests (Jest for NestJS, go test for Go)     │
+│  3. Integration Tests (Testcontainers for DB/Redis)  │
+│  4. Security Scan (Trivy for Docker images)          │
+│  5. Build Docker images                              │
+│  6. Push to GitHub Container Registry (GHCR)        │
+└─────────────────────────────────────────────────────┘
+    ↓ (main branch only)
+┌─────────────────────────────────────────────────────┐
+│  CD Pipeline (GitHub Actions → VPS)                  │
+│                                                       │
+│  1. SSH into VPS                                     │
+│  2. docker pull new images from GHCR                 │
+│  3. docker compose up -d --no-deps [service]         │
+│  4. Health check: GET /health (30s timeout)          │
+│  5. Rollback if health check fails                   │
+│  6. Notify Slack on success/failure                  │
+└─────────────────────────────────────────────────────┘</code></pre>
+
+  <h2>Zero-Downtime Deployment Strategy</h2>
+  <p>Services deployed with Docker's rolling update approach. The Go voice engine uses a graceful drain: new container starts on alternate port, load balancer switches traffic once health check passes, old container drains active sessions (up to 30s), then stops.</p>
+
+  <h2>Environment Strategy</h2>
+  <table>
+    <tr><th>Environment</th><th>Branch</th><th>Purpose</th><th>Infrastructure</th></tr>
+    <tr><td>Development</td><td>feature/*</td><td>Local development</td><td>Docker Compose local</td></tr>
+    <tr><td>Staging</td><td>develop</td><td>Pre-production testing with real Twilio test numbers</td><td>Separate VPS (Hetzner CX21)</td></tr>
+    <tr><td>Production</td><td>main</td><td>Live customer traffic</td><td>Production VPS cluster</td></tr>
+  </table>
+
+  <h2>Database Migrations</h2>
+  <ul>
+    <li>Supabase migrations managed via <span class="inline-code">supabase db push</span> in CI pipeline</li>
+    <li>All migrations must be backwards-compatible (deploy new code before dropping old columns)</li>
+    <li>Migration dry-run on staging before production push</li>
+    <li>Automated rollback script for failed migrations</li>
+  </ul>
+</div>
+
+<!-- 30. Analytics Roadmap -->
+<div id="analytics-roadmap" class="section">
+  <h1>AI Analytics Roadmap</h1>
+  <div class="section-meta"><span class="meta-tag">MVP → Advanced</span><span class="meta-tag">DeepSeek</span></div>
+
+  <h2>MVP Analytics (Day 1)</h2>
+  <div class="card-grid">
+    <div class="card-sm"><h3>Call Volume</h3><p>Calls per hour/day/week by location. Peak time identification.</p></div>
+    <div class="card-sm"><h3>Booking Conversion</h3><p>% of calls that result in a confirmed booking.</p></div>
+    <div class="card-sm"><h3>Escalation Rate</h3><p>% of calls transferred to human. Flagged if &gt;25%.</p></div>
+    <div class="card-sm"><h3>Average Call Duration</h3><p>By call outcome (booking vs FAQ vs transfer).</p></div>
+    <div class="card-sm"><h3>Top FAQ Topics</h3><p>Which FAQ categories are most requested.</p></div>
+    <div class="card-sm"><h3>Cost per Call</h3><p>AI + telephony cost per call, per tenant, per month.</p></div>
+  </div>
+
+  <h2>Phase 2 Analytics (Month 4–9)</h2>
+  <ul>
+    <li><strong>Sentiment Analysis:</strong> Post-call DeepSeek analysis of transcript to classify caller satisfaction (positive / neutral / frustrated). Trend over time.</li>
+    <li><strong>Booking Pattern Intelligence:</strong> Which times/dates are most requested but unavailable — helps restaurants optimise their opening hours and seating.</li>
+    <li><strong>Complaint Categorisation:</strong> Auto-classify complaints into categories (food quality, service, wait time, etc.) using DeepSeek V4.</li>
+    <li><strong>Call Transcript Search:</strong> Full-text search over call transcripts for operational review.</li>
+  </ul>
+
+  <h2>Phase 3 Analytics (Month 10+)</h2>
+  <ul>
+    <li><strong>Revenue Attribution:</strong> Link booking calls to table spend data (via POS integration) — show revenue per AI-answered call.</li>
+    <li><strong>Predictive Insights:</strong> Forecast busy periods from historical call patterns + external data (events, weather). Recommend staffing changes.</li>
+    <li><strong>Benchmarking:</strong> Anonymous peer comparison — "Your booking conversion rate is 74%, above the 68% average for similar restaurants."</li>
+    <li><strong>AI Weekly Digest:</strong> Auto-generated weekly summary email to restaurant managers using DeepSeek (highlights, anomalies, recommendations).</li>
+    <li><strong>Voice of Customer Reports:</strong> Monthly AI-generated report summarising common themes from calls, complaints, and FAQs.</li>
+  </ul>
+
+  <h2>Analytics Architecture (Phase 2+)</h2>
+  <pre><code>Call ends
+  → BullMQ analytics-events queue
+  → Worker: enrichment job (DeepSeek analysis on transcript)
+  → Structured event written to Supabase analytics tables
+  → Supabase real-time subscription → Dashboard live update
+  → Hourly aggregation job: aggregate to call_analytics_hourly
+  → Daily: generate daily report (DeepSeek) → email to manager
+  → Weekly: AI digest generated → email + in-dashboard notification</code></pre>
+
+  <div class="callout callout-info">
+    <p><strong>Analytics Cost Management:</strong> DeepSeek V4 at ~$0.0005/1K tokens means a full call transcript analysis (~2,000 tokens) costs ~$0.001. Daily report generation (~5,000 tokens) costs ~$0.0025. Monthly analytics cost per tenant is pennies — not a cost driver.</p>
+  </div>
+</div>
+
+</main>
+
+<script>
+function show(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  
+  const section = document.getElementById(id);
+  if (section) {
+    section.classList.add('active');
+    section.scrollIntoView ? null : null;
+    document.getElementById('main').scrollTop = 0;
+  }
+  
+  const navItems = document.querySelectorAll('.nav-item');
+  navItems.forEach(item => {
+    if (item.getAttribute('onclick') && item.getAttribute('onclick').includes(`'${id}'`)) {
+      item.classList.add('active');
+    }
+  });
+}
+
+// Make main scrollable
+document.getElementById('main').style.cssText += '; height: 100vh; overflow-y: auto;';
+</script>
+</body>
+</html>
