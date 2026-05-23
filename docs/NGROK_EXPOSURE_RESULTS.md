@@ -1,80 +1,62 @@
 # VoxLane — ngrok Exposure Results
 
 **Date**: 2026-05-23  
-**Status**: BLOCKED — ngrok authtoken required  
+**Status**: ✅ PASS — all endpoints validated  
 
 ---
 
-## ngrok Installation
+## Public URL
 
-| Item | Status |
-|------|--------|
-| ngrok CLI | ✅ Installed v3.39.4 via scoop |
-| Authtoken | ❌ Not configured |
+| Protocol | URL |
+|----------|-----|
+| HTTPS | `https://kemberly-diastolic-subopaquely.ngrok-free.dev` |
+| WSS | `wss://kemberly-diastolic-subopaquely.ngrok-free.dev/stream` |
 
-## Pre-Exposure Validation
+## Validation Results
 
-Local services verified before attempting public exposure:
+| Endpoint | Method | Result |
+|----------|--------|--------|
+| `/health` | GET | ✅ `{"status":"ok"}` |
+| `/health/ready` | GET | ✅ `{"status":"ready","redis":true,"activeSessions":0}` |
+| `/api/public/voice/webhook` | POST | ✅ Returns valid TwiML with correct ngrok WSS URL |
+| `/stream/CA_NGROK_TEST` | WSS | ✅ State=Open |
 
-| Service | Port | Status |
-|---------|------|--------|
-| Redis | 6379 | ✅ Running |
-| Go Gateway | 8080 | ✅ Health: `{"status":"ok"}` |
-| NestJS Backend | 3001 | ✅ Webhook returns TwiML |
+## TwiML Response
 
-## Blocked Step
-
-ngrok requires a verified account and authtoken:
-
-```
-$ ngrok http 8080
-ERROR: authentication failed
-ERR_NGROK_4018
-```
-
-## Resolution Steps (when authtoken available)
-
-```powershell
-# 1. Configure authtoken
-ngrok config add-authtoken <YOUR_NGROK_AUTHTOKEN>
-
-# 2. Expose gateway
-ngrok http 8080
-
-# 3. Capture public URL from ngrok dashboard or API
-$url = (Invoke-RestMethod http://127.0.0.1:4040/api/tunnels).tunnels[0].public_url
-# Example: https://xxxx-xx-xx-xxx.ngrok-free.app
-
-# 4. Update .env
-# GATEWAY_WS_URL=wss://xxxx-xx-xx-xxx.ngrok-free.app/stream
-
-# 5. Restart NestJS backend
-# (so it picks up new GATEWAY_WS_URL)
-
-# 6. Verify public endpoints
-# curl https://xxxx.ngrok-free.app/health
-# curl -X POST https://xxxx.ngrok-free.app/api/public/voice/webhook
-# (validate TwiML contains ngrok WSS URL)
-
-# 7. Configure Twilio phone number webhook
-# Voice URL: https://xxxx.ngrok-free.app/api/public/voice/webhook
-# Method: POST
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="wss://kemberly-diastolic-subopaquely.ngrok-free.dev/stream">
+      <Parameter name="callerId" value="{{From}}"/>
+    </Stream>
+  </Connect>
+  <Say>Sorry, we're experiencing technical difficulties.</Say>
+</Response>
 ```
 
-## Required .env Change (after ngrok URL obtained)
+✅ Correct WSS URL embedded  
+✅ Correct XML format  
+✅ Fallback `<Say>` present
+
+## Architecture Fix
+
+Free tier ngrok allows one tunnel. The Go gateway now proxies Twilio webhook requests to NestJS:
 
 ```
-GATEWAY_WS_URL=wss://xxxx-xx-xx-xxx.ngrok-free.app/stream
+Twilio POST /api/public/voice/webhook
+  → ngrok (port 8080)
+    → Go Gateway proxy
+      → NestJS (port 3001)
+        → returns TwiML with ngrok WSS URL
 ```
 
-## Completed Validation (locally)
+Added `proxyToBackend()` in `cmd/gateway/main.go`.
 
-All 16 integration tests pass from `LOCAL_INTEGRATION_RESULTS.md`. The system is ready for public exposure — only the ngrok authtoken is needed to proceed to live Twilio testing.
+## Next Steps for Live Call
 
-## Remaining Blockers
-
-| # | Blocker | Resolution |
-|---|---------|------------|
-| 1 | ngrok authtoken | Sign up at dashboard.ngrok.com, get token |
-| 2 | Twilio phone number | Awaiting approval |
-| 3 | Live call test | Depends on 1 + 2 |
+1. Configure Twilio phone number voice webhook:
+   - URL: `https://kemberly-diastolic-subopaquely.ngrok-free.dev/api/public/voice/webhook`
+   - Method: POST
+2. Call the Twilio number
+3. Verify: greeting plays, AI responds, booking flow works

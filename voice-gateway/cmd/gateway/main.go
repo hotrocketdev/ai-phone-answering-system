@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -77,6 +79,14 @@ func main() {
 
 	// Prometheus metrics
 	mux.Handle("GET /metrics", promhttp.Handler())
+
+	// Proxy Twilio voice webhooks to NestJS backend
+	mux.HandleFunc("POST /api/public/voice/webhook", func(w http.ResponseWriter, r *http.Request) {
+		proxyToBackend(w, r, cfg.NestJSUrl+"/api/public/voice/webhook")
+	})
+	mux.HandleFunc("POST /api/public/voice/status-callback", func(w http.ResponseWriter, r *http.Request) {
+		proxyToBackend(w, r, cfg.NestJSUrl+"/api/public/voice/status-callback")
+	})
 
 	// WebSocket stream endpoint for Twilio Media Streams
 	mux.HandleFunc("GET /stream/{callSid}", func(w http.ResponseWriter, r *http.Request) {
@@ -163,4 +173,35 @@ func countSessions() int {
 	count := 0
 	activeSessions.Range(func(_, _ interface{}) bool { count++; return true })
 	return count
+}
+
+// proxyToBackend forwards HTTP requests to the NestJS backend.
+func proxyToBackend(w http.ResponseWriter, r *http.Request, targetURL string) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "read body failed", http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close()
+
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(body))
+	if err != nil {
+		http.Error(w, "proxy request failed", http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Content-Type", r.Header.Get("Content-Type"))
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("proxy to %s failed: %v", targetURL, err)
+		http.Error(w, "backend unavailable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.WriteHeader(resp.StatusCode)
+	w.Write(respBody)
 }

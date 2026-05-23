@@ -82,7 +82,7 @@
 | P5.4 | Per-call cost dashboard | [ ] Not started | N/A |
 | P5.5 | Token usage tracking per call | [ ] Not started | N/A |
 
-## PHASE 6 — LIVE TESTING 🟡 (4/11 complete, system validates locally)
+## PHASE 6 — LIVE TESTING 🟡 (5/11 complete, public exposure validated)
 
 | ID | Task | Status | Verified |
 |----|------|--------|----------|
@@ -91,7 +91,7 @@
 | **P6.3** | **Wire Redis client in main.go (pass to sessions)** | **[x] Complete** | Graceful if unavailable, readiness check |
 | P6.4 | Twilio voice webhook handler → correct TwiML | [x] Complete | Returns XML |
 | P6.5 | Local integration test (docker compose up → curl endpoints) | [x] Complete | 16/16 tests pass |
-| P6.6 | ngrok setup + GATEWAY_WS_URL update | [~] Partial | ngrok installed, authtoken required |
+| P6.6 | ngrok setup + GATEWAY_WS_URL update | [x] Complete | All endpoints validated, TwiML correct |
 | P6.7 | Twilio phone number webhook configured | [ ] Not done | Awaiting number approval |
 | **P6.8** | **First live phone call test** | **[ ] NOT DONE** | **GOAL** |
 | P6.9 | Voice quality assessment (real call) | [ ] Not done | Depends on P6.8 |
