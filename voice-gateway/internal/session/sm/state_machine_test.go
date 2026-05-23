@@ -199,7 +199,7 @@ func TestBuildSystemPrompt_ContainsRestaurant(t *testing.T) {
 func TestBuildSystemPrompt_ContainsGuardrails(t *testing.T) {
 	m := New("Test")
 	prompt := m.BuildSystemPrompt()
-	if !containsStr(prompt, "Never confirm a booking") {
+	if !containsStr(prompt, "Never tell a caller") {
 		t.Error("prompt should contain anti-hallucination guardrail")
 	}
 }
@@ -211,11 +211,11 @@ func TestBuildSystemPrompt_StateSpecific(t *testing.T) {
 	m.SetBookingData("date", "2026-05-22")
 
 	prompt := m.BuildSystemPrompt()
-	if !containsStr(prompt, "COLLECTING BOOKING DETAILS") {
-		t.Error("prompt should contain current state")
+	if !containsStr(prompt, "COLLECTING") {
+		t.Error("prompt should contain current state context")
 	}
-	if !containsStr(prompt, "party_size=4") {
-		t.Error("prompt should contain collected booking data")
+	if !containsStr(prompt, "4 people") || !containsStr(prompt, "2026-05-22") {
+		t.Error("prompt should contain collected booking data in natural language")
 	}
 }
 

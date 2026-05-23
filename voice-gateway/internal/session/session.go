@@ -89,7 +89,7 @@ func (s *Session) Run(ctx context.Context) error {
 	oaCfg := openai.Config{
 		APIKey:       s.Config.OpenAIAPIKey,
 		Model:        s.Config.OpenAIRealtimeModel,
-		Voice:        "alloy",
+		Voice:        "shimmer", // warm, natural feminine voice — best for restaurant reception
 		Instructions: s.stateMachine.BuildSystemPrompt(),
 		Tools:        convertTools(s.stateMachine.AvailableTools()),
 	}
@@ -197,6 +197,7 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 }
 
 func (s *Session) runSupervisor(ctx context.Context) {
+	// Restaurant calls have natural pauses — give callers time to think
 	silenceTimer := time.NewTimer(s.Config.SilencePromptDuration())
 	silenceTimer.Stop()
 	var prompted bool
@@ -213,8 +214,9 @@ func (s *Session) runSupervisor(ctx context.Context) {
 				continue
 			}
 			if !prompted {
-				log.Printf("[%s] silence timeout — prompting caller", s.ID)
-				// TODO: inject system message to AI
+				log.Printf("[%s] silence — nudging caller", s.ID)
+				// Inject context to make AI check if caller is still there
+				s.injectSilencePrompt()
 				prompted = true
 				silenceTimer.Reset(s.Config.SilenceHangupDuration())
 			} else {
@@ -224,6 +226,27 @@ func (s *Session) runSupervisor(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// injectSilencePrompt sends a system message to make the AI check on the caller.
+func (s *Session) injectSilencePrompt() {
+	if s.openaiS == nil || s.openaiS.IsClosed() {
+		return
+	}
+	// Use conversation.item.create to inject a system nudge
+	msg := map[string]interface{}{
+		"type": "conversation.item.create",
+		"item": map[string]interface{}{
+			"type": "message",
+			"role": "system",
+			"content": []map[string]interface{}{
+				{"type": "input_text", "text": "The caller has been silent. Gently check if they're still there in a natural way — like \"still with me?\" or \"did you have a date in mind?\" Don't sound automated."},
+			},
+		},
+	}
+	// Send the nudge and trigger a new response
+	s.openaiS.WriteRaw(msg)
+	s.openaiS.WriteRaw(map[string]interface{}{"type": "response.create"})
 }
 
 // ─── OpenAI Event Handling ───────────────────────────────────────────────

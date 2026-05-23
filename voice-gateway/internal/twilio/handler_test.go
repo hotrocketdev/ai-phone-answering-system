@@ -103,6 +103,8 @@ func TestHandler_StopEvent(t *testing.T) {
 
 func TestHandler_IgnoresOutboundTrack(t *testing.T) {
 	upgrader := websocket.Upgrader{}
+	done := make(chan struct{})
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := upgrader.Upgrade(w, r, nil)
 		defer conn.Close()
@@ -110,16 +112,12 @@ func TestHandler_IgnoresOutboundTrack(t *testing.T) {
 		handler := NewHandler(conn, "CA_TEST_004")
 		go handler.ReadLoop()
 
-		// Send outbound media — should NOT appear on AudioIn channel
-		conn.WriteMessage(websocket.TextMessage, []byte(`{"event":"media","media":{"track":"outbound","payload":"AAAA"}}`))
-
-		// Send connected event to confirm handler is still alive
-		conn.WriteMessage(websocket.TextMessage, []byte(`{"event":"connected"}`))
-
+		// Wait for connected event after outbound media is filtered
 		evt := <-handler.Events
 		if evt.Type != "connected" {
 			t.Errorf("expected 'connected' after outbound media, got '%s'", evt.Type)
 		}
+		close(done)
 	}))
 	defer server.Close()
 
@@ -127,10 +125,12 @@ func TestHandler_IgnoresOutboundTrack(t *testing.T) {
 	conn, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
 	defer conn.Close()
 
-	// Server-side test handles everything
-	// Just need the connection to stay open
+	// Send outbound media — should be ignored by handler
 	conn.WriteMessage(websocket.TextMessage, []byte(`{"event":"media","media":{"track":"outbound","payload":"AAAA"},"streamSid":"MZ_TEST"}`))
+	// Send connected event
 	conn.WriteMessage(websocket.TextMessage, []byte(`{"event":"connected"}`))
+
+	<-done
 }
 
 func TestHandler_SendAudio(t *testing.T) {

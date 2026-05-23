@@ -254,21 +254,22 @@ func (s *Session) ClearAudio() error {
 
 func (s *Session) sendSessionUpdate() error {
 	sessionCfg := map[string]interface{}{
-		"modalities":            []string{"text", "audio"},
-		"instructions":          s.config.Instructions,
-		"voice":                 s.config.Voice,
-		"input_audio_format":    "pcm16",
-		"output_audio_format":   "pcm16",
+		"modalities":                []string{"text", "audio"},
+		"instructions":              s.config.Instructions,
+		"voice":                     s.config.Voice,
+		"input_audio_format":        "pcm16",
+		"output_audio_format":       "pcm16",
 		"input_audio_transcription": nil,
 		"turn_detection": map[string]interface{}{
 			"type":                "server_vad",
-			"threshold":           0.5,
-			"prefix_padding_ms":   300,
-			"silence_duration_ms": 500,
+			"threshold":           0.4,   // slightly more sensitive for quiet callers
+			"prefix_padding_ms":   200,   // less padding = faster response
+			"silence_duration_ms": 400,   // shorter silence = snappier turn-taking
 		},
-		"tools":       s.config.Tools,
-		"tool_choice": "auto",
-		"temperature": 0.7,
+		"tools":                     s.config.Tools,
+		"tool_choice":               "auto",
+		"temperature":               0.8,   // slightly more variance = less repetitive
+		"max_response_output_tokens": "inf",
 	}
 
 	msg := map[string]interface{}{
@@ -277,6 +278,11 @@ func (s *Session) sendSessionUpdate() error {
 	}
 
 	return s.writeJSON(msg)
+}
+
+// WriteRaw sends an arbitrary JSON message to OpenAI. Used for conversation control.
+func (s *Session) WriteRaw(v interface{}) error {
+	return s.writeJSON(v)
 }
 
 func (s *Session) writeJSON(v interface{}) error {

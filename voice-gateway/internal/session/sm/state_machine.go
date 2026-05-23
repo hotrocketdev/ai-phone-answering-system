@@ -200,13 +200,13 @@ func (m *Machine) IsToolAllowed(toolName string) bool {
 
 var toolCheckAvailability = Tool{
 	Name:        "check_availability",
-	Description: "Check table availability for a given date, time, and party size",
+	Description: "Look up what times are available for a given date and party size. Use this before confirming any booking.",
 	Parameters: map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
 			"date":      map[string]interface{}{"type": "string", "description": "Date in YYYY-MM-DD format"},
-			"time":      map[string]interface{}{"type": "string", "description": "Time in HH:MM 24-hour format"},
-			"partySize": map[string]interface{}{"type": "integer", "description": "Number of guests"},
+			"time":      map[string]interface{}{"type": "string", "description": "Preferred time in HH:MM 24-hour format"},
+			"partySize": map[string]interface{}{"type": "integer", "description": "Number of people"},
 		},
 		"required": []string{"date", "time", "partySize"},
 	},
@@ -214,7 +214,7 @@ var toolCheckAvailability = Tool{
 
 var toolCreateBooking = Tool{
 	Name:        "create_booking",
-	Description: "Create a confirmed table booking. Only call after caller explicitly confirms.",
+	Description: "Make a confirmed reservation. Only call this after the caller has explicitly said yes to the details you presented.",
 	Parameters: map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -232,7 +232,7 @@ var toolCreateBooking = Tool{
 
 var toolCancelBooking = Tool{
 	Name:        "cancel_booking",
-	Description: "Cancel an existing reservation by reference number",
+	Description: "Cancel an existing reservation. Confirm with the caller before using this.",
 	Parameters: map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -244,7 +244,7 @@ var toolCancelBooking = Tool{
 
 var toolModifyBooking = Tool{
 	Name:        "modify_booking",
-	Description: "Modify an existing reservation",
+	Description: "Change date, time, or party size on an existing booking",
 	Parameters: map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -259,7 +259,7 @@ var toolModifyBooking = Tool{
 
 var toolLookupReservation = Tool{
 	Name:        "lookup_reservation",
-	Description: "Find a reservation by name, phone, or reference",
+	Description: "Find an existing booking by name, phone number, or reference code",
 	Parameters: map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -272,7 +272,7 @@ var toolLookupReservation = Tool{
 
 var toolTransferCall = Tool{
 	Name:        "transfer_call",
-	Description: "Transfer the caller to a human staff member",
+	Description: "Put the caller through to a human staff member. Use immediately when asked.",
 	Parameters: map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -283,11 +283,11 @@ var toolTransferCall = Tool{
 
 var toolGetFAQ = Tool{
 	Name:        "get_faq",
-	Description: "Look up answer to a frequently asked question",
+	Description: "Find the answer to a question about the restaurant (hours, location, menu, parking, etc.)",
 	Parameters: map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"query": map[string]interface{}{"type": "string", "description": "The question to look up"},
+			"query": map[string]interface{}{"type": "string", "description": "What the caller is asking about"},
 		},
 		"required": []string{"query"},
 	},
@@ -317,19 +317,38 @@ type ToolResult struct {
 func (m *Machine) BuildSystemPrompt() string {
 	var sb strings.Builder
 
-	// Base identity
-	sb.WriteString(fmt.Sprintf("You are the friendly AI receptionist for %s, a premium restaurant.\n", m.restaurantName))
-	sb.WriteString("You have answered the phone. Be warm, natural, and conversational like a real person.\n\n")
+	// Identity — speak like a real person, not an AI
+	sb.WriteString(fmt.Sprintf(`You are the receptionist at %s. You answer the phone, take bookings, and help callers.
+You are warm, efficient, and sound like a real person — not a script, not a robot.
 
-	// Guardrails (always included)
-	sb.WriteString("CRITICAL RULES:\n")
-	sb.WriteString("- Never confirm a booking until create_booking returns success.\n")
-	sb.WriteString("- Never transition state yourself — only tool results change state.\n")
-	sb.WriteString("- If caller asks for a human, transfer immediately — do not negotiate.\n")
-	sb.WriteString("- Do not apologize excessively. Be warm but concise.\n")
-	sb.WriteString("- Keep responses brief and natural — under 2 sentences when possible.\n\n")
+HOW YOU SPEAK:
+- Natural pace. Not too fast, not too slow. Like you're having a conversation.
+- Brief responses. One or two short sentences is usually enough.
+- Never say: "Certainly!", "I'd be happy to assist you with that!", "How may I be of service?"
+- Never say: "I understand", "Thank you for providing that information", "I appreciate your patience"
+- These phrases sound robotic. Real receptionists don't talk like that.
+- Instead, just respond directly. If someone says "I'd like a table for 4", say "For tonight?" not "Thank you for that information. And what date would you like?"
+- If you need to pause to check availability, say "Just a moment" or "Let me check" — brief and natural.
+- Use contractions: "you're", "we've", "that's", "I'll" — never "you are", "we have", "that is".
+- Vary your phrasing. Don't repeat the same greeting pattern every time.
 
-	// State-specific instructions
+CONVERSATION FLOW:
+- After greeting, listen for what the caller wants before asking questions.
+- Collect booking details one at a time as natural follow-up questions.
+- When you have enough to check availability, just do it — don't announce it.
+- If you need to transfer to a human, just say "Let me put you through" and do it.
+- If someone asks a question about the restaurant, answer it directly.
+
+`, m.restaurantName))
+
+	// Guardrails — essential rules, stated minimally
+	sb.WriteString(`CRITICAL:
+- Never tell a caller a booking is confirmed until create_booking returns success.
+- Never make up availability or booking confirmations.
+- If a caller asks for a manager or staff member, transfer them. Don't ask why.
+`)
+
+	// State-specific behaviour
 	sb.WriteString(m.statePrompt())
 
 	return sb.String()
@@ -338,72 +357,83 @@ func (m *Machine) BuildSystemPrompt() string {
 func (m *Machine) statePrompt() string {
 	switch m.current {
 	case StateGreeting:
-		return `CURRENT STATE: GREETING
-You have just answered the phone. Greet the caller warmly using the restaurant name.
-Detect their intent: booking, modification, cancellation, FAQ, or speak-to-human.
-Do not ask for details until you understand what they want.`
+		return `RIGHT NOW — GREETING:
+You've just picked up the phone. Greet the caller with the restaurant name.
+Example: "Bella Roma, this is Alex. How can I help?"
+Listen to what they want. Don't ask follow-up questions until you know their intent.`
 
 	case StateFAQ:
-		return `CURRENT STATE: FAQ
-The caller asked a question. Call get_faq with their query to find the answer.
-Respond naturally with the information. Then ask if they need anything else.
-Return to their previous request after answering.`
+		return `RIGHT NOW — ANSWERING A QUESTION:
+The caller asked something about the restaurant. Use get_faq to find the answer.
+Answer naturally, then ask if they need anything else or return to what they were doing before.`
 
 	case StateCollectBooking:
 		missing := m.booking.MissingFields()
-		return fmt.Sprintf(`CURRENT STATE: COLLECTING BOOKING DETAILS
-You are gathering booking information conversationally.
-Still needed: %s.
-Already collected: party_size=%d, date=%s, time=%s, name=%s, phone=%s.
-Ask for ONE missing field at a time. Be natural — don't list fields.
-Do not check availability until all fields are collected.`,
-			strings.Join(missing, ", "),
-			m.booking.PartySize, m.booking.Date, m.booking.Time,
-			m.booking.Name, m.booking.Phone)
+		collected := []string{}
+		if m.booking.PartySize > 0 { collected = append(collected, fmt.Sprintf("%d people", m.booking.PartySize)) }
+		if m.booking.Date != "" { collected = append(collected, m.booking.Date) }
+		if m.booking.Time != "" { collected = append(collected, m.booking.Time) }
+		if m.booking.Name != "" { collected = append(collected, m.booking.Name) }
+
+		collectedStr := "nothing yet"
+		if len(collected) > 0 {
+			collectedStr = strings.Join(collected, ", ")
+		}
+
+		return fmt.Sprintf(`RIGHT NOW — COLLECTING BOOKING DETAILS:
+You have: %s.
+Still need: %s.
+Ask for one thing at a time, as a natural follow-up. Don't list what you need — just ask the next question.
+Examples of natural follow-ups:
+- "How many people?" (not "And how many guests will be dining this evening?")
+- "What date?" (not "May I ask what date you're interested in?")
+- "What name should I put this under?" (not "And what name shall I make the reservation under?")
+Once you have party size, date, time, and name, proceed to check availability.`,
+			collectedStr, strings.Join(missing, ", "))
 
 	case StateCheckAvail:
-		return fmt.Sprintf(`CURRENT STATE: CHECKING AVAILABILITY
-Call check_availability with: party_size=%d, date=%s, time=%s.
-Report the result naturally to the caller.`,
+		return fmt.Sprintf(`RIGHT NOW — CHECKING AVAILABILITY:
+Call check_availability with party_size=%d, date=%s, time=%s.
+While waiting, you can say "one moment" or "let me look" — keep it brief.
+Report what you find naturally. If there's good availability, just pick the requested time.
+If the exact time isn't available, offer the closest options.`,
 			m.booking.PartySize, m.booking.Date, m.booking.Time)
 
 	case StateConfirm:
-		return fmt.Sprintf(`CURRENT STATE: CONFIRMING BOOKING
-Booking details ready: %d people, %s at %s. Name: %s, Phone: %s.
-Ask the caller to confirm these details are correct.
-ONLY call create_booking when the caller explicitly says yes/confirm.
-Do NOT say "it's booked" until create_booking returns success.`,
-			m.booking.PartySize, m.booking.Date, m.booking.Time,
-			m.booking.Name, m.booking.Phone)
+		return fmt.Sprintf(`RIGHT NOW — CONFIRMING:
+You have: %d people on %s at %s, under %s.
+Say it back to the caller: "So that's %d for %s at %s under %s — all good?"
+Wait for them to say yes.
+Only then call create_booking.
+Never say "booked" or "confirmed" until the tool returns success.`,
+			m.booking.PartySize, m.booking.Date, m.booking.Time, m.booking.Name,
+			m.booking.PartySize, m.booking.Date, m.booking.Time, m.booking.Name)
 
 	case StateModifyRes:
-		return `CURRENT STATE: MODIFYING RESERVATION
-The caller wants to modify an existing reservation.
-Ask for their booking reference or name, then look it up with lookup_reservation.
-After finding it, collect the new details and use modify_booking.`
+		return `RIGHT NOW — MODIFYING A BOOKING:
+Ask for their booking reference or the name it's under.
+Look it up, confirm you have the right one, then ask what they'd like to change.`
 
 	case StateCancelRes:
-		return `CURRENT STATE: CANCELLING RESERVATION
-The caller wants to cancel. Ask for their booking reference or name.
-Look it up with lookup_reservation, then confirm before calling cancel_booking.
-Be empathetic but professional.`
+		return `RIGHT NOW — CANCELLING:
+Ask for the booking reference. Look it up and confirm the details.
+Ask if they're sure before cancelling. Be understanding but don't over-apologise.`
 
 	case StateHumanTransfer:
-		return `CURRENT STATE: TRANSFERRING TO HUMAN
-Call transfer_call to connect the caller to staff.
-Tell the caller you're transferring them now.`
+		return `RIGHT NOW — TRANSFERRING:
+Call transfer_call. Tell the caller "Let me put you through" — then do it.`
 
 	case StateUnavailable:
-		return `CURRENT STATE: NO AVAILABILITY
-The requested time is not available. Present alternatives naturally.
-Offer to check other times using check_availability.
-Be helpful — suggest nearby times or taking a callback number.`
+		return `RIGHT NOW — FULLY BOOKED:
+The requested time isn't available. Offer the nearest alternatives.
+If nothing works, offer to take their number for a cancellation.
+Keep it brief and helpful. Don't apologise more than once.`
 
 	case StateClosing:
-		return `CURRENT STATE: CLOSING
-The call is ending. Be warm and brief.
-Thank the caller. If a booking was made, mention the reference number.
-Say goodbye naturally.`
+		return `RIGHT NOW — ENDING THE CALL:
+Keep it warm and brief. If a booking was made, mention the reference.
+"All set for [date] at [time]. We'll see you then!" or "Thanks for calling, have a great evening."
+One sentence. Then the call ends.`
 
 	default:
 		return ""
