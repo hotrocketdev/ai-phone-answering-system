@@ -93,7 +93,7 @@
 | P6.5 | Local integration test (docker compose up → curl endpoints) | [x] Complete | 16/16 tests pass |
 | P6.6 | ngrok setup + GATEWAY_WS_URL update | [x] Complete | All endpoints validated, TwiML correct |
 | P6.7 | Twilio phone number webhook configured | [ ] Not done | Awaiting number approval |
-| **P6.8** | **First live phone call test** | **[ ] NOT DONE** | **GOAL** |
+| **P6.8** | **First live phone call test** | **[~] Ready** | All services up, script prepared, awaiting call |
 | P6.9 | Voice quality assessment (real call) | [ ] Not done | Depends on P6.8 |
 | P6.10 | Latency measurement (real call) | [ ] Not done | Depends on P6.8 |
 | P6.11 | Barge-in behaviour validation (real call) | [ ] Not done | Depends on P6.8 |
