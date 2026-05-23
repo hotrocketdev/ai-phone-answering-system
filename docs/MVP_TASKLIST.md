@@ -82,7 +82,7 @@
 | P5.4 | Per-call cost dashboard | [ ] Not started | N/A |
 | P5.5 | Token usage tracking per call | [ ] Not started | N/A |
 
-## PHASE 6 — LIVE TESTING 🟡 (blockers cleared, test not yet performed)
+## PHASE 6 — LIVE TESTING 🟡 (4/11 complete, system validates locally)
 
 | ID | Task | Status | Verified |
 |----|------|--------|----------|
@@ -90,7 +90,7 @@
 | **P6.2** | **Fix Go→NestJS tool call HTTP path with HMAC** | **[x] Complete** | HMAC-signed POST to NestJS, response parsed |
 | **P6.3** | **Wire Redis client in main.go (pass to sessions)** | **[x] Complete** | Graceful if unavailable, readiness check |
 | P6.4 | Twilio voice webhook handler → correct TwiML | [x] Complete | Returns XML |
-| P6.5 | Local integration test (docker compose up → curl endpoints) | [ ] Not done | N/A |
+| P6.5 | Local integration test (docker compose up → curl endpoints) | [x] Complete | 16/16 tests pass |
 | P6.6 | ngrok setup + GATEWAY_WS_URL update | [ ] Not done | Documented, not executed |
 | P6.7 | Twilio phone number webhook configured | [ ] Not done | Awaiting number approval |
 | **P6.8** | **First live phone call test** | **[ ] NOT DONE** | **GOAL** |

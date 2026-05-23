@@ -8,9 +8,11 @@ async function bootstrap() {
     new FastifyAdapter(),
   );
 
-  // Internal API on port 3000
-  await app.listen(3000, '0.0.0.0');
-  console.log('VoxLane Backend listening on :3000');
+  const port = parseInt(process.env.NESTJS_PORT || '3000', 10);
+
+  // Internal API
+  await app.listen(port, '0.0.0.0');
+  console.log(`VoxLane Backend listening on :${port}`);
 }
 
 bootstrap();
