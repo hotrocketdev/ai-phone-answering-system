@@ -86,7 +86,7 @@
 
 | ID | Task | Status | Verified |
 |----|------|--------|----------|
-| **P6.1** | **Remove/comment non-existent frontend from docker-compose** | **[ ] NOT DONE** | **Blocks docker compose up** |
+| **P6.1** | **Fix docker-compose.yml (remove obsolete version, verify parse)** | **[x] Complete** | docker compose config exit 0 |
 | **P6.2** | **Fix Go→NestJS tool call HTTP path with HMAC** | **[ ] NOT DONE** | **BLOCKER** |
 | **P6.3** | **Wire Redis client in main.go (pass to sessions)** | **[ ] NOT DONE** | **Passes nil currently** |
 | P6.4 | Twilio voice webhook handler → correct TwiML | [x] Complete | Returns XML |

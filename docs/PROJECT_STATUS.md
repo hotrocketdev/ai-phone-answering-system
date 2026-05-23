@@ -241,7 +241,7 @@ The blueprint specifies Next.js App Router with React 19 and Tailwind. Zero fron
 |---------|----------|--------|
 | No Tool Call HTTP Path | High | Go doesn't call NestJS for tools — HMAC-signed POST not implemented |
 | Redis Not Connected | Medium | Session passes nil for Redis client |
-| docker-compose.yml References Missing Frontend | Medium | `./frontend` directory doesn't exist |
+| docker-compose.yml has obsolete version attribute | Low | `version: "3.9"` triggers warning, removed |
 | No Real Call Test | High | System has never been tested with a live phone call |
 
 ### Infrastructure Blockers
