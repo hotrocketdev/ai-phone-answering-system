@@ -18,9 +18,10 @@ import (
 	"github.com/voxlane/voice-gateway/internal/audio"
 	"github.com/voxlane/voice-gateway/internal/config"
 	"github.com/voxlane/voice-gateway/internal/openai"
+	"github.com/voxlane/voice-gateway/internal/provider"
+	providertwilio "github.com/voxlane/voice-gateway/internal/provider/twilio"
 	goredis "github.com/voxlane/voice-gateway/internal/redis"
 	"github.com/voxlane/voice-gateway/internal/session/sm"
-	"github.com/voxlane/voice-gateway/internal/twilio"
 )
 
 // ─── Meta States ─────────────────────────────────────────────────────────
@@ -47,10 +48,10 @@ type Session struct {
 	stateMachine *sm.Machine
 
 	// Components
-	twilioH  *twilio.Handler
-	openaiS  *openai.Session
-	audioP   *audio.Pipeline
-	redisC   *goredis.Client
+	provAdapter provider.Adapter
+	openaiS     *openai.Session
+	audioP      *audio.Pipeline
+	redisC      *goredis.Client
 
 	// Channels (internal)
 	stopCh   chan struct{}
@@ -70,11 +71,11 @@ type Session struct {
 // ─── Creation ────────────────────────────────────────────────────────────
 
 // NewSession creates a new call session.
-func NewSession(callSid string, tw *twilio.Handler, cfg *config.Config, redisC *goredis.Client) *Session {
+func NewSession(callSid string, adapter provider.Adapter, cfg *config.Config, redisC *goredis.Client) *Session {
 	return &Session{
 		ID:           callSid,
 		Config:       cfg,
-		twilioH:      tw,
+		provAdapter:  adapter,
 		redisC:       redisC,
 		audioP:       audio.NewPipeline(),
 		stateMachine: sm.New("Bella Roma"), // TODO: tenant config
@@ -115,7 +116,7 @@ func (s *Session) Run(ctx context.Context) error {
 
 	// Start read loops
 	go s.openaiS.ReadLoop()
-	go s.runTwilioLoop(ctx)
+	go s.runProviderLoop(ctx)
 	go s.runOpenAILoop(ctx)
 	go s.runSupervisor(ctx)
 
@@ -141,30 +142,40 @@ func (s *Session) Wait() {
 
 // ─── Internal Loops ──────────────────────────────────────────────────────
 
-func (s *Session) runTwilioLoop(ctx context.Context) {
+func (s *Session) runProviderLoop(ctx context.Context) {
+	switch s.provAdapter.Type() {
+	case provider.TypeTwilio:
+		s.runProviderChannels(ctx)
+	default:
+		log.Printf("[%s] provider %s not yet supported in run loop", s.ID, s.provAdapter.Type())
+	}
+}
+
+// runProviderChannels handles providers that expose channel-based I/O (Twilio).
+func (s *Session) runProviderChannels(ctx context.Context) {
+	adapter, ok := s.provAdapter.(*providertwilio.Adapter)
+	if !ok {
+		return
+	}
 	for {
 		select {
 		case <-s.stopCh:
 			return
-		case audio, ok := <-s.twilioH.AudioIn:
+		case frame, ok := <-adapter.Frames:
 			if !ok {
-				s.handleTwilioDisconnect(ctx)
+				s.handleProviderDisconnect(ctx)
 				return
 			}
-			// Process inbound audio: u-law → base64 PCM16 24kHz → OpenAI
-			b64 := s.audioP.ProcessInbound(audio)
-			s.inputSecs += 0.020 // 20ms per frame
-
-			// Non-blocking send to OpenAI
+			b64 := s.audioP.ProcessInbound(frame.Payload)
+			s.inputSecs += 0.020
 			_ = s.openaiS.SendAudio(b64)
 
-		case evt, ok := <-s.twilioH.Events:
+		case evt, ok := <-adapter.Events:
 			if !ok {
 				return
 			}
-			switch evt.Type {
-			case "stopped", "disconnected":
-				s.handleTwilioDisconnect(ctx)
+			if evt.Type == provider.EventStopped || evt.Type == provider.EventDisconnected {
+				s.handleProviderDisconnect(ctx)
 				return
 			}
 		}
@@ -181,16 +192,21 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 			if !ok {
 				return
 			}
-			// Process outbound audio: PCM16 24kHz → u-law → Twilio
 			if s.isBargingIn() {
-				continue // Drop frame during barge-in
+				continue
 			}
 			mulaw, err := s.audioP.ProcessOutboundBytes(pcm24k)
 			if err != nil {
 				continue
 			}
 			s.outputSecs += 0.020
-			_ = s.twilioH.SendAudio(mulaw)
+
+			// Encode and send via provider adapter
+			if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
+				Codec: "ulaw", SampleRate: 8000, Payload: mulaw, Direction: "outbound",
+			}); err == nil && msg != nil {
+				s.sendProviderMessage(msg)
+			}
 
 		case evt, ok := <-s.openaiS.Events:
 			if !ok {
@@ -198,6 +214,14 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 			}
 			s.handleOpenAIEvent(ctx, evt)
 		}
+	}
+}
+
+// sendProviderMessage writes a raw message to the provider WebSocket.
+// Uses the Twilio adapter's conn for now; future providers will use the interface.
+func (s *Session) sendProviderMessage(data []byte) {
+	if adapter, ok := s.provAdapter.(*providertwilio.Adapter); ok {
+		adapter.WriteRaw(data)
 	}
 }
 
@@ -389,7 +413,7 @@ func (s *Session) executeToolCall(ctx context.Context, name string, args json.Ra
 
 // ─── Graceful Shutdown ───────────────────────────────────────────────────
 
-func (s *Session) handleTwilioDisconnect(ctx context.Context) {
+func (s *Session) handleProviderDisconnect(ctx context.Context) {
 	log.Printf("[%s] Twilio disconnected, cleaning up", s.ID)
 	s.setMeta(MetaEnding)
 
@@ -410,8 +434,8 @@ func (s *Session) handleTwilioDisconnect(ctx context.Context) {
 }
 
 func (s *Session) cleanup() {
-	if s.twilioH != nil {
-		s.twilioH.Close()
+	if s.provAdapter != nil {
+		s.provAdapter.Close()
 	}
 	if s.openaiS != nil {
 		s.openaiS.Close()

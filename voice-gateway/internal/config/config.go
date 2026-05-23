@@ -24,6 +24,15 @@ type Config struct {
 	TwilioAccountSID  string
 	TwilioAuthToken   string
 
+	// Voice Provider
+	VoiceProvider string // "twilio" | "telnyx" | "signalwire"
+	TelnyxAPIKey       string
+	TelnyxConnectionID string
+	TelnyxPublicKey    string
+	SignalWireProjectID string
+	SignalWireToken     string
+	SignalWireSpaceURL  string
+
 	// Redis
 	RedisAddr     string
 	RedisPassword string
@@ -50,6 +59,13 @@ func Load() (*Config, error) {
 		OpenAIRealtimeModel: getEnv("OPENAI_REALTIME_MODEL", "gpt-realtime-mini"),
 		TwilioAccountSID:    os.Getenv("TWILIO_ACCOUNT_SID"),
 		TwilioAuthToken:     os.Getenv("TWILIO_AUTH_TOKEN"),
+		VoiceProvider:       getEnv("VOICE_PROVIDER", "twilio"),
+		TelnyxAPIKey:        os.Getenv("TELNYX_API_KEY"),
+		TelnyxConnectionID:  os.Getenv("TELNYX_CONNECTION_ID"),
+		TelnyxPublicKey:     os.Getenv("TELNYX_PUBLIC_KEY"),
+		SignalWireProjectID: os.Getenv("SIGNALWIRE_PROJECT_ID"),
+		SignalWireToken:     os.Getenv("SIGNALWIRE_TOKEN"),
+		SignalWireSpaceURL:  getEnv("SIGNALWIRE_SPACE_URL", "example.signalwire.com"),
 		RedisAddr:           getEnv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
 		NestJSUrl:           getEnv("NESTJS_URL", "http://localhost:3000"),
@@ -72,6 +88,20 @@ func (c *Config) validate() error {
 	}
 	if c.Port < 1 || c.Port > 65535 {
 		return fmt.Errorf("GATEWAY_PORT must be between 1 and 65535")
+	}
+
+	// Provider validation
+	switch c.VoiceProvider {
+	case "twilio":
+		// Twilio creds optional (can use ngrok tunnel without them)
+	case "telnyx":
+		if c.TelnyxAPIKey == "" {
+			return fmt.Errorf("VOICE_PROVIDER=telnyx requires TELNYX_API_KEY")
+		}
+	case "signalwire":
+		return fmt.Errorf("VOICE_PROVIDER=signalwire is not yet implemented")
+	default:
+		return fmt.Errorf("unknown VOICE_PROVIDER: %s (valid: twilio, telnyx, signalwire)", c.VoiceProvider)
 	}
 	return nil
 }

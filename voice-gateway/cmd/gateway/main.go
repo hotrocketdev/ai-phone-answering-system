@@ -17,9 +17,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/voxlane/voice-gateway/internal/config"
+	"github.com/voxlane/voice-gateway/internal/provider"
+	providertwilio "github.com/voxlane/voice-gateway/internal/provider/twilio"
 	goredis "github.com/voxlane/voice-gateway/internal/redis"
 	"github.com/voxlane/voice-gateway/internal/session"
-	"github.com/voxlane/voice-gateway/internal/twilio"
 )
 
 var upgrader = websocket.Upgrader{
@@ -99,18 +100,35 @@ func main() {
 			return
 		}
 
-		// Create Twilio handler
-		tw := twilio.NewHandler(conn, callSid)
+		// Create provider adapter (Twilio by default)
+		var adapter provider.Adapter
+		pCfg := provider.Config{
+			ProviderType: provider.Type(cfg.VoiceProvider),
+			Twilio: provider.TwilioConfig{
+				AccountSID: cfg.TwilioAccountSID,
+				AuthToken:  cfg.TwilioAuthToken,
+			},
+		}
+		switch provider.Type(cfg.VoiceProvider) {
+		case provider.TypeTwilio:
+			adapter = providertwilio.New(conn, callSid, pCfg.Twilio)
+		default:
+			log.Printf("[%s] unsupported provider: %s", callSid, cfg.VoiceProvider)
+			conn.Close()
+			return
+		}
 
-		// Create session with Redis persistence
-		sess := session.NewSession(callSid, tw, cfg, redisClient)
+		// Create session
+		sess := session.NewSession(callSid, adapter, cfg, redisClient)
 
 		// Track active session
 		activeSessions.Store(callSid, sess)
 		defer activeSessions.Delete(callSid)
 
-		// Start Twilio read loop
-		go tw.ReadLoop()
+		// Start provider read loop (decodes WS messages into provider-neutral events)
+		if twAdapter, ok := adapter.(*providertwilio.Adapter); ok {
+			go twAdapter.ReadLoop()
+		}
 
 		// Run session lifecycle
 		log.Printf("[%s] session starting", callSid)
