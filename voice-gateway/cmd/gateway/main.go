@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/voxlane/voice-gateway/internal/config"
+	goredis "github.com/voxlane/voice-gateway/internal/redis"
 	"github.com/voxlane/voice-gateway/internal/session"
 	"github.com/voxlane/voice-gateway/internal/twilio"
 )
@@ -31,6 +32,24 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
+	// Redis client (graceful if unavailable)
+	var redisClient *goredis.Client
+	redisClient, err = goredis.NewClient(goredis.Config{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+	})
+	if err != nil {
+		log.Printf("WARNING: Redis unavailable (%v) — sessions will be in-memory only", err)
+		redisClient = nil
+	} else {
+		log.Printf("Redis connected: %s", cfg.RedisAddr)
+	}
+	defer func() {
+		if redisClient != nil {
+			redisClient.Close()
+		}
+	}()
+
 	mux := http.NewServeMux()
 
 	// Health endpoint
@@ -42,10 +61,18 @@ func main() {
 
 	// Readiness endpoint
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		redisOK := redisClient != nil
+		if redisClient != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			redisOK = redisClient.Ping(ctx) == nil
+		}
+
 		count := 0
 		activeSessions.Range(func(_, _ interface{}) bool { count++; return true })
-		fmt.Fprintf(w, `{"status":"ready","activeSessions":%d}`, count)
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"ready","redis":%t,"activeSessions":%d}`, redisOK, count)
 	})
 
 	// Prometheus metrics
@@ -65,8 +92,8 @@ func main() {
 		// Create Twilio handler
 		tw := twilio.NewHandler(conn, callSid)
 
-		// Create session (without Redis for PoC — in-memory only)
-		sess := session.NewSession(callSid, tw, cfg, nil)
+		// Create session with Redis persistence
+		sess := session.NewSession(callSid, tw, cfg, redisClient)
 
 		// Track active session
 		activeSessions.Store(callSid, sess)
@@ -115,9 +142,15 @@ func main() {
 	}()
 
 	log.Printf("VoxLane Voice Gateway starting on :%d", cfg.Port)
-	log.Printf("  Health:  http://localhost:%d/health", cfg.Port)
-	log.Printf("  Metrics: http://localhost:%d/metrics", cfg.Port)
-	log.Printf("  Stream:  ws://localhost:%d/stream/{callSid}", cfg.Port)
+	log.Printf("  Health:   http://localhost:%d/health", cfg.Port)
+	log.Printf("  Metrics:  http://localhost:%d/metrics", cfg.Port)
+	log.Printf("  Stream:   ws://localhost:%d/stream/{callSid}", cfg.Port)
+	log.Printf("  NestJS:   %s", cfg.NestJSUrl)
+	if redisClient != nil {
+		log.Printf("  Redis:    %s", cfg.RedisAddr)
+	} else {
+		log.Printf("  Redis:    unavailable (in-memory mode)")
+	}
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
