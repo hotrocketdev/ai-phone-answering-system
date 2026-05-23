@@ -47,7 +47,7 @@
 | P3.1 | NestJS tool API (6 endpoints) | [x] Complete | Build passes |
 | P3.2 | HMAC guard for internal API | [x] Complete | Code present |
 | P3.3 | Fake booking tools (always succeed) | [x] Complete | Code present |
-| **P3.4** | **Go → NestJS tool call HTTP path with HMAC** | **[ ] NOT DONE** | **CRITICAL — Go uses fake in-process tools** |
+| **P3.4** | **Go → NestJS tool call HTTP path with HMAC** | **[x] Complete** | Build passes, 55 tests |
 | P3.5 | Tool call audit logging | [~] Partial | Redis AppendToolCall exists but never called from real path |
 | P3.6 | ResDiary adapter | [ ] Not started | Directory exists, empty |
 | P3.7 | BullMQ SMS queue setup | [ ] Not started | Directory exists, empty |
@@ -87,7 +87,7 @@
 | ID | Task | Status | Verified |
 |----|------|--------|----------|
 | **P6.1** | **Fix docker-compose.yml (remove obsolete version, verify parse)** | **[x] Complete** | docker compose config exit 0 |
-| **P6.2** | **Fix Go→NestJS tool call HTTP path with HMAC** | **[ ] NOT DONE** | **BLOCKER** |
+| **P6.2** | **Fix Go→NestJS tool call HTTP path with HMAC** | **[x] Complete** | HMAC-signed POST to NestJS, response parsed |
 | **P6.3** | **Wire Redis client in main.go (pass to sessions)** | **[ ] NOT DONE** | **Passes nil currently** |
 | P6.4 | Twilio voice webhook handler → correct TwiML | [x] Complete | Returns XML |
 | P6.5 | Local integration test (docker compose up → curl endpoints) | [ ] Not done | N/A |

@@ -3,10 +3,15 @@
 package session
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -306,28 +311,80 @@ func (s *Session) handleToolCall(ctx context.Context, raw json.RawMessage) {
 		log.Printf("[%s] failed to feed tool result: %v", s.ID, err)
 	}
 
-	// Audit
-	s.redisC.AppendToolCall(ctx, s.ID, goredis.ToolCallRecord{
-		Tool:      name,
-		Args:      args,
-		Result:    json.RawMessage(result),
-		Timestamp: time.Now(),
-	})
+	// Audit (graceful if Redis unavailable)
+	if s.redisC != nil {
+		s.redisC.AppendToolCall(ctx, s.ID, goredis.ToolCallRecord{
+			Tool:      name,
+			Args:      args,
+			Result:    json.RawMessage(result),
+			Timestamp: time.Now(),
+		})
+	}
 }
 
 // ─── Tool Execution ──────────────────────────────────────────────────────
 
+// toolCallRequest is the HMAC-signed payload sent to NestJS.
+type toolCallRequest struct {
+	CallSid   string          `json:"callSid"`
+	TenantID  string          `json:"tenantId"`
+	ToolName  string          `json:"toolName"`
+	Arguments json.RawMessage `json:"arguments"`
+	Signature string          `json:"signature"`
+	Timestamp int64           `json:"timestamp"`
+}
+
 func (s *Session) executeToolCall(ctx context.Context, name string, args json.RawMessage) (string, error) {
-	// TODO: HTTP call to NestJS for real tool execution
-	// For PoC, return fake results based on tool name
-	switch name {
-	case "check_availability":
-		return `{"success":true,"data":{"available":true,"slots":["19:00","19:15","19:30","19:45"]}}`, nil
-	case "create_booking":
-		return `{"success":true,"data":{"bookingRef":"BK-FAKE-001"}}`, nil
-	default:
-		return fmt.Sprintf(`{"success":true,"data":{"message":"%s completed"}}`, name), nil
+	now := time.Now().UnixMilli()
+
+	// Build request body
+	body := toolCallRequest{
+		CallSid:   s.ID,
+		TenantID:  "default", // TODO: real tenant ID when multi-tenant
+		ToolName:  name,
+		Arguments: args,
+		Timestamp: now,
 	}
+
+	// HMAC-sign: SHA256(callSid:tenantId:toolName:timestamp)
+	payload := fmt.Sprintf("%s:%s:%s:%d", body.CallSid, body.TenantID, body.ToolName, body.Timestamp)
+	mac := hmac.New(sha256.New, []byte(s.Config.HMACSecret))
+	mac.Write([]byte(payload))
+	body.Signature = hex.EncodeToString(mac.Sum(nil))
+
+	// Marshal body
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("marshal tool call: %w", err)
+	}
+
+	// Build HTTP request
+	url := fmt.Sprintf("%s/api/internal/tools/%s", s.Config.NestJSUrl, name)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyJSON))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-HMAC-Signature", body.Signature)
+	req.Header.Set("X-Timestamp", fmt.Sprintf("%d", body.Timestamp))
+
+	// Execute HTTP call
+	log.Printf("[%s] POST %s", s.ID, url)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http POST: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Parse response
+	var result json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+
+	log.Printf("[%s] tool response (%d): %s", s.ID, resp.StatusCode, string(result))
+	return string(result), nil
 }
 
 // ─── Graceful Shutdown ───────────────────────────────────────────────────
