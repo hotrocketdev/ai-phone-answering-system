@@ -151,6 +151,28 @@ Located at `C:\Builds\AI-Phone-Answer-System\.env` (gitignored).
 
 ---
 
+## VPS Deployment (After Live Call Validation)
+
+### Pre-Deployment Check
+**BLOCKED** until ports.txt from VPS is reviewed. The VPS may have existing services on ports we need:
+
+| Port | Our Service | Status |
+|------|-------------|--------|
+| 6379 | Redis | Need to check VPS |
+| 3000/3001 | NestJS | Need to check VPS |
+| 8080 | Go Gateway | Need to check VPS |
+
+**Action needed**: Share `ports.txt` from the VPS so we can plan port allocation before deployment.
+
+### Deployment Steps (after port check)
+1. Clone repo to VPS
+2. Copy `.env` with credentials
+3. Adjust ports in docker-compose.yml if conflicts
+4. `docker compose up` or start services directly
+5. Run ngrok on VPS → update Twilio webhook URL
+
+---
+
 ## Remaining Tasks (Next Session)
 
 ### Immediate — P6.7 + P6.8
