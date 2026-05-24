@@ -1,6 +1,6 @@
 # Session State — 2026-05-22 / 2026-05-23
 
-**Created**: 2026-05-23 17:00 BST  
+**Updated**: 2026-05-23 23:00 BST  
 **Purpose**: Resume point for next session after restart  
 
 ---
@@ -12,9 +12,9 @@ VoxLane AI Phone Answering System — realtime voice PoC for restaurant phone ca
 ### Architecture
 
 ```
-Twilio PSTN → ngrok → Go Gateway (:8080) → OpenAI Realtime (gpt-realtime-mini, shimmer voice)
-                    → Go Gateway proxy → NestJS (:3001) → fake booking tools
-                    ← Redis (:6379) session state
+Twilio PSTN or Telnyx → ngrok → Go Gateway (:8080) → OpenAI Realtime (gpt-realtime-mini, shimmer voice)
+                                 → Go Gateway proxy → NestJS (:3001) → fake booking tools
+                                 ← Redis (:6379) session state
 ```
 
 ### Repository
@@ -22,53 +22,102 @@ Twilio PSTN → ngrok → Go Gateway (:8080) → OpenAI Realtime (gpt-realtime-m
 ```
 https://github.com/hotrocketdev/ai-phone-answering-system
 Branch: main
-Commits: 17 (637761c → 6fc9890)
+Commits: 20 (637761c → dab1d96)
 ```
 
-### Implementation Status
+---
 
-| Phase | Complete | Pending |
-|-------|----------|---------|
-| PHASE 1 — Core Call Pipeline | All 16 tasks | — |
-| PHASE 2 — Conversation Engine | All 8 tasks | — |
-| PHASE 3 — Tooling + Bookings | 3/10 | Go→NestJS wired; ResDiary, SMS, BullMQ not started |
-| PHASE 4 — Resilience | 1/12 | Reconnect, circuit breaker, CDR, cost tracking not started |
-| PHASE 5 — Cost Optimisation | 0/5 | Hybrid AI architecture not implemented |
-| PHASE 6 — Live Testing | 5/11 | **ngrok validated, ready for first call** |
-| PHASE 7 — MVP Release | 0/10 | Frontend not started |
+## Last Commits (this session)
 
-### Key Files
+| SHA | Description |
+|-----|-------------|
+| `dab1d96` | Provider-agnostic voice layer (Twilio ✅, Telnyx 🔶, SignalWire ⬜) |
+| `7479540` | VPS deployment pre-check note |
+| `60a6b3d` | Live call test script + results template |
+| `6fc9890` | ngrok exposure validated |
+| `4e5ccd0` | ngrok installed, blocked on authtoken (resolved) |
+| `fc6c41f` | Local integration test 16/16 pass |
+| `8c82fd3` | Redis wired |
+| `73e8c4a` | Go→NestJS tool calls |
+| `c417eff` | docker-compose fix |
 
-| File | Purpose |
-|------|---------|
-| `voice-gateway/cmd/gateway/main.go` | Entry point, routes, proxy, Redis, graceful shutdown |
-| `voice-gateway/internal/session/session.go` | Session lifecycle, Twilio→OpenAI orchestration, tool execution |
-| `voice-gateway/internal/session/sm/state_machine.go` | 10-state conversation machine, guardrails, prompts |
-| `voice-gateway/internal/audio/mulaw.go` | G.711 u-law codec (exhaustive reverse mapping) |
-| `voice-gateway/internal/audio/resampler.go` | Polyphase FIR 8kHz↔24kHz resampler |
-| `voice-gateway/internal/audio/pipeline.go` | Full audio chain: u-law↔PCM16↔resample↔base64 |
-| `voice-gateway/internal/twilio/handler.go` | Twilio Media Streams WS handler |
-| `voice-gateway/internal/openai/client.go` | OpenAI Realtime WS client, session config, VAD |
-| `voice-gateway/internal/redis/session_store.go` | Redis session persistence, atomic Lua ops |
-| `backend/src/modules/tools/tools.controller.ts` | 6 fake tool endpoints (HMAC-guarded) |
-| `backend/src/modules/voice/voice.controller.ts` | Twilio webhook — returns TwiML |
-| `backend/src/common/guards/hmac.guard.ts` | HMAC-SHA256 guard |
-| `docker-compose.yml` | Redis, Go gateway, NestJS backend |
+---
 
-### Tests
+## Telnyx Setup (NEW — not yet live)
 
-55 Go tests passing across 7 packages (audio, config, openai, redis, session/sm, twilio).  
-16 integration tests passing (10 HTTP, 3 HMAC security, 2 WebSocket, 1 TwiML).
+| Field | Value |
+|-------|-------|
+| API Key | (in .env) |
+| Phone Number | +441218230230 (0121 Birmingham, $1/mo) |
+| TeXML App ID | 2966595325193618449 |
+| App Name | VoxLane |
+| Voice Webhook URL | https://kemberly-diastolic-subopaquely.ngrok-free.dev/api/public/voice/webhook/telnyx |
+| Number Status | ⚠️ requirement-info-pending — needs regulatory info in Portal |
+
+### Portal Action Required
+1. Go to https://portal.telnyx.com
+2. Find number +441218230230
+3. Complete regulatory requirements (business name, address, use case)
+4. Once approved → number goes active → can make calls
+
+---
+
+## Provider Abstraction (NEW)
+
+The voice layer is now provider-agnostic. Located in `voice-gateway/internal/provider/`:
+
+| Package | Status |
+|---------|--------|
+| `internal/provider/provider.go` | Interface + neutral types (AudioFrame, Event, Adapter) |
+| `internal/provider/twilio/adapter.go` | ✅ Production — wraps WebSocket with Frames/Events channels |
+| `internal/provider/telnyx/adapter.go` | 🔶 Scaffold — implements interface, ParseMediaEvent not done |
+| `internal/provider/signalwire/adapter.go` | ⬜ Placeholder — returns "not implemented" |
+
+Provider selection via `VOICE_PROVIDER` env var (twilio/telnyx/signalwire).
+
+NestJS webhook endpoints:
+- `POST /api/public/voice/webhook` — Twilio (XML TwiML)
+- `POST /api/public/voice/webhook/telnyx` — Telnyx (JSON)
+- `POST /api/public/voice/webhook/signalwire` — 501
+
+---
+
+## ngrok Details
+
+| Item | Value |
+|------|-------|
+| CLI version | 3.39.4 (installed via scoop) |
+| Public URL | https://kemberly-diastolic-subopaquely.ngrok-free.dev |
+| WSS URL | wss://kemberly-diastolic-subopaquely.ngrok-free.dev/stream |
+| ngrok-skip-browser-warning header | Required for API calls (free tier) |
+| Port exposed | 8080 (Go gateway proxies webhooks to NestJS :3001) |
+
+---
+
+## Environment Variables (.env)
+
+Located at `C:\Builds\AI-Phone-Answer-System\.env` (gitignored).
+
+| Variable | Value |
+|----------|-------|
+| `OPENAI_API_KEY` | (in .env) — Realtime API access confirmed |
+| `OPENAI_REALTIME_MODEL` | gpt-realtime-mini |
+| `VOICE_PROVIDER` | twilio (switch to telnyx when ready) |
+| `TWILIO_ACCOUNT_SID` | (in .env) |
+| `TWILIO_AUTH_TOKEN` | (in .env) |
+| `TELNYX_API_KEY` | (in .env) |
+| `TELNYX_CONNECTION_ID` | 2966595325193618449 |
+| `REDIS_ADDR` | localhost:6379 |
+| `GATEWAY_WS_URL` | wss://kemberly-diastolic-subopaquely.ngrok-free.dev/stream |
+| `HMAC_SECRET` | dev-hmac-secret (dev only) |
+| `NESTJS_URL` | http://localhost:3001 |
 
 ---
 
 ## How to Resume — Step by Step
 
 ### 1. Start Redis
-Already running as Windows service on port 6379. If not:
-```powershell
-redis-server
-```
+Running as Windows service on port 6379. If not: `redis-server`
 
 ### 2. Start NestJS Backend
 ```powershell
@@ -83,141 +132,81 @@ node dist/main.js
 ### 3. Start Go Gateway
 ```powershell
 cd C:\Builds\AI-Phone-Answer-System\voice-gateway
-$env:OPENAI_API_KEY="sk-proj-..."
+$env:OPENAI_API_KEY="(from .env)"
 $env:HMAC_SECRET="dev-hmac-secret"
 $env:REDIS_ADDR="localhost:6379"
 $env:NESTJS_URL="http://localhost:3001"
+$env:VOICE_PROVIDER="twilio"
 go run ./cmd/gateway
 ```
 
 ### 4. Start ngrok
 ```powershell
 ngrok http 8080
-# URL: https://kemberly-diastolic-subopaquely.ngrok-free.dev
+# If URL changes, update GATEWAY_WS_URL in .env and restart backend
 ```
 
 ### 5. Verify
 ```powershell
-# Health
 curl http://localhost:8080/health
-
-# Webhook (local)
-curl -X POST http://localhost:3001/api/public/voice/webhook
-
-# Via ngrok
 curl -H "ngrok-skip-browser-warning: 1" https://kemberly-diastolic-subopaquely.ngrok-free.dev/health
 ```
 
 ---
 
-## Environment Variables (.env)
+## Tests
 
-Located at `C:\Builds\AI-Phone-Answer-System\.env` (gitignored).
-
-| Variable | Value |
-|----------|-------|
-| `OPENAI_API_KEY` | (in .env) — Realtime API access confirmed |
-| `OPENAI_REALTIME_MODEL` | gpt-realtime-mini |
-| `TWILIO_ACCOUNT_SID` | (in .env) |
-| `TWILIO_AUTH_TOKEN` | (in .env) |
-| `REDIS_ADDR` | localhost:6379 |
-| `GATEWAY_WS_URL` | wss://kemberly-diastolic-subopaquely.ngrok-free.dev/stream |
-| `HMAC_SECRET` | dev-hmac-secret (dev only) |
-| `NESTJS_URL` | http://localhost:3001 (only used by Go gateway) |
-
----
-
-## ngrok Details
-
-| Item | Value |
-|------|-------|
-| CLI version | 3.39.4 (installed via scoop) |
-| Public URL | https://kemberly-diastolic-subopaquely.ngrok-free.dev |
-| WSS URL | wss://kemberly-diastolic-subopaquely.ngrok-free.dev/stream |
-| ngrok-skip-browser-warning header | Required for API calls (free tier) |
-| Note | Port 8080 only (Go gateway proxies webhooks to NestJS) |
-
----
-
-## Twilio Phone Number
-
-| Field | Value |
-|-------|-------|
-| Account SID | (in .env) |
-| Auth Token | (in .env) |
-| Phone number | Not yet configured |
-| Webhook URL to set | https://kemberly-diastolic-subopaquely.ngrok-free.dev/api/public/voice/webhook |
-| Method | POST |
-
----
-
-## VPS Deployment (After Live Call Validation)
-
-### Pre-Deployment Check
-**BLOCKED** until ports.txt from VPS is reviewed. The VPS may have existing services on ports we need:
-
-| Port | Our Service | Status |
-|------|-------------|--------|
-| 6379 | Redis | Need to check VPS |
-| 3000/3001 | NestJS | Need to check VPS |
-| 8080 | Go Gateway | Need to check VPS |
-
-**Action needed**: Share `ports.txt` from the VPS so we can plan port allocation before deployment.
-
-### Deployment Steps (after port check)
-1. Clone repo to VPS
-2. Copy `.env` with credentials
-3. Adjust ports in docker-compose.yml if conflicts
-4. `docker compose up` or start services directly
-5. Run ngrok on VPS → update Twilio webhook URL
-
----
-
-## Remaining Tasks (Next Session)
-
-### Immediate — P6.7 + P6.8
-
-1. **P6.7**: Configure Twilio phone number voice webhook
-   - Set to `https://kemberly-diastolic-subopaquely.ngrok-free.dev/api/public/voice/webhook`
-   - Method: POST
-
-2. **P6.8**: Make first live phone call
-   - Call the Twilio number from a real phone
-   - Verify: greeting plays, AI responds, booking tools work, barge-in works
-   - Expected first words: "Bella Roma, this is Alex. How can I help?"
-
-### After First Call
-
-3. **P6.9**: Voice quality assessment
-4. **P6.10**: Latency measurement
-5. **P6.11**: Barge-in validation
-
-### Phase 4 backlog (not urgent)
-- OpenAI reconnection
-- Circuit breakers
-- CDR recording
-- Cost tracking
+55 Go tests passing (audio, config, openai, redis, session/sm, twilio).  
+16 integration tests passing.  
+NestJS clean build.
 
 ---
 
 ## Known Issues
 
-1. **NestJS build**: Use `node_modules\.bin\tsc.cmd` directly, not `nest build` (webpack path issue with shared types)
-2. **Port 3000**: Occupied by Redeemio Next.js app — NestJS uses port 3001
-3. **ngrok free tier**: Only one tunnel; Go gateway proxies webhooks to NestJS to work around this
-4. **Docker unavailable**: Docker Desktop Linux engine not running; services started natively
-5. **OpenAI model**: Using `gpt-realtime-mini` (not the deprecated `gpt-4o-realtime-preview`)
+1. **NestJS build**: Use `node_modules\.bin\tsc.cmd` directly, not `nest build`
+2. **Port 3000**: Occupied by Redeemio — NestJS uses port 3001
+3. **ngrok free tier**: Single tunnel; Go gateway proxies webhooks to NestJS
+4. **Docker unavailable**: Services run natively
+5. **Telnyx adapter**: ParseMediaEvent not yet implemented — needs real-call format capture
+6. **Number pending**: +441218230230 needs regulatory approval in Telnyx Portal
 
 ---
 
-## Canonic Documents
+## Canonical Documents
 
 | Document | Purpose |
 |----------|---------|
 | `docs/PROJECT_STATUS.md` | Full audit comparing blueprint vs implementation |
 | `docs/MVP_TASKLIST.md` | Master task list — single source of truth |
 | `docs/LOCAL_INTEGRATION_RESULTS.md` | 16/16 local integration tests |
-| `docs/NGROK_EXPOSURE_RESULTS.md` | ngrok exposure validation results |
+| `docs/NGROK_EXPOSURE_RESULTS.md` | ngrok exposure validation |
+| `docs/VOICE_PROVIDER_ABSTRACTION.md` | Provider abstraction architecture |
+| `docs/FIRST_LIVE_CALL_RESULTS.md` | Template — ready to fill after first call |
 | `LIVE_CALL_TESTING.md` | First call checklist |
 | `VoxLane_Implementation_Blueprint.md` | Original implementation blueprint |
 | `voxlane_architecture_critique.md` | Architecture review with cost analysis |
+
+---
+
+## Next Tasks (Next Session)
+
+### Immediate — First Live Call
+
+1. **Telnyx regulatory**: Complete number requirements in Portal
+2. **Implement Telnyx adapter ParseMediaEvent/EncodeAudio**: Once number is active, capture WebSocket format from a test call
+3. **Switch VOICE_PROVIDER=telnyx**: Update .env, restart services
+4. **First live call**: Call +441218230230, follow test script in FIRST_LIVE_CALL_RESULTS.md
+
+### Or — Twilio Path (if Twilio number gets approved first)
+
+1. Configure Twilio number webhook to ngrok URL
+2. Call the Twilio number
+3. Fill in FIRST_LIVE_CALL_RESULTS.md
+
+### Phase 4 backlog (not urgent)
+- OpenAI reconnection
+- Circuit breakers
+- CDR recording
+- Cost tracking
+- VPS deployment (after ports.txt review)
