@@ -205,15 +205,14 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 			}
 
 			// Process PCM16 24kHz → u-law 8kHz → Twilio
-			mulaw, err := s.audioP.ProcessOutboundBytes(pcm24k)
-			if err != nil {
-				continue
-			}
-			s.outputSecs += 0.020
-			if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
-				Codec: "ulaw", SampleRate: 8000, Payload: mulaw, Direction: "outbound",
-			}); err == nil && msg != nil {
-				s.sendProviderMessage(msg)
+			frames := s.audioP.ProcessOutboundBytes(pcm24k)
+			for _, mulaw := range frames {
+				s.outputSecs += 0.020
+				if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
+					Codec: "ulaw", SampleRate: 8000, Payload: mulaw, Direction: "outbound",
+				}); err == nil && msg != nil {
+					s.sendProviderMessage(msg)
+				}
 			}
 
 		case evt, ok := <-s.openaiS.Events:

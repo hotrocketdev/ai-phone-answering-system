@@ -285,27 +285,23 @@ func TestPipeline_ProcessOutboundBytes_FullFrame(t *testing.T) {
 		binary.LittleEndian.PutUint16(frame[i:], uint16(sample))
 	}
 
-	mulaw, err := p.ProcessOutboundBytes(frame)
-	if err != nil {
-		t.Fatalf("ProcessOutboundBytes failed: %v", err)
+	frames := p.ProcessOutboundBytes(frame)
+	if len(frames) != 1 {
+		t.Fatalf("expected 1 frame, got %d", len(frames))
 	}
-	if mulaw == nil {
-		t.Fatal("expected non-nil output for full frame")
-	}
-	if len(mulaw) != FrameSizeMulaw8k {
-		t.Errorf("expected %d u-law bytes, got %d", FrameSizeMulaw8k, len(mulaw))
+	if len(frames[0]) != FrameSizeMulaw8k {
+		t.Errorf("expected %d u-law bytes, got %d", FrameSizeMulaw8k, len(frames[0]))
 	}
 
-	// Verify output is not all silence
 	hasSignal := false
-	for _, b := range mulaw {
+	for _, b := range frames[0] {
 		if b != 0xFF && b != 0x7F {
 			hasSignal = true
 			break
 		}
 	}
 	if !hasSignal {
-		t.Error("output is all silence — audio conversion lost signal")
+		t.Error("output is all silence")
 	}
 }
 
@@ -317,27 +313,42 @@ func TestPipeline_BufferedFrames(t *testing.T) {
 		binary.LittleEndian.PutUint16(frame[i:], uint16((i/2)*100))
 	}
 
-	// Send partial chunk — now processes immediately with padding
-	r, err := p.ProcessOutboundBytes(frame[:320])
-	if err != nil {
-		t.Fatalf("partial chunk failed: %v", err)
+	// Send partial chunk — should return 0 frames (buffered)
+	r := p.ProcessOutboundBytes(frame[:320])
+	if len(r) != 0 {
+		t.Error("partial chunk should return 0 frames")
 	}
-	if r == nil || len(r) != FrameSizeMulaw8k {
-		t.Errorf("partial chunk: expected %d u-law bytes, got %d", FrameSizeMulaw8k, len(r))
+	// Second partial chunk
+	r = p.ProcessOutboundBytes(frame[320:640])
+	if len(r) != 0 {
+		t.Error("second partial should return 0 frames")
+	}
+	// Third chunk completes the frame
+	r = p.ProcessOutboundBytes(frame[640:])
+	if len(r) != 1 || len(r[0]) != FrameSizeMulaw8k {
+		t.Errorf("expected 1 frame of %d bytes, got %d frames", FrameSizeMulaw8k, len(r))
 	}
 }
 
 func TestPipeline_FlushPartial(t *testing.T) {
 	p := NewPipeline()
 
-	// Small chunk — processed immediately, padded with silence
-	partial := make([]byte, 100)
-	r, err := p.ProcessOutboundBytes(partial)
-	if err != nil {
-		t.Fatalf("small chunk failed: %v", err)
+	partial := make([]byte, 400)
+	for i := 0; i < len(partial); i += 2 {
+		binary.LittleEndian.PutUint16(partial[i:], uint16(i*50))
 	}
-	if r == nil || len(r) != FrameSizeMulaw8k {
-		t.Errorf("small chunk: expected %d u-law bytes, got %d", FrameSizeMulaw8k, len(r))
+
+	r := p.ProcessOutboundBytes(partial)
+	if len(r) != 0 {
+		t.Error("partial chunk should return 0 frames")
+	}
+
+	flushed := p.FlushOutbound()
+	if flushed == nil {
+		t.Fatal("flush should return padded frame")
+	}
+	if len(flushed) != FrameSizeMulaw8k {
+		t.Errorf("flushed frame: expected %d bytes, got %d", FrameSizeMulaw8k, len(flushed))
 	}
 }
 
