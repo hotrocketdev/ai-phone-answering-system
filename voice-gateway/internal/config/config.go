@@ -47,8 +47,10 @@ type Config struct {
 	LLMProvider string // "openai" | "grok"
 
 	// Voice Renderer
-	VoiceRenderer string // "openai" | "cartesia" | "elevenlabs"
-	CartesiaAPIKey string
+	VoiceRenderer   string // "openai" | "cartesia" | "elevenlabs"
+	CartesiaAPIKey  string
+	CartesiaVoiceID string
+	CartesiaModel   string
 	ElevenLabsAPIKey string
 
 	// Environment
@@ -81,6 +83,8 @@ func Load() (*Config, error) {
 		LLMProvider:         getEnv("LLM_PROVIDER", "openai"),
 		VoiceRenderer:       getEnv("VOICE_RENDERER", "openai"),
 		CartesiaAPIKey:      os.Getenv("CARTESIA_API_KEY"),
+		CartesiaVoiceID:     os.Getenv("CARTESIA_VOICE_ID"),
+		CartesiaModel:       getEnv("CARTESIA_MODEL", "sonic-2"),
 		ElevenLabsAPIKey:    os.Getenv("ELEVENLABS_API_KEY"),
 		LogLevel:            getEnv("LOG_LEVEL", "info"),
 	}
@@ -115,6 +119,24 @@ func (c *Config) validate() error {
 	default:
 		return fmt.Errorf("unknown VOICE_PROVIDER: %s (valid: twilio, telnyx, signalwire)", c.VoiceProvider)
 	}
+
+	// Voice renderer validation
+	switch c.VoiceRenderer {
+	case "openai":
+		// OpenAI native — no additional config needed
+	case "cartesia":
+		if c.CartesiaAPIKey == "" {
+			return fmt.Errorf("VOICE_RENDERER=cartesia requires CARTESIA_API_KEY")
+		}
+		if c.CartesiaVoiceID == "" {
+			return fmt.Errorf("VOICE_RENDERER=cartesia requires CARTESIA_VOICE_ID")
+		}
+	case "elevenlabs":
+		return fmt.Errorf("VOICE_RENDERER=elevenlabs is not yet implemented")
+	default:
+		return fmt.Errorf("unknown VOICE_RENDERER: %s (valid: openai, cartesia, elevenlabs)", c.VoiceRenderer)
+	}
+
 	return nil
 }
 

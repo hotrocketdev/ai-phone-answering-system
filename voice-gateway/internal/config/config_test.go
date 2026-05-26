@@ -62,3 +62,62 @@ func TestLoad_InvalidPort(t *testing.T) {
 		t.Fatal("expected error for invalid port")
 	}
 }
+
+func TestLoad_CartesiaRequiresAPIKey(t *testing.T) {
+	os.Setenv("OPENAI_API_KEY", "sk-test")
+	os.Setenv("HMAC_SECRET", "test-secret")
+	os.Setenv("VOICE_RENDERER", "cartesia")
+	os.Unsetenv("CARTESIA_API_KEY")
+	os.Setenv("CARTESIA_VOICE_ID", "test-voice")
+	os.Unsetenv("GATEWAY_PORT")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error: cartesia requires API key")
+	}
+}
+
+func TestLoad_CartesiaRequiresVoiceID(t *testing.T) {
+	os.Setenv("OPENAI_API_KEY", "sk-test")
+	os.Setenv("HMAC_SECRET", "test-secret")
+	os.Setenv("VOICE_RENDERER", "cartesia")
+	os.Setenv("CARTESIA_API_KEY", "test-key")
+	os.Unsetenv("CARTESIA_VOICE_ID")
+	os.Unsetenv("GATEWAY_PORT")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error: cartesia requires voice ID")
+	}
+}
+
+func TestLoad_CartesiaValidConfig(t *testing.T) {
+	os.Setenv("OPENAI_API_KEY", "sk-test")
+	os.Setenv("HMAC_SECRET", "test-secret")
+	os.Setenv("VOICE_RENDERER", "cartesia")
+	os.Setenv("CARTESIA_API_KEY", "test-key")
+	os.Setenv("CARTESIA_VOICE_ID", "test-voice")
+	os.Unsetenv("GATEWAY_PORT")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.CartesiaModel != "sonic-2" {
+		t.Errorf("expected default model sonic-2, got %s", cfg.CartesiaModel)
+	}
+}
+
+func TestLoad_OpenAIRendererSkipsCartesiaValidation(t *testing.T) {
+	os.Setenv("OPENAI_API_KEY", "sk-test")
+	os.Setenv("HMAC_SECRET", "test-secret")
+	os.Setenv("VOICE_RENDERER", "openai")
+	os.Unsetenv("CARTESIA_API_KEY")
+	os.Unsetenv("CARTESIA_VOICE_ID")
+	os.Unsetenv("GATEWAY_PORT")
+
+	_, err := Load()
+	if err != nil {
+		t.Fatalf("openai renderer should not require cartesia config: %v", err)
+	}
+}

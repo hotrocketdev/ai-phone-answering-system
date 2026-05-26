@@ -107,8 +107,8 @@ func (s *Session) Run(ctx context.Context) error {
 		}
 		s.cartesiaRender = cartesiarend.New(cartesiarend.Config{
 			APIKey:   s.Config.CartesiaAPIKey,
-			VoiceID:  cartesiarend.DefaultBritishVoiceID,
-			ModelID:  cartesiarend.DefaultModel,
+			VoiceID:  s.Config.CartesiaVoiceID,
+			ModelID:  s.Config.CartesiaModel,
 			Language: "en",
 		})
 		log.Printf("[%s] voice renderer: cartesia", s.ID)
