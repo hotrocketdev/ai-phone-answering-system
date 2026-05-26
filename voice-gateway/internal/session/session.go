@@ -122,7 +122,11 @@ func (s *Session) Run(ctx context.Context) error {
 	go s.runSupervisor(ctx)
 
 	// Trigger initial AI response (greeting)
-	s.openaiS.CreateResponse()
+	if err := s.openaiS.CreateResponse(); err != nil {
+		log.Printf("[%s] CreateResponse failed: %v", s.ID, err)
+	} else {
+		log.Printf("[%s] CreateResponse sent", s.ID)
+	}
 
 	// Wait for completion
 	<-s.doneCh
@@ -204,6 +208,11 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 				continue
 			}
 			s.outputSecs += 0.020
+
+			// Log first frame and every 50th
+			if s.outputSecs <= 0.04 {
+				log.Printf("[%s] audio out: first frame sent (%.0f sec)", s.ID, s.outputSecs)
+			}
 
 			// Encode and send via provider adapter
 			if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{

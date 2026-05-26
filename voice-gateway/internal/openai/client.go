@@ -135,12 +135,15 @@ func (s *Session) ReadLoop() {
 		close(s.Done)
 	}()
 
+	log.Printf("OpenAI ReadLoop started")
+
 	for {
 		_, raw, err := s.conn.ReadMessage()
 		if err != nil {
-			// Connection closed
+			log.Printf("OpenAI ReadLoop ended: %v", err)
 			return
 		}
+		log.Printf("OpenAI raw msg: %s", string(raw[:80]))
 
 		s.handleMessage(raw)
 	}
@@ -149,12 +152,19 @@ func (s *Session) ReadLoop() {
 // ─── Event Handling ──────────────────────────────────────────────────────
 
 func (s *Session) handleMessage(raw []byte) {
-	// Determine event type
 	var base struct {
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(raw, &base); err != nil {
 		return
+	}
+
+	// Log all non-audio events for diagnostics
+	if base.Type != "response.audio.delta" {
+		log.Printf("OpenAI event: %s", base.Type)
+		if base.Type == "response.done" || base.Type == "error" {
+			log.Printf("OpenAI event detail: %s", string(raw))
+		}
 	}
 
 	switch {
@@ -264,6 +274,7 @@ func (s *Session) CreateResponse() error {
 func (s *Session) sendSessionUpdate() error {
 	sessionCfg := map[string]interface{}{
 		"model":        s.config.Model,
+		"modalities":   []string{"text", "audio"},
 		"instructions": s.config.Instructions,
 		"voice":        s.config.Voice,
 		"input_audio_format":  "pcm16",
