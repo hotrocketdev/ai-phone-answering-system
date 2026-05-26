@@ -304,6 +304,16 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 	case "speech_stopped":
 		// Reset silence timer
 
+	case "audio.done":
+		// Flush any remaining buffered audio frames
+		if mulaw := s.audioP.FlushOutbound(); mulaw != nil {
+			if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
+				Codec: "ulaw", SampleRate: 8000, Payload: mulaw, Direction: "outbound",
+			}); err == nil && msg != nil {
+				s.sendProviderMessage(msg)
+			}
+		}
+
 	case "function_call.done":
 		s.handleToolCall(ctx, evt.Data)
 

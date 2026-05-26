@@ -145,4 +145,29 @@ func (p *Pipeline) ProcessOutboundBytes(pcm24k []byte) ([]byte, error) {
 // Reset clears the resampler state for reuse.
 func (p *Pipeline) Reset() {
 	p.resampler.Reset()
+	p.outBuf = nil
+}
+
+// FlushOutbound processes any remaining buffered outbound audio.
+// Pads the last partial frame with silence to a full 20ms frame.
+func (p *Pipeline) FlushOutbound() []byte {
+	if len(p.outBuf) == 0 {
+		return nil
+	}
+	// Pad to full frame with silence
+	for len(p.outBuf) < FrameSizePCM16_24k {
+		p.outBuf = append(p.outBuf, 0)
+	}
+	frame := p.outBuf[:FrameSizePCM16_24k]
+	p.outBuf = nil
+
+	floats24k := make([]float64, Samples24k)
+	PCM16ToFloat64(frame, floats24k)
+	floats8k := make([]float64, Samples8k)
+	p.resampler.Downsample24to8(floats24k, floats8k)
+	pcm8k := make([]byte, FrameSizePCM16_8k)
+	Float64ToPCM16(floats8k, pcm8k)
+	mulaw := make([]byte, FrameSizeMulaw8k)
+	PCM16ToMulaw(pcm8k, mulaw)
+	return mulaw
 }
