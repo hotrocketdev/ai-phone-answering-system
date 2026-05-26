@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -175,8 +174,7 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 				s.handleProviderDisconnect(ctx)
 				return
 			}
-			// Send raw u-law bytes directly (OpenAI expects g711_ulaw)
-			b64 := base64.StdEncoding.EncodeToString(frame.Payload)
+			b64 := s.audioP.ProcessInbound(frame.Payload)
 			s.inputSecs += 0.020
 			_ = s.openaiS.SendAudio(b64)
 
@@ -206,10 +204,14 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 				continue
 			}
 
-			// OpenAI outputs g711_ulaw — send directly to Twilio
+			// Process PCM16 24kHz → u-law 8kHz → Twilio
+			mulaw, err := s.audioP.ProcessOutboundBytes(pcm24k)
+			if err != nil {
+				continue
+			}
 			s.outputSecs += 0.020
 			if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
-				Codec: "ulaw", SampleRate: 8000, Payload: pcm24k, Direction: "outbound",
+				Codec: "ulaw", SampleRate: 8000, Payload: mulaw, Direction: "outbound",
 			}); err == nil && msg != nil {
 				s.sendProviderMessage(msg)
 			}

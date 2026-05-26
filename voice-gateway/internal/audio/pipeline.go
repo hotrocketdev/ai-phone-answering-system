@@ -114,18 +114,15 @@ func (p *Pipeline) ProcessInboundBytes(mulaw []byte) []byte {
 }
 
 // ProcessOutboundBytes converts raw PCM16 24kHz bytes from OpenAI
-// to u-law 8kHz bytes for Twilio. Handles variable-sized chunks by buffering.
-// Returns nil if the buffer doesn't yet have a full frame.
+// to u-law 8kHz bytes for Twilio. Pads short chunks with silence.
 func (p *Pipeline) ProcessOutboundBytes(pcm24k []byte) ([]byte, error) {
-	// Buffer chunks until we have a full 20ms frame (960 bytes)
-	p.outBuf = append(p.outBuf, pcm24k...)
-	if len(p.outBuf) < FrameSizePCM16_24k {
-		return nil, nil // not enough data yet
+	if len(pcm24k) == 0 {
+		return nil, nil
 	}
 
-	// Process exactly one full frame
-	frame := p.outBuf[:FrameSizePCM16_24k]
-	p.outBuf = p.outBuf[FrameSizePCM16_24k:]
+	// Pad to full 20ms frame (960 bytes)
+	frame := make([]byte, FrameSizePCM16_24k)
+	copy(frame, pcm24k)
 
 	floats24k := make([]float64, Samples24k)
 	PCM16ToFloat64(frame, floats24k)

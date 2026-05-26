@@ -287,8 +287,8 @@ func (s *Session) sendSessionUpdate() error {
 		"modalities":   []string{"text", "audio"},
 		"instructions": s.config.Instructions,
 		"voice":        s.config.Voice,
-		"input_audio_format":  "g711_ulaw",
-		"output_audio_format": "g711_ulaw",
+		"input_audio_format":  "pcm16",
+		"output_audio_format": "pcm16",
 		"turn_detection": map[string]interface{}{
 			"type":                "server_vad",
 			"threshold":           0.4,

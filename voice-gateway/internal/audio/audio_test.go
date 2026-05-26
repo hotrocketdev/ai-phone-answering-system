@@ -312,58 +312,32 @@ func TestPipeline_ProcessOutboundBytes_FullFrame(t *testing.T) {
 func TestPipeline_BufferedFrames(t *testing.T) {
 	p := NewPipeline()
 
-	// Send 3 chunks that add up to one full frame
 	frame := make([]byte, FrameSizePCM16_24k)
 	for i := 0; i < len(frame); i += 2 {
 		binary.LittleEndian.PutUint16(frame[i:], uint16((i/2)*100))
 	}
 
-	chunk1 := frame[:320]
-	chunk2 := frame[320:640]
-	chunk3 := frame[640:]
-
-	// First two chunks should return nil (buffer not full)
-	r1, err := p.ProcessOutboundBytes(chunk1)
-	if err != nil || r1 != nil {
-		t.Error("chunk 1 should return nil (buffer not full)")
-	}
-	r2, err := p.ProcessOutboundBytes(chunk2)
-	if err != nil || r2 != nil {
-		t.Error("chunk 2 should return nil (buffer not full)")
-	}
-	// Third chunk completes the frame
-	r3, err := p.ProcessOutboundBytes(chunk3)
+	// Send partial chunk — now processes immediately with padding
+	r, err := p.ProcessOutboundBytes(frame[:320])
 	if err != nil {
-		t.Fatalf("chunk 3 failed: %v", err)
+		t.Fatalf("partial chunk failed: %v", err)
 	}
-	if r3 == nil {
-		t.Fatal("chunk 3 should return a full frame")
-	}
-	if len(r3) != FrameSizeMulaw8k {
-		t.Errorf("expected %d u-law bytes, got %d", FrameSizeMulaw8k, len(r3))
+	if r == nil || len(r) != FrameSizeMulaw8k {
+		t.Errorf("partial chunk: expected %d u-law bytes, got %d", FrameSizeMulaw8k, len(r))
 	}
 }
 
 func TestPipeline_FlushPartial(t *testing.T) {
 	p := NewPipeline()
 
-	// Send only partial data (not a full 960-byte frame)
-	partial := make([]byte, 400)
-	for i := 0; i < len(partial); i += 2 {
-		binary.LittleEndian.PutUint16(partial[i:], uint16(i*50))
+	// Small chunk — processed immediately, padded with silence
+	partial := make([]byte, 100)
+	r, err := p.ProcessOutboundBytes(partial)
+	if err != nil {
+		t.Fatalf("small chunk failed: %v", err)
 	}
-
-	r, _ := p.ProcessOutboundBytes(partial)
-	if r != nil {
-		t.Error("partial chunk should return nil")
-	}
-
-	flushed := p.FlushOutbound()
-	if flushed == nil {
-		t.Fatal("flush should return padded frame")
-	}
-	if len(flushed) != FrameSizeMulaw8k {
-		t.Errorf("flushed frame: expected %d bytes, got %d", FrameSizeMulaw8k, len(flushed))
+	if r == nil || len(r) != FrameSizeMulaw8k {
+		t.Errorf("small chunk: expected %d u-law bytes, got %d", FrameSizeMulaw8k, len(r))
 	}
 }
 

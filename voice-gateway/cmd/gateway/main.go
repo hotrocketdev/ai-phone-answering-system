@@ -30,6 +30,13 @@ var upgrader = websocket.Upgrader{
 var activeSessions sync.Map
 
 func main() {
+	// Log to file for diagnostics
+	logFile, _ := os.OpenFile("C:\\Builds\\AI-Phone-Answer-System\\gateway.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if logFile != nil {
+		log.SetOutput(io.MultiWriter(os.Stderr, logFile))
+		defer logFile.Close()
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
@@ -54,6 +61,11 @@ func main() {
 	}()
 
 	mux := http.NewServeMux()
+
+	// Log all requests for debugging
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("REQUEST: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+	})
 
 	// Health endpoint
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
