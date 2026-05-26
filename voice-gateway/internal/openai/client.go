@@ -111,6 +111,7 @@ func (s *Session) Start(ctx context.Context) error {
 	audioDeltaLogged = false
 
 	// Send session configuration
+	log.Printf("OpenAI session.update payload (model=%s, voice=%s)", s.config.Model, s.config.Voice)
 	if err := s.sendSessionUpdate(); err != nil {
 		return fmt.Errorf("send session.update: %w", err)
 	}
@@ -120,6 +121,8 @@ func (s *Session) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read session.updated: %w", err)
 	}
+
+	log.Printf("OpenAI session.updated response: %s", string(raw))
 
 	var updated struct {
 		Type string `json:"type"`
@@ -283,26 +286,13 @@ func (s *Session) CreateResponse() error {
 
 func (s *Session) sendSessionUpdate() error {
 	sessionCfg := map[string]interface{}{
+		"type":         "realtime",
 		"model":        s.config.Model,
 		"modalities":   []string{"text", "audio"},
 		"instructions": s.config.Instructions,
+		"voice":        s.config.Voice,
 		"input_audio_format":  "pcm16",
 		"output_audio_format": "pcm16",
-		"audio": map[string]interface{}{
-			"output": map[string]interface{}{
-				"voice":  s.config.Voice,
-				"format": map[string]interface{}{
-					"type": "audio/pcm",
-					"rate": 24000,
-				},
-			},
-			"input": map[string]interface{}{
-				"format": map[string]interface{}{
-					"type": "audio/pcm",
-					"rate": 24000,
-				},
-			},
-		},
 		"turn_detection": map[string]interface{}{
 			"type":                "server_vad",
 			"threshold":           0.4,
