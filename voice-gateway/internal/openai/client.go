@@ -295,7 +295,6 @@ func (s *Session) sendSessionUpdate() error {
 	sessionCfg := map[string]interface{}{
 		"type":         "realtime",
 		"model":        s.config.Model,
-		"modalities":   s.getModalities(),
 		"instructions": s.config.Instructions,
 		"voice":        s.config.Voice,
 		"audio": map[string]interface{}{

@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/voxlane/voice-gateway/internal/audio"
 	"github.com/voxlane/voice-gateway/internal/config"
 	"github.com/voxlane/voice-gateway/internal/provider"
 	providertwilio "github.com/voxlane/voice-gateway/internal/provider/twilio"
@@ -237,37 +238,42 @@ func main() {
 }
 
 // runDeepgramRelay relays audio between Twilio and Deepgram.
+// Twilio: u-law 8kHz. Deepgram: linear16 48kHz in, linear16 24kHz out.
 func runDeepgramRelay(ctx context.Context, callSid string, tw *providertwilio.Adapter, agent *dgagent.Agent) {
-	// Twilio inbound → Deepgram
+	pipe := audio.NewPipeline()
+
+	// Twilio u-law 8kHz → PCM16 24kHz → Deepgram
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case frame, ok := <-tw.Frames:
-				if !ok {
-					return
-				}
-				agent.SendAudio(frame.Payload)
+				if !ok { return }
+				// Convert u-law to PCM16 24kHz (Deepgram accepts linear16)
+				pcm24k := pipe.ProcessInboundBytes(frame.Payload)
+				agent.SendAudio(pcm24k)
 			}
 		}
 	}()
 
-	// Deepgram outbound → Twilio
+	// Deepgram PCM16 24kHz → u-law 8kHz → Twilio
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case audio, ok := <-agent.AudioOut():
-				if !ok {
-					return
-				}
-				msg, err := tw.EncodeAudio(provider.AudioFrame{
-					Codec: "ulaw", SampleRate: 8000, Payload: audio, Direction: "outbound",
-				})
-				if err == nil && msg != nil {
-					tw.WriteRaw(msg)
+				if !ok { return }
+				// Convert PCM16 24kHz to u-law 8kHz
+				mulaw := pipe.ProcessOutboundBytes(audio)
+				for _, frame := range mulaw {
+					msg, err := tw.EncodeAudio(provider.AudioFrame{
+						Codec: "ulaw", SampleRate: 8000, Payload: frame, Direction: "outbound",
+					})
+					if err == nil && msg != nil {
+						tw.WriteRaw(msg)
+					}
 				}
 			}
 		}
