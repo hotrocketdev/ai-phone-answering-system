@@ -286,12 +286,21 @@ func (s *Session) sendSessionUpdate() error {
 		"model":        s.config.Model,
 		"modalities":   []string{"text", "audio"},
 		"instructions": s.config.Instructions,
-		"voice":        s.config.Voice,
 		"input_audio_format":  "pcm16",
 		"output_audio_format": "pcm16",
 		"audio": map[string]interface{}{
 			"output": map[string]interface{}{
-				"voice": s.config.Voice,
+				"voice":  s.config.Voice,
+				"format": map[string]interface{}{
+					"type": "audio/pcm",
+					"rate": 24000,
+				},
+			},
+			"input": map[string]interface{}{
+				"format": map[string]interface{}{
+					"type": "audio/pcm",
+					"rate": 24000,
+				},
 			},
 		},
 		"turn_detection": map[string]interface{}{
