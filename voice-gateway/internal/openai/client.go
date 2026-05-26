@@ -32,6 +32,8 @@ type Tool struct {
 	Parameters  map[string]interface{} `json:"parameters"`
 }
 
+var audioDeltaLogged bool
+
 // ─── Session ─────────────────────────────────────────────────────────────
 
 // Session manages a single OpenAI Realtime WebSocket connection.
@@ -106,6 +108,8 @@ func (s *Session) Start(ctx context.Context) error {
 	s.sessID = created.Session.ID
 	s.mu.Unlock()
 
+	audioDeltaLogged = false
+
 	// Send session configuration
 	if err := s.sendSessionUpdate(); err != nil {
 		return fmt.Errorf("send session.update: %w", err)
@@ -160,7 +164,13 @@ func (s *Session) handleMessage(raw []byte) {
 	}
 
 	// Log all non-audio events for diagnostics
-	if base.Type != "response.audio.delta" {
+	if base.Type == "response.output_audio.delta" {
+		// Log first delta to verify field name
+		if !audioDeltaLogged {
+			log.Printf("OpenAI audio delta (first 200 chars): %s", string(raw[:200]))
+			audioDeltaLogged = true
+		}
+	} else {
 		log.Printf("OpenAI event: %s", base.Type)
 		if base.Type == "response.done" || base.Type == "error" {
 			log.Printf("OpenAI event detail: %s", string(raw))
@@ -277,8 +287,8 @@ func (s *Session) sendSessionUpdate() error {
 		"modalities":   []string{"text", "audio"},
 		"instructions": s.config.Instructions,
 		"voice":        s.config.Voice,
-		"input_audio_format":  "pcm16",
-		"output_audio_format": "pcm16",
+		"input_audio_format":  "g711_ulaw",
+		"output_audio_format": "g711_ulaw",
 		"turn_detection": map[string]interface{}{
 			"type":                "server_vad",
 			"threshold":           0.4,
