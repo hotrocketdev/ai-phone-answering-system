@@ -168,10 +168,10 @@ func (s *Session) handleMessage(raw []byte) {
 	}
 
 	switch {
-	case base.Type == "response.audio.delta":
+	case base.Type == "response.output_audio.delta":
 		s.handleAudioDelta(raw)
 
-	case base.Type == "response.audio.done":
+	case base.Type == "response.output_audio.done":
 		s.Events <- Event{Type: "audio.done", Data: raw}
 
 	case base.Type == "response.function_call_arguments.done":
