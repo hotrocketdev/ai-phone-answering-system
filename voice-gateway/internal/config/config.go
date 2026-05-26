@@ -43,6 +43,14 @@ type Config struct {
 	// HMAC
 	HMACSecret string
 
+	// LLM Provider
+	LLMProvider string // "openai" | "grok"
+
+	// Voice Renderer
+	VoiceRenderer string // "openai" | "cartesia" | "elevenlabs"
+	CartesiaAPIKey string
+	ElevenLabsAPIKey string
+
 	// Environment
 	LogLevel string
 }
@@ -70,6 +78,10 @@ func Load() (*Config, error) {
 		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
 		NestJSUrl:           getEnv("NESTJS_URL", "http://localhost:3000"),
 		HMACSecret:          os.Getenv("HMAC_SECRET"),
+		LLMProvider:         getEnv("LLM_PROVIDER", "openai"),
+		VoiceRenderer:       getEnv("VOICE_RENDERER", "openai"),
+		CartesiaAPIKey:      os.Getenv("CARTESIA_API_KEY"),
+		ElevenLabsAPIKey:    os.Getenv("ELEVENLABS_API_KEY"),
 		LogLevel:            getEnv("LOG_LEVEL", "info"),
 	}
 
