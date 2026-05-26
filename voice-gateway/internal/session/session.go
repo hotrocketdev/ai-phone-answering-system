@@ -96,7 +96,7 @@ func (s *Session) Run(ctx context.Context) error {
 	oaCfg := openai.Config{
 		APIKey:       s.Config.OpenAIAPIKey,
 		Model:        s.Config.OpenAIRealtimeModel,
-		Voice:        "shimmer", // warm, natural feminine voice — best for restaurant reception
+		Voice:        "echo", // British English voice
 		Instructions: s.stateMachine.BuildSystemPrompt(),
 		Tools:        convertTools(s.stateMachine.AvailableTools()),
 	}
