@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 
@@ -59,7 +60,6 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+cfg.APIKey)
-	headers.Set("OpenAI-Beta", "realtime=v1")
 
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, url, headers)
 	if err != nil {
@@ -98,6 +98,7 @@ func (s *Session) Start(ctx context.Context) error {
 		return fmt.Errorf("parse session.created: %w", err)
 	}
 	if created.Type != "session.created" {
+		log.Printf("OpenAI unexpected response: %s", string(raw))
 		return fmt.Errorf("expected session.created, got %s", created.Type)
 	}
 
@@ -254,22 +255,18 @@ func (s *Session) ClearAudio() error {
 
 func (s *Session) sendSessionUpdate() error {
 	sessionCfg := map[string]interface{}{
-		"modalities":                []string{"text", "audio"},
-		"instructions":              s.config.Instructions,
-		"voice":                     s.config.Voice,
-		"input_audio_format":        "pcm16",
-		"output_audio_format":       "pcm16",
-		"input_audio_transcription": nil,
+		"model":        s.config.Model,
+		"instructions": s.config.Instructions,
+		"voice":        s.config.Voice,
+		"input_audio_format":  "pcm16",
+		"output_audio_format": "pcm16",
 		"turn_detection": map[string]interface{}{
 			"type":                "server_vad",
-			"threshold":           0.4,   // slightly more sensitive for quiet callers
-			"prefix_padding_ms":   200,   // less padding = faster response
-			"silence_duration_ms": 400,   // shorter silence = snappier turn-taking
+			"threshold":           0.4,
+			"prefix_padding_ms":   200,
+			"silence_duration_ms": 400,
 		},
-		"tools":                     s.config.Tools,
-		"tool_choice":               "auto",
-		"temperature":               0.8,   // slightly more variance = less repetitive
-		"max_response_output_tokens": "inf",
+		"tools": s.config.Tools,
 	}
 
 	msg := map[string]interface{}{
