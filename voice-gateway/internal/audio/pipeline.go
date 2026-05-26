@@ -12,6 +12,7 @@ import (
 // Outbound: base64 → PCM16 24kHz → PCM16 8kHz → u-law 8kHz 20ms → Twilio
 type Pipeline struct {
 	resampler *Resampler
+	outBuf    []byte // accumulates outbound PCM16 24kHz chunks until full frame
 }
 
 // framePool provides reusable byte buffers for the largest frame size (24kHz PCM16 = 960 bytes).
@@ -113,10 +114,21 @@ func (p *Pipeline) ProcessInboundBytes(mulaw []byte) []byte {
 }
 
 // ProcessOutboundBytes converts raw PCM16 24kHz bytes from OpenAI
-// to u-law 8kHz bytes for Twilio. Bypasses base64 for internal use.
+// to u-law 8kHz bytes for Twilio. Handles variable-sized chunks by buffering.
+// Returns nil if the buffer doesn't yet have a full frame.
 func (p *Pipeline) ProcessOutboundBytes(pcm24k []byte) ([]byte, error) {
+	// Buffer chunks until we have a full 20ms frame (960 bytes)
+	p.outBuf = append(p.outBuf, pcm24k...)
+	if len(p.outBuf) < FrameSizePCM16_24k {
+		return nil, nil // not enough data yet
+	}
+
+	// Process exactly one full frame
+	frame := p.outBuf[:FrameSizePCM16_24k]
+	p.outBuf = p.outBuf[FrameSizePCM16_24k:]
+
 	floats24k := make([]float64, Samples24k)
-	PCM16ToFloat64(pcm24k, floats24k)
+	PCM16ToFloat64(frame, floats24k)
 
 	floats8k := make([]float64, Samples8k)
 	p.resampler.Downsample24to8(floats24k, floats8k)

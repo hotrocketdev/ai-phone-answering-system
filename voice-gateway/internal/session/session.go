@@ -207,6 +207,9 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 			if err != nil {
 				continue
 			}
+			if mulaw == nil {
+				continue // buffering — not a full frame yet
+			}
 			s.outputSecs += 0.020
 
 			// Log first frame and every 50th
