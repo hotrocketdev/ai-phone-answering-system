@@ -294,10 +294,8 @@ func (s *Session) sendSessionUpdate() error {
 		"input_audio_format":  "pcm16",
 		"output_audio_format": "pcm16",
 		"turn_detection": map[string]interface{}{
-			"type":                "server_vad",
-			"threshold":           0.4,
-			"prefix_padding_ms":   200,
-			"silence_duration_ms": 400,
+			"type":                "semantic_vad",
+			"eagerness":           "medium", // balanced interruption — natural for restaurant calls
 		},
 		"tools": s.config.Tools,
 	}

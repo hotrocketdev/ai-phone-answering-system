@@ -182,6 +182,9 @@ func main() {
 	}()
 
 	log.Printf("VoxLane Voice Gateway starting on :%d", cfg.Port)
+	log.Printf("  Model:    %s", cfg.OpenAIRealtimeModel)
+	log.Printf("  Voice:    marin")
+	log.Printf("  VAD:      semantic_vad (medium eagerness)")
 	log.Printf("  Health:   http://localhost:%d/health", cfg.Port)
 	log.Printf("  Metrics:  http://localhost:%d/metrics", cfg.Port)
 	log.Printf("  Stream:   ws://localhost:%d/stream/{callSid}", cfg.Port)
