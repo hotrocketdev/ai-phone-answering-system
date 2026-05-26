@@ -20,6 +20,8 @@ import (
 	"github.com/voxlane/voice-gateway/internal/provider"
 	providertwilio "github.com/voxlane/voice-gateway/internal/provider/twilio"
 	goredis "github.com/voxlane/voice-gateway/internal/redis"
+	"github.com/voxlane/voice-gateway/internal/runtime"
+	dgagent "github.com/voxlane/voice-gateway/internal/runtime/deepgram"
 	"github.com/voxlane/voice-gateway/internal/session"
 )
 
@@ -130,17 +132,48 @@ func main() {
 			return
 		}
 
-		// Create session
-		sess := session.NewSession(callSid, adapter, cfg, redisClient)
-
-		// Track active session
-		activeSessions.Store(callSid, sess)
-		defer activeSessions.Delete(callSid)
-
-		// Start provider read loop (decodes WS messages into provider-neutral events)
-		if twAdapter, ok := adapter.(*providertwilio.Adapter); ok {
-			go twAdapter.ReadLoop()
+		// Start provider read loop
+		twAdapter, ok := adapter.(*providertwilio.Adapter)
+		if !ok {
+			log.Printf("[%s] Twilio adapter required", callSid)
+			return
 		}
+		go twAdapter.ReadLoop()
+
+		// Deepgram runtime path
+		if cfg.VoiceRuntime == "deepgram_agent" {
+			log.Printf("[%s] using Deepgram Voice Agent", callSid)
+			dgCfg := runtime.Config{
+				Provider:              runtime.ProviderDeepgramAgent,
+				DeepgramAPIKey:        cfg.DeepgramAPIKey,
+				DeepgramListenModel:   cfg.DeepgramListenModel,
+				DeepgramListenLang:    cfg.DeepgramListenLang,
+				DeepgramTTSModel:      cfg.DeepgramTTSModel,
+				DeepgramThinkProvider: cfg.DeepgramThinkProvider,
+				DeepgramThinkModel:    cfg.DeepgramThinkModel,
+				OpenAIAPIKey:          cfg.OpenAIAPIKey,
+			}
+			agent, err := dgagent.New(r.Context(), dgCfg)
+			if err != nil {
+				log.Printf("[%s] deepgram init failed: %v", callSid, err)
+				return
+			}
+			defer agent.Close()
+			activeSessions.Store(callSid, agent)
+			defer activeSessions.Delete(callSid)
+
+			if err := agent.Start(r.Context()); err != nil {
+				log.Printf("[%s] deepgram start failed: %v", callSid, err)
+				return
+			}
+
+			// Relay: Twilio inbound → Deepgram, Deepgram outbound → Twilio
+			runDeepgramRelay(r.Context(), callSid, twAdapter, agent)
+			return
+		}
+
+		// Create session (custom runtime)
+		sess := session.NewSession(callSid, adapter, cfg, redisClient)
 
 		// Run session lifecycle
 		log.Printf("[%s] session starting", callSid)
@@ -184,6 +217,7 @@ func main() {
 	log.Printf("VoxLane Voice Gateway starting on :%d", cfg.Port)
 	log.Printf("  Model:    %s", cfg.OpenAIRealtimeModel)
 	log.Printf("  Voice:    marin")
+	log.Printf("  Runtime:  %s", cfg.VoiceRuntime)
 	log.Printf("  VAD:      semantic_vad (medium eagerness)")
 	log.Printf("  Health:   http://localhost:%d/health", cfg.Port)
 	log.Printf("  Metrics:  http://localhost:%d/metrics", cfg.Port)
@@ -200,6 +234,47 @@ func main() {
 	}
 
 	log.Println("server stopped gracefully")
+}
+
+// runDeepgramRelay relays audio between Twilio and Deepgram.
+func runDeepgramRelay(ctx context.Context, callSid string, tw *providertwilio.Adapter, agent *dgagent.Agent) {
+	// Twilio inbound → Deepgram
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case frame, ok := <-tw.Frames:
+				if !ok {
+					return
+				}
+				agent.SendAudio(frame.Payload)
+			}
+		}
+	}()
+
+	// Deepgram outbound → Twilio
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case audio, ok := <-agent.AudioOut():
+				if !ok {
+					return
+				}
+				msg, err := tw.EncodeAudio(provider.AudioFrame{
+					Codec: "ulaw", SampleRate: 8000, Payload: audio, Direction: "outbound",
+				})
+				if err == nil && msg != nil {
+					tw.WriteRaw(msg)
+				}
+			}
+		}
+	}()
+
+	<-ctx.Done()
+	log.Printf("[%s] deepgram relay ended", callSid)
 }
 
 func countSessions() int {

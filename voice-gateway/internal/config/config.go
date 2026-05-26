@@ -53,6 +53,15 @@ type Config struct {
 	CartesiaModel   string
 	ElevenLabsAPIKey string
 
+	// Voice Runtime
+	VoiceRuntime        string // "custom" | "deepgram_agent"
+	DeepgramAPIKey      string
+	DeepgramListenModel string
+	DeepgramListenLang  string
+	DeepgramTTSModel    string
+	DeepgramThinkProvider string
+	DeepgramThinkModel  string
+
 	// Environment
 	LogLevel string
 }
@@ -86,6 +95,13 @@ func Load() (*Config, error) {
 		CartesiaVoiceID:     os.Getenv("CARTESIA_VOICE_ID"),
 		CartesiaModel:       getEnv("CARTESIA_MODEL", "sonic-2"),
 		ElevenLabsAPIKey:    os.Getenv("ELEVENLABS_API_KEY"),
+		VoiceRuntime:        getEnv("VOICE_RUNTIME", "custom"),
+		DeepgramAPIKey:      os.Getenv("DEEPGRAM_API_KEY"),
+		DeepgramListenModel: getEnv("DEEPGRAM_LISTEN_MODEL", "nova-3"),
+		DeepgramListenLang:  getEnv("DEEPGRAM_LISTEN_LANGUAGE", "en"),
+		DeepgramTTSModel:    getEnv("DEEPGRAM_TTS_MODEL", "aura-2-pandora-en"),
+		DeepgramThinkProvider: getEnv("DEEPGRAM_THINK_PROVIDER", "open_ai"),
+		DeepgramThinkModel:  getEnv("DEEPGRAM_THINK_MODEL", "gpt-4o-mini"),
 		LogLevel:            getEnv("LOG_LEVEL", "info"),
 	}
 
@@ -123,7 +139,6 @@ func (c *Config) validate() error {
 	// Voice renderer validation
 	switch c.VoiceRenderer {
 	case "openai":
-		// OpenAI native — no additional config needed
 	case "cartesia":
 		if c.CartesiaAPIKey == "" {
 			return fmt.Errorf("VOICE_RENDERER=cartesia requires CARTESIA_API_KEY")
@@ -135,6 +150,18 @@ func (c *Config) validate() error {
 		return fmt.Errorf("VOICE_RENDERER=elevenlabs is not yet implemented")
 	default:
 		return fmt.Errorf("unknown VOICE_RENDERER: %s (valid: openai, cartesia, elevenlabs)", c.VoiceRenderer)
+	}
+
+	// Voice runtime validation
+	switch c.VoiceRuntime {
+	case "custom":
+		// existing pipeline — no additional validation
+	case "deepgram_agent":
+		if c.DeepgramAPIKey == "" {
+			return fmt.Errorf("VOICE_RUNTIME=deepgram_agent requires DEEPGRAM_API_KEY")
+		}
+	default:
+		return fmt.Errorf("unknown VOICE_RUNTIME: %s (valid: custom, deepgram_agent)", c.VoiceRuntime)
 	}
 
 	return nil
