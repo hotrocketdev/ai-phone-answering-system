@@ -289,6 +289,11 @@ func (s *Session) sendSessionUpdate() error {
 		"voice":        s.config.Voice,
 		"input_audio_format":  "pcm16",
 		"output_audio_format": "pcm16",
+		"audio": map[string]interface{}{
+			"output": map[string]interface{}{
+				"voice": s.config.Voice,
+			},
+		},
 		"turn_detection": map[string]interface{}{
 			"type":                "server_vad",
 			"threshold":           0.4,
