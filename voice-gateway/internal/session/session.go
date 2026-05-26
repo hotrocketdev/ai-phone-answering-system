@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/voxlane/voice-gateway/internal/provider"
 	providertwilio "github.com/voxlane/voice-gateway/internal/provider/twilio"
 	goredis "github.com/voxlane/voice-gateway/internal/redis"
+	cartesiarend "github.com/voxlane/voice-gateway/internal/renderer/cartesia"
 	"github.com/voxlane/voice-gateway/internal/session/sm"
 )
 
@@ -48,10 +50,11 @@ type Session struct {
 	stateMachine *sm.Machine
 
 	// Components
-	provAdapter provider.Adapter
-	openaiS     *openai.Session
-	audioP      *audio.Pipeline
-	redisC      *goredis.Client
+	provAdapter    provider.Adapter
+	openaiS        *openai.Session
+	audioP         *audio.Pipeline
+	redisC         *goredis.Client
+	cartesiaRender *cartesiarend.Renderer // active when VOICE_RENDERER=cartesia
 
 	// Channels (internal)
 	stopCh   chan struct{}
@@ -66,6 +69,9 @@ type Session struct {
 
 	// Tool call state
 	pendingToolCallID string
+
+	// Cartesia state
+	cartesiaText strings.Builder
 }
 
 // ─── Creation ────────────────────────────────────────────────────────────
@@ -93,12 +99,34 @@ func (s *Session) Run(ctx context.Context) error {
 	// Phase 1: Connect to OpenAI
 	s.setMeta(MetaConnecting)
 	log.Printf("[%s] connecting to OpenAI Realtime (model=%s)...", s.ID, s.Config.OpenAIRealtimeModel)
+
+	// Create Cartesia renderer if configured
+	if s.Config.VoiceRenderer == "cartesia" {
+		if s.Config.CartesiaAPIKey == "" {
+			return fmt.Errorf("VOICE_RENDERER=cartesia requires CARTESIA_API_KEY")
+		}
+		s.cartesiaRender = cartesiarend.New(cartesiarend.Config{
+			APIKey:   s.Config.CartesiaAPIKey,
+			VoiceID:  cartesiarend.DefaultBritishVoiceID,
+			ModelID:  cartesiarend.DefaultModel,
+			Language: "en",
+		})
+		log.Printf("[%s] voice renderer: cartesia", s.ID)
+	}
+
+	// Use text-only mode when Cartesia handles voice output
+	modalities := []string{"text", "audio"}
+	if s.cartesiaRender != nil {
+		modalities = []string{"text"} // OpenAI won't generate audio
+	}
+
 	oaCfg := openai.Config{
 		APIKey:       s.Config.OpenAIAPIKey,
 		Model:        s.Config.OpenAIRealtimeModel,
-		Voice:        "marin", // best available OpenAI realtime voice — neutral, professional
+		Voice:        "marin",
 		Instructions: s.stateMachine.BuildSystemPrompt(),
 		Tools:        convertTools(s.stateMachine.AvailableTools()),
+		Modalities:   modalities,
 	}
 
 	oaSess, err := openai.NewSession(ctx, oaCfg)
@@ -295,6 +323,15 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 	case "speech_stopped":
 		// Reset silence timer
 
+	case "text.delta":
+		// Accumulate text for Cartesia rendering
+		if s.cartesiaRender != nil {
+			var delta struct{ Delta string `json:"delta"` }
+			if json.Unmarshal(evt.Data, &delta) == nil {
+				s.cartesiaText.WriteString(delta.Delta)
+			}
+		}
+
 	case "audio.done":
 		// Flush any remaining buffered audio frames
 		if mulaw := s.audioP.FlushOutbound(); mulaw != nil {
@@ -312,6 +349,12 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 		status, _ := openai.ParseResponseDone(evt.Data)
 		if status == "cancelled" {
 			s.clearBargeIn()
+		}
+
+		// Route text to Cartesia for British voice rendering
+		if s.cartesiaRender != nil && s.cartesiaText.Len() > 0 {
+			go s.renderWithCartesia(ctx, s.cartesiaText.String())
+			s.cartesiaText.Reset()
 		}
 
 	case "error":
@@ -516,6 +559,37 @@ func (s *Session) saveState(ctx context.Context) {
 		LastActivity:    time.Now(),
 	}
 	_ = s.redisC.SaveSession(ctx, state)
+}
+
+// renderWithCartesia sends text to Cartesia and routes PCM16 audio to Twilio.
+func (s *Session) renderWithCartesia(ctx context.Context, text string) {
+	if s.cartesiaRender == nil {
+		return
+	}
+	log.Printf("[%s] cartesia: sending text (%d chars)", s.ID, len(text))
+
+	audioCh, err := s.cartesiaRender.RenderStream(ctx, text)
+	if err != nil {
+		log.Printf("[%s] cartesia render failed: %v", s.ID, err)
+		return
+	}
+
+	for chunk := range audioCh {
+		// Convert Cartesia PCM16 8kHz → u-law
+		mulaw := cartesiarend.ConvertPCM16ToMulaw(chunk)
+		if len(mulaw) == 0 {
+			continue
+		}
+		s.outputSecs += float64(len(mulaw)) / 8000.0 // u-law is 1 byte per sample at 8kHz
+
+		// Send to Twilio via provider adapter
+		if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
+			Codec: "ulaw", SampleRate: 8000, Payload: mulaw, Direction: "outbound",
+		}); err == nil && msg != nil {
+			s.sendProviderMessage(msg)
+		}
+	}
+	log.Printf("[%s] cartesia: audio complete", s.ID)
 }
 
 // ─── Metrics ─────────────────────────────────────────────────────────────

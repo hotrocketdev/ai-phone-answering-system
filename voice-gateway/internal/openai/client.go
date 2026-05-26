@@ -18,11 +18,12 @@ import (
 
 // Config holds the OpenAI Realtime session configuration.
 type Config struct {
-	APIKey   string
-	Model    string
-	Voice    string
-	Tools    []Tool
+	APIKey       string
+	Model        string
+	Voice        string
+	Tools        []Tool
 	Instructions string
+	Modalities   []string // "text", "audio" — defaults to both
 }
 
 // Tool defines a tool available to the AI.
@@ -187,6 +188,12 @@ func (s *Session) handleMessage(raw []byte) {
 	case base.Type == "response.output_audio.done":
 		s.Events <- Event{Type: "audio.done", Data: raw}
 
+	case base.Type == "response.text.delta":
+		s.Events <- Event{Type: "text.delta", Data: raw}
+
+	case base.Type == "response.text.done":
+		s.Events <- Event{Type: "text.done", Data: raw}
+
 	case base.Type == "response.function_call_arguments.done":
 		s.Events <- Event{Type: "function_call.done", Data: raw}
 
@@ -288,11 +295,23 @@ func (s *Session) sendSessionUpdate() error {
 	sessionCfg := map[string]interface{}{
 		"type":         "realtime",
 		"model":        s.config.Model,
-		"modalities":   []string{"text", "audio"},
+		"modalities":   s.getModalities(),
 		"instructions": s.config.Instructions,
 		"voice":        s.config.Voice,
-		"input_audio_format":  "pcm16",
-		"output_audio_format": "pcm16",
+		"audio": map[string]interface{}{
+			"input": map[string]interface{}{
+				"format": map[string]interface{}{
+					"type": "audio/pcm",
+					"rate": 24000,
+				},
+			},
+			"output": map[string]interface{}{
+				"format": map[string]interface{}{
+					"type": "audio/pcm",
+					"rate": 24000,
+				},
+			},
+		},
 		"turn_detection": map[string]interface{}{
 			"type":                "semantic_vad",
 			"eagerness":           "medium", // balanced interruption — natural for restaurant calls
@@ -311,6 +330,13 @@ func (s *Session) sendSessionUpdate() error {
 // WriteRaw sends an arbitrary JSON message to OpenAI. Used for conversation control.
 func (s *Session) WriteRaw(v interface{}) error {
 	return s.writeJSON(v)
+}
+
+func (s *Session) getModalities() []string {
+	if len(s.config.Modalities) > 0 {
+		return s.config.Modalities
+	}
+	return []string{"text", "audio"} // default
 }
 
 func (s *Session) writeJSON(v interface{}) error {
