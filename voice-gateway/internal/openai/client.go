@@ -251,6 +251,14 @@ func (s *Session) ClearAudio() error {
 	return s.writeJSON(msg)
 }
 
+// CreateResponse triggers the AI to generate a new response.
+func (s *Session) CreateResponse() error {
+	msg := map[string]interface{}{
+		"type": "response.create",
+	}
+	return s.writeJSON(msg)
+}
+
 // ─── Internal ────────────────────────────────────────────────────────────
 
 func (s *Session) sendSessionUpdate() error {

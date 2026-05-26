@@ -92,6 +92,7 @@ func NewSession(callSid string, adapter provider.Adapter, cfg *config.Config, re
 func (s *Session) Run(ctx context.Context) error {
 	// Phase 1: Connect to OpenAI
 	s.setMeta(MetaConnecting)
+	log.Printf("[%s] connecting to OpenAI Realtime (model=%s)...", s.ID, s.Config.OpenAIRealtimeModel)
 	oaCfg := openai.Config{
 		APIKey:       s.Config.OpenAIAPIKey,
 		Model:        s.Config.OpenAIRealtimeModel,
@@ -119,6 +120,9 @@ func (s *Session) Run(ctx context.Context) error {
 	go s.runProviderLoop(ctx)
 	go s.runOpenAILoop(ctx)
 	go s.runSupervisor(ctx)
+
+	// Trigger initial AI response (greeting)
+	s.openaiS.CreateResponse()
 
 	// Wait for completion
 	<-s.doneCh
