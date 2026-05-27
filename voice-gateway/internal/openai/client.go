@@ -289,6 +289,14 @@ func (s *Session) CreateResponse() error {
 	return s.writeJSON(msg)
 }
 
+// CommitAudio commits the input audio buffer.
+func (s *Session) CommitAudio() error {
+	msg := map[string]interface{}{
+		"type": "input_audio_buffer.commit",
+	}
+	return s.writeJSON(msg)
+}
+
 // ─── Internal ────────────────────────────────────────────────────────────
 
 func (s *Session) sendSessionUpdate() error {

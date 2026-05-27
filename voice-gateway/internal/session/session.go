@@ -72,6 +72,9 @@ type Session struct {
 
 	// Cartesia state
 	cartesiaText strings.Builder
+
+	// Manual turn detection
+	lastAudioTime time.Time
 }
 
 // ─── Creation ────────────────────────────────────────────────────────────
@@ -148,6 +151,7 @@ func (s *Session) Run(ctx context.Context) error {
 	go s.runProviderLoop(ctx)
 	go s.runOpenAILoop(ctx)
 	go s.runSupervisor(ctx)
+	go s.runTurnDetection(ctx)
 
 	// Trigger initial AI response (greeting)
 	if err := s.openaiS.CreateResponse(); err != nil {
@@ -205,6 +209,7 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 			b64 := s.audioP.ProcessInbound(frame.Payload)
 			s.inputSecs += 0.020
 			_ = s.openaiS.SendAudio(b64)
+			s.lastAudioTime = time.Now()
 
 		case evt, ok := <-adapter.Events:
 			if !ok {
@@ -213,6 +218,36 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 			if evt.Type == provider.EventStopped || evt.Type == provider.EventDisconnected {
 				s.handleProviderDisconnect(ctx)
 				return
+			}
+		}
+	}
+}
+
+// checkUserTurn periodically commits audio buffer when caller stops speaking.
+func (s *Session) runTurnDetection(ctx context.Context) {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	var hasSpeech bool
+
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			if s.lastAudioTime.IsZero() {
+				continue
+			}
+			silence := time.Since(s.lastAudioTime)
+			if silence < 200*time.Millisecond {
+				hasSpeech = true
+				continue
+			}
+			if hasSpeech && silence > 600*time.Millisecond {
+				log.Printf("[%s] turn detection: committing audio", s.ID)
+				s.openaiS.CommitAudio()
+				s.openaiS.CreateResponse()
+				s.lastAudioTime = time.Time{} // reset
+				hasSpeech = false
 			}
 		}
 	}
@@ -321,7 +356,9 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 		s.handleBargeIn()
 
 	case "speech_stopped":
-		// Reset silence timer
+		s.clearBargeIn()
+		s.openaiS.CommitAudio()
+		s.openaiS.CreateResponse()
 
 	case "text.delta":
 		// Accumulate text for Cartesia rendering
