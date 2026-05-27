@@ -68,7 +68,7 @@ func (a *Agent) Start(ctx context.Context) error {
 	}
 	log.Printf("[deepgram] welcome received")
 
-	// Send Settings payload
+	// Send Settings payload — let Deepgram use its built-in LLM
 	settings := map[string]interface{}{
 		"type": "Settings",
 		"agent": map[string]interface{}{
@@ -79,31 +79,14 @@ func (a *Agent) Start(ctx context.Context) error {
 					"model":   a.cfg.DeepgramListenModel,
 				},
 			},
-			"think": map[string]interface{}{
-				"provider": map[string]interface{}{
-					"type":  a.cfg.DeepgramThinkProvider,
-					"model": a.cfg.DeepgramThinkModel,
-				},
-				"prompt": "You are a warm, professional British restaurant receptionist. Keep replies short and natural.",
-			},
 			"speak": map[string]interface{}{
 				"provider": map[string]interface{}{
 					"type":  "deepgram",
 					"model": a.cfg.DeepgramTTSModel,
 				},
 			},
-			"greeting": "Hello, how can I help you today?",
+			"greeting": "Hi, Porto Douro Restaurants, how can I help you?",
 		},
-	}
-
-	if a.cfg.DeepgramThinkProvider == "open_ai" && a.cfg.OpenAIAPIKey != "" {
-		think := settings["agent"].(map[string]interface{})["think"].(map[string]interface{})
-		think["provider"].(map[string]interface{})["endpoint"] = map[string]interface{}{
-			"url": "https://api.openai.com/v1",
-			"headers": map[string]interface{}{
-				"Authorization": "Bearer " + a.cfg.OpenAIAPIKey,
-			},
-		}
 	}
 
 	if err := a.conn.WriteJSON(settings); err != nil {
