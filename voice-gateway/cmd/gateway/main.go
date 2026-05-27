@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -140,6 +141,11 @@ func main() {
 			return
 		}
 		go twAdapter.ReadLoop()
+
+		// Test tone for Twilio outbound validation (non-blocking)
+		if os.Getenv("DEBUG_TWILIO_TEST_TONE") == "true" {
+			go sendTestTone(r.Context(), callSid, twAdapter)
+		}
 
 		// Deepgram runtime path
 		if cfg.VoiceRuntime == "deepgram_agent" {
@@ -281,6 +287,32 @@ func runDeepgramRelay(ctx context.Context, callSid string, tw *providertwilio.Ad
 
 	<-ctx.Done()
 	log.Printf("[%s] deepgram relay ended", callSid)
+}
+
+// sendTestTone sends a 440Hz test tone for Twilio outbound validation.
+func sendTestTone(ctx context.Context, callSid string, tw *providertwilio.Adapter) {
+	log.Printf("[%s] DEBUG: sending test tone", callSid)
+	// Generate 1 second of 440Hz u-law tone: 50 frames × 160 bytes
+	for frame := 0; frame < 50; frame++ {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		mulaw := make([]byte, 160)
+		for i := 0; i < 160; i++ {
+			sample := int16(16000.0 * math.Sin(2.0*math.Pi*440.0*float64(frame*160+i)/8000.0))
+			mulaw[i] = audio.EncodePCM16ToMulaw(sample)
+		}
+		msg, err := tw.EncodeAudio(provider.AudioFrame{
+			Codec: "ulaw", SampleRate: 8000, Payload: mulaw, Direction: "outbound",
+		})
+		if err == nil && msg != nil {
+			tw.WriteRaw(msg)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	log.Printf("[%s] test tone complete — caller should have heard a beep", callSid)
 }
 
 func countSessions() int {

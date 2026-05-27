@@ -297,24 +297,8 @@ func (s *Session) sendSessionUpdate() error {
 		"model":        s.config.Model,
 		"instructions": s.config.Instructions,
 		"voice":        s.config.Voice,
-		"audio": map[string]interface{}{
-			"input": map[string]interface{}{
-				"format": map[string]interface{}{
-					"type": "audio/pcm",
-					"rate": 24000,
-				},
-			},
-			"output": map[string]interface{}{
-				"format": map[string]interface{}{
-					"type": "audio/pcm",
-					"rate": 24000,
-				},
-			},
-		},
-		"turn_detection": map[string]interface{}{
-			"type":                "semantic_vad",
-			"eagerness":           "medium", // balanced interruption — natural for restaurant calls
-		},
+		"input_audio_format":  "pcm16",
+		"output_audio_format": "pcm16",
 		"tools": s.config.Tools,
 	}
 

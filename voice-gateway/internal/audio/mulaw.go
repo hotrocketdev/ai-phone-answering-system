@@ -67,6 +67,11 @@ func decodeMulaw(mulaw byte) int16 {
 
 // encodeMulaw converts a single PCM16 sample to a u-law byte.
 // Uses the precomputed lookup table for speed and correctness.
+// EncodePCM16ToMulaw converts a single PCM16 sample to u-law.
+func EncodePCM16ToMulaw(sample int16) byte {
+	return pcm16ToMulawTable[uint16(sample)]
+}
+
 func encodeMulaw(sample int16) byte {
 	return pcm16ToMulawTable[uint16(sample)]
 }
