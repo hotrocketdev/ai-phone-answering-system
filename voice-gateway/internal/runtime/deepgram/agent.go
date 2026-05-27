@@ -73,23 +73,32 @@ func (a *Agent) Start(ctx context.Context) error {
 		"type": "Settings",
 		"agent": map[string]interface{}{
 			"listen": map[string]interface{}{
-				"model":    a.cfg.DeepgramListenModel,
-				"language": a.cfg.DeepgramListenLang,
+				"provider": map[string]interface{}{
+					"type":    "deepgram",
+					"version": "v2",
+					"model":   a.cfg.DeepgramListenModel,
+				},
 			},
 			"think": map[string]interface{}{
 				"provider": map[string]interface{}{
-					"type": a.cfg.DeepgramThinkProvider,
+					"type":  a.cfg.DeepgramThinkProvider,
+					"model": a.cfg.DeepgramThinkModel,
 				},
-				"model": a.cfg.DeepgramThinkModel,
+				"prompt": "You are a warm, professional British restaurant receptionist. Keep replies short and natural.",
 			},
 			"speak": map[string]interface{}{
-				"model": a.cfg.DeepgramTTSModel,
+				"provider": map[string]interface{}{
+					"type":  "deepgram",
+					"model": a.cfg.DeepgramTTSModel,
+				},
 			},
+			"greeting": "Hello, how can I help you today?",
 		},
 	}
 
 	if a.cfg.DeepgramThinkProvider == "open_ai" && a.cfg.OpenAIAPIKey != "" {
-		settings["agent"].(map[string]interface{})["think"].(map[string]interface{})["provider"].(map[string]interface{})["endpoint"] = map[string]interface{}{
+		think := settings["agent"].(map[string]interface{})["think"].(map[string]interface{})
+		think["provider"].(map[string]interface{})["endpoint"] = map[string]interface{}{
 			"url": "https://api.openai.com/v1",
 			"headers": map[string]interface{}{
 				"Authorization": "Bearer " + a.cfg.OpenAIAPIKey,
