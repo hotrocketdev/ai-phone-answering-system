@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -27,6 +28,8 @@ type Agent struct {
 	mu       sync.Mutex
 	ctx      context.Context
 	cancel   context.CancelFunc
+	audioChunkCount int
+	audioDump       *os.File
 }
 
 // New creates a Deepgram Voice Agent session.
@@ -68,9 +71,20 @@ func (a *Agent) Start(ctx context.Context) error {
 	}
 	log.Printf("[deepgram] welcome received")
 
-	// Send Settings payload — let Deepgram use its built-in LLM
+	// Send Settings payload
 	settings := map[string]interface{}{
 		"type": "Settings",
+		"audio": map[string]interface{}{
+			"input": map[string]interface{}{
+				"encoding":    "mulaw",
+				"sample_rate": 8000,
+			},
+			"output": map[string]interface{}{
+				"encoding":    "mulaw",
+				"sample_rate": 8000,
+				"container":   "none",
+			},
+		},
 		"agent": map[string]interface{}{
 			"listen": map[string]interface{}{
 				"provider": map[string]interface{}{
@@ -85,7 +99,7 @@ func (a *Agent) Start(ctx context.Context) error {
 					"model": a.cfg.DeepgramTTSModel,
 				},
 			},
-			"greeting": "Hi, Porto Douro Restaurants, how can I help you?",
+			"greeting": "Good afternoon. Porto Douro Restaurants. How can I help?",
 		},
 	}
 
@@ -142,11 +156,27 @@ func (a *Agent) readLoop(ctx context.Context) {
 
 		msgType, data, err := a.conn.ReadMessage()
 		if err != nil {
+			log.Printf("[deepgram] read error: %v", err)
 			return
 		}
 
 		// Binary = audio output
 		if msgType == websocket.BinaryMessage {
+			a.audioChunkCount++
+			if a.audioChunkCount == 1 {
+				// Log first 200 chars to see JSON structure
+				preview := len(data)
+				if preview > 200 { preview = 200 }
+				log.Printf("[deepgram] FIRST BINARY MSG (%d bytes): %s", len(data), string(data[:preview]))
+			}
+			// Audio dump for local inspection
+			if os.Getenv("DEBUG_DEEPGRAM_AUDIO_DUMP") == "true" && a.audioDump == nil {
+				f, err := os.Create(fmt.Sprintf("deepgram_audio_%s.raw", a.cfg.DeepgramTTSModel))
+				if err == nil { a.audioDump = f }
+			}
+			if a.audioDump != nil && a.audioChunkCount <= 100 {
+				a.audioDump.Write(data)
+			}
 			select {
 			case a.audioOut <- data:
 			case <-ctx.Done():
@@ -160,8 +190,10 @@ func (a *Agent) readLoop(ctx context.Context) {
 			Type string `json:"type"`
 		}
 		if err := json.Unmarshal(data, &base); err != nil {
+			log.Printf("[deepgram] unknown text: %s", string(data[:min(len(data), 100)]))
 			continue
 		}
+		log.Printf("[deepgram] event: %s", base.Type)
 
 		switch base.Type {
 		case "UserStartedSpeaking":

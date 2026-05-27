@@ -246,7 +246,7 @@ func main() {
 // runDeepgramRelay relays audio between Twilio and Deepgram.
 // Twilio: u-law 8kHz. Deepgram: linear16 48kHz in, linear16 24kHz out.
 func runDeepgramRelay(ctx context.Context, callSid string, tw *providertwilio.Adapter, agent *dgagent.Agent) {
-	pipe := audio.NewPipeline()
+	outPipe := audio.NewPipeline() // Twilio u-law → PCM16 24kHz → Deepgram
 
 	// Twilio u-law 8kHz → PCM16 24kHz → Deepgram
 	go func() {
@@ -256,14 +256,13 @@ func runDeepgramRelay(ctx context.Context, callSid string, tw *providertwilio.Ad
 				return
 			case frame, ok := <-tw.Frames:
 				if !ok { return }
-				// Convert u-law to PCM16 24kHz (Deepgram accepts linear16)
-				pcm24k := pipe.ProcessInboundBytes(frame.Payload)
+				pcm24k := outPipe.ProcessInboundBytes(frame.Payload)
 				agent.SendAudio(pcm24k)
 			}
 		}
 	}()
 
-	// Deepgram PCM16 24kHz → u-law 8kHz → Twilio
+	// Deepgram u-law → Twilio (direct — no conversion needed)
 	go func() {
 		for {
 			select {
@@ -271,20 +270,24 @@ func runDeepgramRelay(ctx context.Context, callSid string, tw *providertwilio.Ad
 				return
 			case audio, ok := <-agent.AudioOut():
 				if !ok { return }
-				// Convert PCM16 24kHz to u-law 8kHz
-				mulaw := pipe.ProcessOutboundBytes(audio)
-				for _, frame := range mulaw {
+				// Deepgram sends u-law 8kHz — split into 160-byte Twilio frames
+				for i := 0; i < len(audio); i += 160 {
+					end := i + 160
+					if end > len(audio) { end = len(audio) }
+					frame := audio[i:end]
+					if len(frame) < 160 {
+						padded := make([]byte, 160)
+						copy(padded, frame)
+						frame = padded
+					}
 					msg, err := tw.EncodeAudio(provider.AudioFrame{
 						Codec: "ulaw", SampleRate: 8000, Payload: frame, Direction: "outbound",
 					})
-					if err == nil && msg != nil {
-						tw.WriteRaw(msg)
-					}
+					if err == nil && msg != nil { tw.WriteRaw(msg) }
 				}
 			}
 		}
 	}()
-
 	<-ctx.Done()
 	log.Printf("[%s] deepgram relay ended", callSid)
 }

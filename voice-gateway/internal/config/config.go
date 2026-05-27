@@ -97,7 +97,7 @@ func Load() (*Config, error) {
 		ElevenLabsAPIKey:    os.Getenv("ELEVENLABS_API_KEY"),
 		VoiceRuntime:        getEnv("VOICE_RUNTIME", "custom"),
 		DeepgramAPIKey:      os.Getenv("DEEPGRAM_API_KEY"),
-		DeepgramListenModel: getEnv("DEEPGRAM_LISTEN_MODEL", "nova-3"),
+		DeepgramListenModel: getEnv("DEEPGRAM_LISTEN_MODEL", "flux-general-en"),
 		DeepgramListenLang:  getEnv("DEEPGRAM_LISTEN_LANGUAGE", "en"),
 		DeepgramTTSModel:    getEnv("DEEPGRAM_TTS_MODEL", "aura-2-pandora-en"),
 		DeepgramThinkProvider: getEnv("DEEPGRAM_THINK_PROVIDER", "open_ai"),
