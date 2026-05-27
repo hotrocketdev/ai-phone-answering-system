@@ -35,7 +35,7 @@ func New(ctx context.Context, cfg runtime.Config) (*Agent, error) {
 	headers.Set("Authorization", "Token "+cfg.DeepgramAPIKey)
 
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx,
-		"wss://api.deepgram.com/v1/agent", headers)
+		"wss://agent.deepgram.com/v1/agent/converse", headers)
 	if err != nil {
 		return nil, fmt.Errorf("deepgram connect: %w", err)
 	}
