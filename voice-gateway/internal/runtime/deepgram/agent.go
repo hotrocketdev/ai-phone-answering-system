@@ -56,6 +56,18 @@ func New(ctx context.Context, cfg runtime.Config) (*Agent, error) {
 func (a *Agent) Provider() runtime.Provider { return runtime.ProviderDeepgramAgent }
 
 func (a *Agent) Start(ctx context.Context) error {
+	// Wait for Welcome message first (Deepgram requirement)
+	_, raw, err := a.conn.ReadMessage()
+	if err != nil {
+		return fmt.Errorf("deepgram welcome: %w", err)
+	}
+	var welcome struct{ Type string `json:"type"` }
+	json.Unmarshal(raw, &welcome)
+	if welcome.Type != "Welcome" {
+		return fmt.Errorf("expected Welcome, got %s", welcome.Type)
+	}
+	log.Printf("[deepgram] welcome received")
+
 	// Send Settings payload
 	settings := map[string]interface{}{
 		"type": "Settings",
