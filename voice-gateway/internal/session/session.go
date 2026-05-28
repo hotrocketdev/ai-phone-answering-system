@@ -72,6 +72,7 @@ type Session struct {
 
 	// Cartesia state
 	cartesiaMu             sync.Mutex
+	cartesiaFrameQ         chan []byte // queued u-law frames for paced output
 	cartesiaText           strings.Builder
 	cartesiaRemain         []byte // accumulates partial u-law frames
 	cartesiaTranscriptSeen bool
@@ -125,6 +126,8 @@ func (s *Session) Run(ctx context.Context) error {
 			Volume:   s.Config.CartesiaVolume,
 			Emotion:  s.Config.CartesiaEmotion,
 		})
+		s.cartesiaFrameQ = make(chan []byte, 1000) // buffer ~20 seconds of audio
+		go s.runCartesiaPacer(ctx)
 		log.Printf("[%s] voice renderer: cartesia", s.ID)
 	}
 
@@ -529,23 +532,49 @@ func (s *Session) runCartesiaRenderLoop(ctx context.Context) {
 }
 
 func (s *Session) sendMulawToTwilio(mulaw []byte) int {
-	// Append to remainder buffer
 	s.cartesiaRemain = append(s.cartesiaRemain, mulaw...)
 	frameCount := 0
 
-	// Emit full 160-byte frames
 	for len(s.cartesiaRemain) >= 160 {
-		frame := s.cartesiaRemain[:160]
+		frame := make([]byte, 160)
+		copy(frame, s.cartesiaRemain[:160])
 		s.cartesiaRemain = s.cartesiaRemain[160:]
 
-		if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
-			Codec: "ulaw", SampleRate: 8000, Payload: frame, Direction: "outbound",
-		}); err == nil && msg != nil {
-			s.sendProviderMessage(msg, "cartesia")
+		// Push to paced queue (non-blocking)
+		select {
+		case s.cartesiaFrameQ <- frame:
 			frameCount++
+		default:
+			// Queue full — drop frame
 		}
 	}
 	return frameCount
+}
+
+// runCartesiaPacer sends queued frames at 20ms intervals.
+func (s *Session) runCartesiaPacer(ctx context.Context) {
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			select {
+			case frame := <-s.cartesiaFrameQ:
+				if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
+					Codec: "ulaw", SampleRate: 8000, Payload: frame, Direction: "outbound",
+				}); err == nil && msg != nil {
+					s.sendProviderMessage(msg, "cartesia")
+				}
+			default:
+				// No frames queued
+			}
+		}
+	}
 }
 
 func (s *Session) handleBargeIn() {
