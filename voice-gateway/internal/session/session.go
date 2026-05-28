@@ -45,8 +45,8 @@ type Session struct {
 	ID     string // CallSid
 	Config *config.Config
 
-	mu       sync.RWMutex
-	metaState MetaState
+	mu           sync.RWMutex
+	metaState    MetaState
 	stateMachine *sm.Machine
 
 	// Components
@@ -57,8 +57,8 @@ type Session struct {
 	cartesiaRender *cartesiarend.Renderer // active when VOICE_RENDERER=cartesia
 
 	// Channels (internal)
-	stopCh   chan struct{}
-	doneCh   chan struct{}
+	stopCh chan struct{}
+	doneCh chan struct{}
 
 	// Metrics
 	inputSecs  float64
@@ -71,7 +71,14 @@ type Session struct {
 	pendingToolCallID string
 
 	// Cartesia state
-	cartesiaText strings.Builder
+	cartesiaMu             sync.Mutex
+	cartesiaText           strings.Builder
+	cartesiaRemain         []byte // accumulates partial u-law frames
+	cartesiaTranscriptSeen bool
+	openAIAudioDropLogged  bool
+	openAIAudioDropCount   int
+	openAIResponseActive   bool
+	cartesiaRenderQueue    chan string
 
 	// Manual turn detection
 	lastAudioTime time.Time
@@ -82,16 +89,17 @@ type Session struct {
 // NewSession creates a new call session.
 func NewSession(callSid string, adapter provider.Adapter, cfg *config.Config, redisC *goredis.Client) *Session {
 	return &Session{
-		ID:           callSid,
-		Config:       cfg,
-		provAdapter:  adapter,
-		redisC:       redisC,
-		audioP:       audio.NewPipeline(),
-		stateMachine: sm.New("Bella Roma"), // TODO: tenant config
-		metaState:    MetaCreated,
-		stopCh:       make(chan struct{}),
-		doneCh:       make(chan struct{}),
-		startTime:    time.Now(),
+		ID:                  callSid,
+		Config:              cfg,
+		provAdapter:         adapter,
+		redisC:              redisC,
+		audioP:              audio.NewPipeline(),
+		stateMachine:        sm.New(cfg.BusinessName),
+		metaState:           MetaCreated,
+		stopCh:              make(chan struct{}),
+		doneCh:              make(chan struct{}),
+		cartesiaRenderQueue: make(chan string, 32),
+		startTime:           time.Now(),
 	}
 }
 
@@ -112,7 +120,10 @@ func (s *Session) Run(ctx context.Context) error {
 			APIKey:   s.Config.CartesiaAPIKey,
 			VoiceID:  s.Config.CartesiaVoiceID,
 			ModelID:  s.Config.CartesiaModel,
-			Language: "en",
+			Language: s.Config.CartesiaLanguage,
+			Speed:    s.Config.CartesiaSpeed,
+			Volume:   s.Config.CartesiaVolume,
+			Emotion:  s.Config.CartesiaEmotion,
 		})
 		log.Printf("[%s] voice renderer: cartesia", s.ID)
 	}
@@ -124,6 +135,8 @@ func (s *Session) Run(ctx context.Context) error {
 		Instructions: s.stateMachine.BuildSystemPrompt(),
 		Tools:        convertTools(s.stateMachine.AvailableTools()),
 	}
+	log.Printf("[%s] instruction source: business_name=%q", s.ID, s.Config.BusinessName)
+	log.Printf("[%s] OpenAI instructions preview: %.200s", s.ID, strings.ReplaceAll(oaCfg.Instructions, "\n", " "))
 
 	oaSess, err := openai.NewSession(ctx, oaCfg)
 	if err != nil {
@@ -144,7 +157,8 @@ func (s *Session) Run(ctx context.Context) error {
 	go s.runProviderLoop(ctx)
 	go s.runOpenAILoop(ctx)
 	go s.runSupervisor(ctx)
-	go s.runTurnDetection(ctx)
+	go s.runCartesiaRenderLoop(ctx)
+	log.Printf("[%s] manual turn detection disabled; using OpenAI Realtime turn events", s.ID)
 
 	// Trigger initial AI response (greeting)
 	if s.openaiS != nil && !s.openaiS.IsClosed() {
@@ -203,7 +217,11 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 			}
 			b64 := s.audioP.ProcessInbound(frame.Payload)
 			s.inputSecs += 0.020
-			_ = s.openaiS.SendAudio(b64)
+			if s.openaiS != nil {
+				if err := s.openaiS.SendAudio(b64); err != nil {
+					log.Printf("[%s] OpenAI SendAudio skipped: %v", s.ID, err)
+				}
+			}
 			s.lastAudioTime = time.Now()
 
 		case evt, ok := <-adapter.Events:
@@ -243,8 +261,12 @@ func (s *Session) runTurnDetection(ctx context.Context) {
 					continue
 				}
 				log.Printf("[%s] turn detection: committing audio", s.ID)
-				s.openaiS.CommitAudio()
-				s.openaiS.CreateResponse()
+				if err := s.openaiS.CommitAudio(); err != nil {
+					log.Printf("[%s] CommitAudio skipped: %v", s.ID, err)
+				}
+				if err := s.openaiS.CreateResponse(); err != nil {
+					log.Printf("[%s] CreateResponse skipped: %v", s.ID, err)
+				}
 				s.lastAudioTime = time.Time{}
 				hasSpeech = false
 			}
@@ -262,8 +284,18 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if s.isBargingIn() || s.cartesiaRender != nil {
-				continue // suppress OpenAI native audio when Cartesia is active
+			if s.cartesiaRender != nil {
+				if !s.openAIAudioDropLogged {
+					log.Printf("[%s] DROPPED_OPENAI_AUDIO_CARTESIA_ACTIVE", s.ID)
+					s.openAIAudioDropLogged = true
+				}
+				s.mu.Lock()
+				s.openAIAudioDropCount++
+				s.mu.Unlock()
+				continue
+			}
+			if s.isBargingIn() {
+				continue
 			}
 
 			// Process PCM16 24kHz → u-law 8kHz → Twilio
@@ -273,7 +305,7 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 				if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
 					Codec: "ulaw", SampleRate: 8000, Payload: mulaw, Direction: "outbound",
 				}); err == nil && msg != nil {
-					s.sendProviderMessage(msg)
+					s.sendProviderMessage(msg, "openai")
 				}
 			}
 
@@ -288,9 +320,13 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 
 // sendProviderMessage writes a raw message to the provider WebSocket.
 // Uses the Twilio adapter's conn for now; future providers will use the interface.
-func (s *Session) sendProviderMessage(data []byte) {
+func (s *Session) sendProviderMessage(data []byte, source string) {
 	if adapter, ok := s.provAdapter.(*providertwilio.Adapter); ok {
-		adapter.WriteRaw(data)
+		if err := adapter.WriteRaw(data); err != nil {
+			log.Printf("[%s] outbound media write failed source=%s: %v", s.ID, source, err)
+			return
+		}
+		log.Printf("[%s] outbound media frame sent source=%s", s.ID, source)
 	}
 }
 
@@ -343,8 +379,13 @@ func (s *Session) injectSilencePrompt() {
 		},
 	}
 	// Send the nudge and trigger a new response
-	s.openaiS.WriteRaw(msg)
-	s.openaiS.WriteRaw(map[string]interface{}{"type": "response.create"})
+	if err := s.openaiS.WriteRaw(msg); err != nil {
+		log.Printf("[%s] silence prompt skipped: %v", s.ID, err)
+		return
+	}
+	if err := s.openaiS.WriteRaw(map[string]interface{}{"type": "response.create"}); err != nil {
+		log.Printf("[%s] silence response skipped: %v", s.ID, err)
+	}
 }
 
 // ─── OpenAI Event Handling ───────────────────────────────────────────────
@@ -356,32 +397,50 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 
 	case "speech_stopped":
 		s.clearBargeIn()
-		s.openaiS.CommitAudio()
-		s.openaiS.CreateResponse()
+		log.Printf("[%s] speech_stopped received; letting OpenAI Realtime create the response", s.ID)
 
 	case "text.delta":
 		// Accumulate text for Cartesia rendering
 		if s.cartesiaRender != nil {
-			var delta struct{ Delta string `json:"delta"` }
+			var delta struct {
+				Delta string `json:"delta"`
+			}
 			if json.Unmarshal(evt.Data, &delta) == nil {
-				s.cartesiaText.WriteString(delta.Delta)
+				s.bufferCartesiaTranscript(ctx, delta.Delta)
+			}
+		}
+
+	case "audio_transcript.delta":
+		if s.cartesiaRender != nil {
+			var delta struct {
+				Delta string `json:"delta"`
+			}
+			if json.Unmarshal(evt.Data, &delta) == nil {
+				s.bufferCartesiaTranscript(ctx, delta.Delta)
 			}
 		}
 
 	case "audio.done":
+		if s.cartesiaRender != nil {
+			return
+		}
 		// Flush any remaining buffered audio frames
 		if mulaw := s.audioP.FlushOutbound(); mulaw != nil {
 			if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
 				Codec: "ulaw", SampleRate: 8000, Payload: mulaw, Direction: "outbound",
 			}); err == nil && msg != nil {
-				s.sendProviderMessage(msg)
+				s.sendProviderMessage(msg, "openai")
 			}
 		}
 
 	case "function_call.done":
 		s.handleToolCall(ctx, evt.Data)
 
+	case "response.created":
+		s.setOpenAIResponseActive(true)
+
 	case "response.done":
+		s.setOpenAIResponseActive(false)
 		status, _ := openai.ParseResponseDone(evt.Data)
 		if status == "cancelled" {
 			s.clearBargeIn()
@@ -389,15 +448,12 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 
 		// Route text to Cartesia for British voice rendering
 		if s.cartesiaRender != nil {
-			// Extract transcript from response.done event (OpenAI audio mode)
-			text := extractTranscript(evt.Data)
-			if text != "" {
-				go s.renderWithCartesia(ctx, text)
+			if !s.flushCartesiaTranscript(ctx) {
+				text := extractTranscript(evt.Data)
+				if text != "" {
+					s.enqueueCartesiaText(text)
+				}
 			}
-		}
-		if s.cartesiaRender != nil && s.cartesiaText.Len() > 0 {
-			go s.renderWithCartesia(ctx, s.cartesiaText.String())
-			s.cartesiaText.Reset()
 		}
 
 	case "error":
@@ -405,11 +461,113 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 	}
 }
 
+func (s *Session) bufferCartesiaTranscript(ctx context.Context, delta string) {
+	if delta == "" {
+		return
+	}
+
+	s.cartesiaMu.Lock()
+	s.cartesiaTranscriptSeen = true
+	s.cartesiaText.WriteString(delta)
+	text := s.cartesiaText.String()
+	hasBoundary := strings.ContainsAny(delta, ".!?;:\n")
+	shouldFlush := (hasBoundary && len(text) >= 20) || len(text) >= 100
+	if !shouldFlush {
+		s.cartesiaMu.Unlock()
+		return
+	}
+	s.cartesiaText.Reset()
+	s.cartesiaMu.Unlock()
+
+	text = strings.TrimSpace(text)
+	if text != "" {
+		s.enqueueCartesiaText(text)
+	}
+}
+
+func (s *Session) flushCartesiaTranscript(ctx context.Context) bool {
+	s.cartesiaMu.Lock()
+	seen := s.cartesiaTranscriptSeen
+	text := strings.TrimSpace(s.cartesiaText.String())
+	s.cartesiaText.Reset()
+	s.cartesiaMu.Unlock()
+
+	if text != "" {
+		s.enqueueCartesiaText(text)
+		return true
+	}
+	return seen
+}
+
+func (s *Session) enqueueCartesiaText(text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+
+	select {
+	case s.cartesiaRenderQueue <- text:
+		log.Printf("[%s] cartesia: queued text (%d chars)", s.ID, len(text))
+	case <-s.stopCh:
+		log.Printf("[%s] cartesia: queue skipped; session stopping", s.ID)
+	default:
+		log.Printf("[%s] cartesia: queue full; dropping text (%d chars)", s.ID, len(text))
+	}
+}
+
+func (s *Session) runCartesiaRenderLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.stopCh:
+			return
+		case text := <-s.cartesiaRenderQueue:
+			s.renderWithCartesia(ctx, text)
+		}
+	}
+}
+
+func (s *Session) sendMulawToTwilio(mulaw []byte) int {
+	// Append to remainder buffer
+	s.cartesiaRemain = append(s.cartesiaRemain, mulaw...)
+	frameCount := 0
+
+	// Emit full 160-byte frames
+	for len(s.cartesiaRemain) >= 160 {
+		frame := s.cartesiaRemain[:160]
+		s.cartesiaRemain = s.cartesiaRemain[160:]
+
+		if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
+			Codec: "ulaw", SampleRate: 8000, Payload: frame, Direction: "outbound",
+		}); err == nil && msg != nil {
+			s.sendProviderMessage(msg, "cartesia")
+			frameCount++
+		}
+	}
+	return frameCount
+}
+
 func (s *Session) handleBargeIn() {
 	s.mu.Lock()
 	s.bargeIns++
+	active := s.openAIResponseActive
 	s.mu.Unlock()
-	s.openaiS.CancelResponse()
+	if !active {
+		log.Printf("[%s] CancelResponse skipped: no active OpenAI response", s.ID)
+		return
+	}
+	if s.openaiS != nil {
+		if err := s.openaiS.CancelResponse(); err != nil {
+			log.Printf("[%s] CancelResponse skipped: %v", s.ID, err)
+		}
+	}
+}
+
+func (s *Session) setOpenAIResponseActive(active bool) {
+	s.mu.Lock()
+	s.openAIResponseActive = active
+	s.mu.Unlock()
 }
 
 func (s *Session) handleToolCall(ctx context.Context, raw json.RawMessage) {
@@ -622,12 +780,7 @@ func (s *Session) renderWithCartesia(ctx context.Context, text string) {
 		chunkCount++
 		// Cartesia outputs pcm_mulaw 8kHz natively — send directly
 		s.outputSecs += float64(len(chunk)) / 8000.0
-
-		if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
-			Codec: "ulaw", SampleRate: 8000, Payload: chunk, Direction: "outbound",
-		}); err == nil && msg != nil {
-			s.sendProviderMessage(msg)
-		}
+		s.sendMulawToTwilio(chunk)
 	}
 	log.Printf("[%s] cartesia: %d chunks sent to Twilio", s.ID, chunkCount)
 	log.Printf("[%s] cartesia: audio complete", s.ID)
