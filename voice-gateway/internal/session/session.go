@@ -117,19 +117,12 @@ func (s *Session) Run(ctx context.Context) error {
 		log.Printf("[%s] voice renderer: cartesia", s.ID)
 	}
 
-	// Use text-only mode when Cartesia handles voice output
-	modalities := []string{"text", "audio"}
-	if s.cartesiaRender != nil {
-		modalities = []string{"text"} // OpenAI won't generate audio
-	}
-
 	oaCfg := openai.Config{
 		APIKey:       s.Config.OpenAIAPIKey,
 		Model:        s.Config.OpenAIRealtimeModel,
 		Voice:        "marin",
 		Instructions: s.stateMachine.BuildSystemPrompt(),
 		Tools:        convertTools(s.stateMachine.AvailableTools()),
-		Modalities:   modalities,
 	}
 
 	oaSess, err := openai.NewSession(ctx, oaCfg)
@@ -154,10 +147,12 @@ func (s *Session) Run(ctx context.Context) error {
 	go s.runTurnDetection(ctx)
 
 	// Trigger initial AI response (greeting)
-	if err := s.openaiS.CreateResponse(); err != nil {
-		log.Printf("[%s] CreateResponse failed: %v", s.ID, err)
-	} else {
-		log.Printf("[%s] CreateResponse sent", s.ID)
+	if s.openaiS != nil && !s.openaiS.IsClosed() {
+		if err := s.openaiS.CreateResponse(); err != nil {
+			log.Printf("[%s] CreateResponse failed: %v", s.ID, err)
+		} else {
+			log.Printf("[%s] CreateResponse sent", s.ID)
+		}
 	}
 
 	// Wait for completion
@@ -243,10 +238,14 @@ func (s *Session) runTurnDetection(ctx context.Context) {
 				continue
 			}
 			if hasSpeech && silence > 600*time.Millisecond {
+				if s.openaiS == nil || s.openaiS.IsClosed() {
+					hasSpeech = false
+					continue
+				}
 				log.Printf("[%s] turn detection: committing audio", s.ID)
 				s.openaiS.CommitAudio()
 				s.openaiS.CreateResponse()
-				s.lastAudioTime = time.Time{} // reset
+				s.lastAudioTime = time.Time{}
 				hasSpeech = false
 			}
 		}
@@ -263,8 +262,8 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if s.isBargingIn() {
-				continue
+			if s.isBargingIn() || s.cartesiaRender != nil {
+				continue // suppress OpenAI native audio when Cartesia is active
 			}
 
 			// Process PCM16 24kHz → u-law 8kHz → Twilio
@@ -389,6 +388,13 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 		}
 
 		// Route text to Cartesia for British voice rendering
+		if s.cartesiaRender != nil {
+			// Extract transcript from response.done event (OpenAI audio mode)
+			text := extractTranscript(evt.Data)
+			if text != "" {
+				go s.renderWithCartesia(ctx, text)
+			}
+		}
 		if s.cartesiaRender != nil && s.cartesiaText.Len() > 0 {
 			go s.renderWithCartesia(ctx, s.cartesiaText.String())
 			s.cartesiaText.Reset()
@@ -611,22 +617,40 @@ func (s *Session) renderWithCartesia(ctx context.Context, text string) {
 		return
 	}
 
+	chunkCount := 0
 	for chunk := range audioCh {
-		// Convert Cartesia PCM16 8kHz → u-law
-		mulaw := cartesiarend.ConvertPCM16ToMulaw(chunk)
-		if len(mulaw) == 0 {
-			continue
-		}
-		s.outputSecs += float64(len(mulaw)) / 8000.0 // u-law is 1 byte per sample at 8kHz
+		chunkCount++
+		// Cartesia outputs pcm_mulaw 8kHz natively — send directly
+		s.outputSecs += float64(len(chunk)) / 8000.0
 
-		// Send to Twilio via provider adapter
 		if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
-			Codec: "ulaw", SampleRate: 8000, Payload: mulaw, Direction: "outbound",
+			Codec: "ulaw", SampleRate: 8000, Payload: chunk, Direction: "outbound",
 		}); err == nil && msg != nil {
 			s.sendProviderMessage(msg)
 		}
 	}
+	log.Printf("[%s] cartesia: %d chunks sent to Twilio", s.ID, chunkCount)
 	log.Printf("[%s] cartesia: audio complete", s.ID)
+}
+
+// extractTranscript pulls the assistant text from a response.done event.
+func extractTranscript(raw json.RawMessage) string {
+	var event struct {
+		Response struct {
+			Output []struct {
+				Content []struct {
+					Transcript string `json:"transcript"`
+				} `json:"content"`
+			} `json:"output"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(raw, &event) != nil {
+		return ""
+	}
+	if len(event.Response.Output) > 0 && len(event.Response.Output[0].Content) > 0 {
+		return event.Response.Output[0].Content[0].Transcript
+	}
+	return ""
 }
 
 // ─── Metrics ─────────────────────────────────────────────────────────────

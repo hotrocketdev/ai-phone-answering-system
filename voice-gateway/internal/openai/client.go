@@ -304,10 +304,7 @@ func (s *Session) sendSessionUpdate() error {
 		"type":         "realtime",
 		"model":        s.config.Model,
 		"instructions": s.config.Instructions,
-		"voice":        s.config.Voice,
-		"input_audio_format":  "pcm16",
-		"output_audio_format": "pcm16",
-		"tools": s.config.Tools,
+		"tools":        s.config.Tools,
 	}
 
 	msg := map[string]interface{}{
@@ -331,6 +328,11 @@ func (s *Session) getModalities() []string {
 }
 
 func (s *Session) writeJSON(v interface{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil {
+		return fmt.Errorf("openai: connection closed")
+	}
 	return s.conn.WriteJSON(v)
 }
 
@@ -374,14 +376,27 @@ func (s *Session) SessionID() string {
 
 // Close gracefully closes the WebSocket connection.
 func (s *Session) Close() error {
-	return s.conn.WriteMessage(
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil {
+		return nil
+	}
+	err := s.conn.WriteMessage(
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "session end"),
 	)
+	s.conn.Close()
+	s.conn = nil
+	return err
 }
 
-// IsClosed returns true if the session's Done channel is closed.
+// IsClosed returns true if the session's Done channel is closed or conn is nil.
 func (s *Session) IsClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil {
+		return true
+	}
 	select {
 	case <-s.Done:
 		return true
