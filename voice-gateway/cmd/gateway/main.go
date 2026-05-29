@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +21,7 @@ import (
 	"github.com/voxlane/voice-gateway/internal/provider"
 	providertwilio "github.com/voxlane/voice-gateway/internal/provider/twilio"
 	goredis "github.com/voxlane/voice-gateway/internal/redis"
+	cartesiarend "github.com/voxlane/voice-gateway/internal/renderer/cartesia"
 	"github.com/voxlane/voice-gateway/internal/runtime"
 	dgagent "github.com/voxlane/voice-gateway/internal/runtime/deepgram"
 	"github.com/voxlane/voice-gateway/internal/session"
@@ -142,9 +142,11 @@ func main() {
 		}
 		go twAdapter.ReadLoop()
 
-		// Test tone for Twilio outbound validation (non-blocking)
-		if os.Getenv("DEBUG_TWILIO_TEST_TONE") == "true" {
-			go sendTestTone(r.Context(), callSid, twAdapter)
+		// Cartesia direct greeting bypass (isolates Cartesia→Twilio path)
+		if os.Getenv("DEBUG_CARTESIA_DIRECT_GREETING") == "true" {
+			log.Printf("[%s] DEBUG: Cartesia direct greeting", callSid)
+			runCartesiaDirectGreeting(r.Context(), callSid, twAdapter, cfg)
+			return
 		}
 
 		// Deepgram runtime path
@@ -222,6 +224,26 @@ func main() {
 	}()
 
 	log.Printf("VoxLane Voice Gateway starting on :%d", cfg.Port)
+	log.Printf("  Safe config status:")
+	log.Printf("    VOICE_RUNTIME=%s", cfg.VoiceRuntime)
+	log.Printf("    VOICE_RENDERER=%s", cfg.VoiceRenderer)
+	log.Printf("    CARTESIA_API_KEY present=%t", cfg.CartesiaAPIKey != "")
+	log.Printf("    CARTESIA_VOICE_ID present=%t", cfg.CartesiaVoiceID != "")
+	log.Printf("    CARTESIA_MODEL=%s", cfg.CartesiaModel)
+	log.Printf("    CARTESIA_LANGUAGE=%s", cfg.CartesiaLanguage)
+	log.Printf("    CARTESIA_SPEED=%.2f", cfg.CartesiaSpeed)
+	log.Printf("    CARTESIA_VOLUME=%.2f", cfg.CartesiaVolume)
+	log.Printf("    CARTESIA_EMOTION=%s", cfg.CartesiaEmotion)
+	log.Printf("    OPENAI_API_KEY present=%t", cfg.OpenAIAPIKey != "")
+	if len(cfg.OpenAIAPIKey) >= 4 {
+		log.Printf("    OPENAI_API_KEY suffix=%s", cfg.OpenAIAPIKey[len(cfg.OpenAIAPIKey)-4:])
+	}
+	log.Printf("    BUSINESS_NAME=%s", cfg.BusinessName)
+	if os.Getenv("BUSINESS_NAME") != "" {
+		log.Printf("    BUSINESS_NAME source=env")
+	} else {
+		log.Printf("    BUSINESS_NAME source=default")
+	}
 	log.Printf("  Model:    %s", cfg.OpenAIRealtimeModel)
 	log.Printf("  Voice:    marin")
 	log.Printf("  Runtime:  %s", cfg.VoiceRuntime)
@@ -255,7 +277,9 @@ func runDeepgramRelay(ctx context.Context, callSid string, tw *providertwilio.Ad
 			case <-ctx.Done():
 				return
 			case frame, ok := <-tw.Frames:
-				if !ok { return }
+				if !ok {
+					return
+				}
 				pcm24k := outPipe.ProcessInboundBytes(frame.Payload)
 				agent.SendAudio(pcm24k)
 			}
@@ -269,11 +293,15 @@ func runDeepgramRelay(ctx context.Context, callSid string, tw *providertwilio.Ad
 			case <-ctx.Done():
 				return
 			case audio, ok := <-agent.AudioOut():
-				if !ok { return }
+				if !ok {
+					return
+				}
 				// Deepgram sends u-law 8kHz — split into 160-byte Twilio frames
 				for i := 0; i < len(audio); i += 160 {
 					end := i + 160
-					if end > len(audio) { end = len(audio) }
+					if end > len(audio) {
+						end = len(audio)
+					}
 					frame := audio[i:end]
 					if len(frame) < 160 {
 						padded := make([]byte, 160)
@@ -283,7 +311,13 @@ func runDeepgramRelay(ctx context.Context, callSid string, tw *providertwilio.Ad
 					msg, err := tw.EncodeAudio(provider.AudioFrame{
 						Codec: "ulaw", SampleRate: 8000, Payload: frame, Direction: "outbound",
 					})
-					if err == nil && msg != nil { tw.WriteRaw(msg) }
+					if err == nil && msg != nil {
+						if err := tw.WriteRaw(msg); err != nil {
+							log.Printf("[%s] outbound media write failed source=deepgram: %v", callSid, err)
+						} else {
+							log.Printf("[%s] outbound media frame sent source=deepgram", callSid)
+						}
+					}
 				}
 			}
 		}
@@ -292,30 +326,52 @@ func runDeepgramRelay(ctx context.Context, callSid string, tw *providertwilio.Ad
 	log.Printf("[%s] deepgram relay ended", callSid)
 }
 
-// sendTestTone sends a 440Hz test tone for Twilio outbound validation.
-func sendTestTone(ctx context.Context, callSid string, tw *providertwilio.Adapter) {
-	log.Printf("[%s] DEBUG: sending test tone", callSid)
-	// Generate 1 second of 440Hz u-law tone: 50 frames × 160 bytes
-	for frame := 0; frame < 50; frame++ {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-		mulaw := make([]byte, 160)
-		for i := 0; i < 160; i++ {
-			sample := int16(16000.0 * math.Sin(2.0*math.Pi*440.0*float64(frame*160+i)/8000.0))
-			mulaw[i] = audio.EncodePCM16ToMulaw(sample)
-		}
-		msg, err := tw.EncodeAudio(provider.AudioFrame{
-			Codec: "ulaw", SampleRate: 8000, Payload: mulaw, Direction: "outbound",
-		})
-		if err == nil && msg != nil {
-			tw.WriteRaw(msg)
-		}
-		time.Sleep(20 * time.Millisecond)
+// runCartesiaDirectGreeting bypasses OpenAI and sends a fixed greeting directly to Cartesia.
+func runCartesiaDirectGreeting(ctx context.Context, callSid string, tw *providertwilio.Adapter, cfg *config.Config) {
+	r := cartesiarend.New(cartesiarend.Config{
+		APIKey:   cfg.CartesiaAPIKey,
+		VoiceID:  cfg.CartesiaVoiceID,
+		ModelID:  cfg.CartesiaModel,
+		Language: "en",
+	})
+	defer r.Close()
+
+	text := "Good evening, Porto Douro Restaurants, how can I help?"
+	log.Printf("[%s] cartesia direct: sending text (%d chars)", callSid, len(text))
+
+	audioCh, err := r.RenderStream(ctx, text)
+	if err != nil {
+		log.Printf("[%s] cartesia direct failed: %v", callSid, err)
+		return
 	}
-	log.Printf("[%s] test tone complete — caller should have heard a beep", callSid)
+
+	chunkCount := 0
+	for chunk := range audioCh {
+		chunkCount++
+		for i := 0; i < len(chunk); i += 160 {
+			end := i + 160
+			if end > len(chunk) {
+				end = len(chunk)
+			}
+			frame := chunk[i:end]
+			if len(frame) < 160 {
+				padded := make([]byte, 160)
+				copy(padded, frame)
+				frame = padded
+			}
+			msg, err := tw.EncodeAudio(provider.AudioFrame{
+				Codec: "ulaw", SampleRate: 8000, Payload: frame, Direction: "outbound",
+			})
+			if err == nil && msg != nil {
+				if err := tw.WriteRaw(msg); err != nil {
+					log.Printf("[%s] outbound media write failed source=cartesia: %v", callSid, err)
+				} else {
+					log.Printf("[%s] outbound media frame sent source=cartesia", callSid)
+				}
+			}
+		}
+	}
+	log.Printf("[%s] cartesia direct: %d chunks, %d total bytes sent to Twilio", callSid, chunkCount, chunkCount*160)
 }
 
 func countSessions() int {
