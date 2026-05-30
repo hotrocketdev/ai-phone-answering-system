@@ -19,6 +19,7 @@ import (
 	"github.com/voxlane/voice-gateway/internal/audio"
 	"github.com/voxlane/voice-gateway/internal/config"
 	"github.com/voxlane/voice-gateway/internal/provider"
+	providertelnyx "github.com/voxlane/voice-gateway/internal/provider/telnyx"
 	providertwilio "github.com/voxlane/voice-gateway/internal/provider/twilio"
 	goredis "github.com/voxlane/voice-gateway/internal/redis"
 	cartesiarend "github.com/voxlane/voice-gateway/internal/renderer/cartesia"
@@ -116,7 +117,7 @@ func main() {
 			return
 		}
 
-		// Create provider adapter (Twilio by default)
+		// Create provider adapter
 		var adapter provider.Adapter
 		pCfg := provider.Config{
 			ProviderType: provider.Type(cfg.VoiceProvider),
@@ -124,33 +125,49 @@ func main() {
 				AccountSID: cfg.TwilioAccountSID,
 				AuthToken:  cfg.TwilioAuthToken,
 			},
+			Telnyx: provider.TelnyxConfig{
+				APIKey:         cfg.TelnyxAPIKey,
+				ConnectionID:   cfg.TelnyxConnectionID,
+				StreamCodec:    cfg.TelnyxStreamCodec,
+				BidirectionalCodec: cfg.TelnyxBidirectionalCodec,
+			},
 		}
 		switch provider.Type(cfg.VoiceProvider) {
 		case provider.TypeTwilio:
 			adapter = providertwilio.New(conn, callSid, pCfg.Twilio)
+		case provider.TypeTelnyx:
+			adapter = providertelnyx.New(conn, callSid, pCfg.Telnyx)
 		default:
 			log.Printf("[%s] unsupported provider: %s", callSid, cfg.VoiceProvider)
 			conn.Close()
 			return
 		}
 
-		// Start provider read loop
-		twAdapter, ok := adapter.(*providertwilio.Adapter)
-		if !ok {
-			log.Printf("[%s] Twilio adapter required", callSid)
-			return
+		// Start provider read loop (both Twilio and Telnyx expose ReadLoop)
+		switch a := adapter.(type) {
+		case *providertwilio.Adapter:
+			go a.ReadLoop()
+		case *providertelnyx.Adapter:
+			go a.ReadLoop()
 		}
-		go twAdapter.ReadLoop()
 
-		// Cartesia direct greeting bypass (isolates Cartesia→Twilio path)
+		// Cartesia direct greeting bypass (Twilio-specific debug path)
 		if os.Getenv("DEBUG_CARTESIA_DIRECT_GREETING") == "true" {
-			log.Printf("[%s] DEBUG: Cartesia direct greeting", callSid)
-			runCartesiaDirectGreeting(r.Context(), callSid, twAdapter, cfg)
-			return
+			if twAdapter, ok := adapter.(*providertwilio.Adapter); ok {
+				log.Printf("[%s] DEBUG: Cartesia direct greeting", callSid)
+				runCartesiaDirectGreeting(r.Context(), callSid, twAdapter, cfg)
+				return
+			}
 		}
 
-		// Deepgram runtime path
+		// Deepgram runtime path (Twilio only)
+		twAdapter, _ := adapter.(*providertwilio.Adapter)
 		if cfg.VoiceRuntime == "deepgram_agent" {
+			if twAdapter == nil {
+				log.Printf("[%s] deepgram requires Twilio provider", callSid)
+				conn.Close()
+				return
+			}
 			log.Printf("[%s] using Deepgram Voice Agent", callSid)
 			dgCfg := runtime.Config{
 				Provider:              runtime.ProviderDeepgramAgent,

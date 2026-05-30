@@ -20,6 +20,7 @@ import (
 	"github.com/voxlane/voice-gateway/internal/config"
 	"github.com/voxlane/voice-gateway/internal/openai"
 	"github.com/voxlane/voice-gateway/internal/provider"
+	providertelnyx "github.com/voxlane/voice-gateway/internal/provider/telnyx"
 	providertwilio "github.com/voxlane/voice-gateway/internal/provider/twilio"
 	goredis "github.com/voxlane/voice-gateway/internal/redis"
 	cartesiarend "github.com/voxlane/voice-gateway/internal/renderer/cartesia"
@@ -200,17 +201,27 @@ func (s *Session) runProviderLoop(ctx context.Context) {
 	}
 }
 
-// runProviderChannels handles providers that expose channel-based I/O (Twilio).
+// runProviderChannels handles providers that expose channel-based I/O.
 func (s *Session) runProviderChannels(ctx context.Context) {
-	adapter, ok := s.provAdapter.(*providertwilio.Adapter)
-	if !ok {
+	var frames chan provider.AudioFrame
+	var events chan provider.Event
+
+	switch a := s.provAdapter.(type) {
+	case *providertwilio.Adapter:
+		frames = a.Frames
+		events = a.Events
+	case *providertelnyx.Adapter:
+		frames = a.Frames
+		events = a.Events
+	default:
 		return
 	}
+
 	for {
 		select {
 		case <-s.stopCh:
 			return
-		case frame, ok := <-adapter.Frames:
+		case frame, ok := <-frames:
 			if !ok {
 				s.handleProviderDisconnect(ctx)
 				return
@@ -224,7 +235,7 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 			}
 			s.lastAudioTime = time.Now()
 
-		case evt, ok := <-adapter.Events:
+		case evt, ok := <-events:
 			if !ok {
 				return
 			}
@@ -319,15 +330,22 @@ func (s *Session) runOpenAILoop(ctx context.Context) {
 }
 
 // sendProviderMessage writes a raw message to the provider WebSocket.
-// Uses the Twilio adapter's conn for now; future providers will use the interface.
 func (s *Session) sendProviderMessage(data []byte, source string) {
-	if adapter, ok := s.provAdapter.(*providertwilio.Adapter); ok {
-		if err := adapter.WriteRaw(data); err != nil {
+	switch a := s.provAdapter.(type) {
+	case *providertwilio.Adapter:
+		if err := a.WriteRaw(data); err != nil {
 			log.Printf("[%s] outbound media write failed source=%s: %v", s.ID, source, err)
 			return
 		}
-		log.Printf("[%s] outbound media frame sent source=%s", s.ID, source)
+	case *providertelnyx.Adapter:
+		if err := a.WriteRaw(data); err != nil {
+			log.Printf("[%s] outbound media write failed source=%s: %v", s.ID, source, err)
+			return
+		}
+	default:
+		return
 	}
+	log.Printf("[%s] outbound media frame sent source=%s", s.ID, source)
 }
 
 func (s *Session) runSupervisor(ctx context.Context) {

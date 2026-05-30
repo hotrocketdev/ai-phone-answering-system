@@ -131,9 +131,11 @@ type TwilioConfig struct {
 
 // TelnyxConfig holds Telnyx-specific credentials.
 type TelnyxConfig struct {
-	APIKey       string
-	ConnectionID string
-	PublicKey    string
+	APIKey             string
+	ConnectionID       string
+	PublicKey          string
+	StreamCodec        string // "PCMU" or "L16"
+	BidirectionalCodec string // "PCMU" or "L16"
 }
 
 // SignalWireConfig holds SignalWire-specific credentials.
