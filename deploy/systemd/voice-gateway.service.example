@@ -1,0 +1,28 @@
+[Unit]
+Description=VoxLane Voice Gateway
+Documentation=https://github.com/hotrocketdev/ai-phone-answering-system
+After=network.target redis-server.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=voxlane
+Group=voxlane
+WorkingDirectory=/opt/voxlane/voice-gateway
+EnvironmentFile=/opt/voxlane/.env
+ExecStart=/opt/voxlane/voice-gateway/gateway
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/voxlane/voice-gateway
+ReadOnlyPaths=/opt/voxlane/.env
+
+[Install]
+WantedBy=multi-user.target

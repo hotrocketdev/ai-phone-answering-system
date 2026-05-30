@@ -1,0 +1,52 @@
+# VoxLane Voice Gateway — Caddy Reverse Proxy
+
+# Domain: replace with real domain
+voxlane.example.com {
+    # Global TLS config
+    tls {
+        protocols tls1.2 tls1.3
+    }
+
+    # Logging
+    log {
+        output file /var/log/caddy/voxlane-access.log
+        level INFO
+    }
+
+    # API webhook endpoint (HTTP POST from Twilio/Telnyx)
+    handle /api/* {
+        reverse_proxy localhost:3001 {
+            header_up Host {host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # WebSocket stream endpoint
+    handle /stream/* {
+        reverse_proxy localhost:8080 {
+            header_up Host {host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+
+            # Required for WebSocket upgrade
+            header_up Connection {>Connection}
+            header_up Upgrade {>Upgrade}
+        }
+    }
+
+    # Health check
+    handle /health {
+        reverse_proxy localhost:8080
+    }
+
+    # Metrics
+    handle /metrics {
+        reverse_proxy localhost:8080
+    }
+
+    # Fallback
+    handle {
+        reverse_proxy localhost:8080
+    }
+}

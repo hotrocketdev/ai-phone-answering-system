@@ -1,0 +1,27 @@
+[Unit]
+Description=VoxLane Backend (NestJS)
+Documentation=https://github.com/hotrocketdev/ai-phone-answering-system
+After=network.target
+
+[Service]
+Type=simple
+User=voxlane
+Group=voxlane
+WorkingDirectory=/opt/voxlane/backend
+EnvironmentFile=/opt/voxlane/.env
+ExecStart=/usr/bin/node dist/main.js
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/voxlane/backend
+ReadOnlyPaths=/opt/voxlane/.env
+
+[Install]
+WantedBy=multi-user.target
