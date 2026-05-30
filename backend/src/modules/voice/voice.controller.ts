@@ -57,11 +57,13 @@ export class VoiceController {
     const wsUrl = process.env.GATEWAY_WS_URL || '';
     const body = req.body as any;
     const callControlId = body?.data?.call_control_id || 'unknown';
-    console.log(`[${callControlId}] Telnyx voice webhook (scaffold)`);
+    console.log(`[${callControlId}] Telnyx voice webhook`);
+
+    const streamUrl = `${wsUrl}/${callControlId}`;
 
     res.header('Content-Type', 'application/json');
     res.send({
-      stream_url: wsUrl,
+      stream_url: streamUrl,
       stream_track: 'both_tracks',
       client_state: callControlId,
     });
