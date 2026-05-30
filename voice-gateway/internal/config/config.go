@@ -26,9 +26,11 @@ type Config struct {
 
 	// Voice Provider
 	VoiceProvider string // "twilio" | "telnyx" | "signalwire"
-	TelnyxAPIKey       string
-	TelnyxConnectionID string
-	TelnyxPublicKey    string
+	TelnyxAPIKey            string
+	TelnyxConnectionID      string
+	TelnyxPublicKey         string
+	TelnyxStreamCodec       string // "PCMU" (default) or "L16"
+	TelnyxBidirectionalCodec string // "PCMU" (default) or "L16"
 	SignalWireProjectID string
 	SignalWireToken     string
 	SignalWireSpaceURL  string
@@ -88,6 +90,8 @@ func Load() (*Config, error) {
 		TelnyxAPIKey:        os.Getenv("TELNYX_API_KEY"),
 		TelnyxConnectionID:  os.Getenv("TELNYX_CONNECTION_ID"),
 		TelnyxPublicKey:     os.Getenv("TELNYX_PUBLIC_KEY"),
+		TelnyxStreamCodec:   getEnv("TELNYX_STREAM_CODEC", "PCMU"),
+		TelnyxBidirectionalCodec: getEnv("TELNYX_BIDIRECTIONAL_CODEC", "PCMU"),
 		SignalWireProjectID: os.Getenv("SIGNALWIRE_PROJECT_ID"),
 		SignalWireToken:     os.Getenv("SIGNALWIRE_TOKEN"),
 		SignalWireSpaceURL:  getEnv("SIGNALWIRE_SPACE_URL", "example.signalwire.com"),
