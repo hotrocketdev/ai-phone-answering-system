@@ -1,7 +1,8 @@
 # Current MVP Stability Checklist
 
-**Date**: 2026-05-28  
+**Date**: 2026-05-30  
 **Runtime**: `VOICE_RUNTIME=custom`, `VOICE_RENDERER=cartesia`
+**Deployment**: VPS (voice.voxlane.co.uk) — nginx, systemd
 
 ---
 
@@ -9,11 +10,14 @@
 
 Run before any demo call:
 
-- [ ] Gateway health: `curl http://localhost:8080/health` → `{"status":"ok"}`
-- [ ] Backend health: `curl -X POST http://localhost:3001/api/public/voice/webhook -d "CallSid=TEST"` → 200
-- [ ] Redis running: `redis-cli ping` → PONG
-- [ ] ngrok running: check `http://127.0.0.1:4040/api/tunnels` → https URL visible
-- [ ] Public webhook: `curl -H "ngrok-skip-browser-warning: 1" -X POST https://kemberly-diastolic-subopaquely.ngrok-free.dev/api/public/voice/webhook -d "CallSid=TEST"` → 200 XML
+- [ ] Gateway health: `curl http://localhost:8081/health` → `{"status":"ok"}`
+- [ ] Backend health: `curl -X POST http://localhost:3003/api/public/voice/webhook -d "CallSid=TEST"` → 200
+- [ ] Redis running: `redis-cli -a <password> ping` → PONG
+- [ ] nginx running: `systemctl is-active nginx` → active
+- [ ] Public webhook: `curl -X POST https://voice.voxlane.co.uk/api/public/voice/webhook -d "CallSid=TEST"` → 200 XML
+- [ ] Public WebSocket: `curl -s -o /dev/null -w "%{http_code}" -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" https://voice.voxlane.co.uk/stream/test` → 101
+- [ ] Gateway systemd: `systemctl is-active voxlane-gateway` → active
+- [ ] Backend systemd: `systemctl is-active voxlane-backend` → active
 
 ## Env Verification
 

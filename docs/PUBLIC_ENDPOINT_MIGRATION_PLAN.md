@@ -1,7 +1,7 @@
 # Public Endpoint Migration Plan
 
 **Date**: 2026-05-30
-**Status**: Active — ngrok confirmed unreliable, migration required
+**Status**: **Complete** — deployed to VPS, verified with live call
 
 ---
 
@@ -201,4 +201,26 @@ See `experimental/telnyx/TELNYX_ADAPTER_IMPLEMENTATION_PLAN.md`.
 
 **Do not proceed to Phase D until G1-G5 all pass.**
 **Do not proceed to Phase E until G1-G7 all pass.**
+
+---
+
+## Verification Record
+
+**Date**: 2026-05-30
+**Call SID**: CAe66f71f893124b12fe2e01fb19a82360
+
+| Gate | Result |
+|------|--------|
+| G1 — Redis | PONG |
+| G2 — Gateway health | 200 |
+| G3 — Backend webhook | 200 XML |
+| G4 — Public webhook | 200 XML |
+| G5 — Public WebSocket | 101 Open |
+| G6 — Live call audio | Caller heard Cartesia voice |
+| G7 — Live conversation | OpenAI responded, Cartesia rendered |
+
+**Domain**: voice.voxlane.co.uk
+**Transport**: nginx (VPS) — no ngrok
+**Twilio webhook**: https://voice.voxlane.co.uk/api/public/voice/webhook
+**Telnyx**: now unblocked
 
