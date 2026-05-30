@@ -49,8 +49,12 @@ type Config struct {
 	// Voice Renderer
 	VoiceRenderer   string // "openai" | "cartesia" | "elevenlabs"
 	CartesiaAPIKey  string
-	CartesiaVoiceID string
-	CartesiaModel   string
+	CartesiaVoiceID  string
+	CartesiaModel    string
+	CartesiaLanguage string
+	CartesiaSpeed    float64
+	CartesiaVolume   float64
+	CartesiaEmotion  string
 	ElevenLabsAPIKey string
 
 	// Voice Runtime
@@ -63,7 +67,8 @@ type Config struct {
 	DeepgramThinkModel  string
 
 	// Environment
-	LogLevel string
+	LogLevel     string
+	BusinessName string
 }
 
 func Load() (*Config, error) {
@@ -94,6 +99,10 @@ func Load() (*Config, error) {
 		CartesiaAPIKey:      os.Getenv("CARTESIA_API_KEY"),
 		CartesiaVoiceID:     os.Getenv("CARTESIA_VOICE_ID"),
 		CartesiaModel:       getEnv("CARTESIA_MODEL", "sonic-2"),
+		CartesiaLanguage:     getEnv("CARTESIA_LANGUAGE", "en"),
+		CartesiaSpeed:        getEnvFloat("CARTESIA_SPEED", 0.95),
+		CartesiaVolume:       getEnvFloat("CARTESIA_VOLUME", 0.9),
+		CartesiaEmotion:      getEnv("CARTESIA_EMOTION", "content"),
 		ElevenLabsAPIKey:    os.Getenv("ELEVENLABS_API_KEY"),
 		VoiceRuntime:        getEnv("VOICE_RUNTIME", "custom"),
 		DeepgramAPIKey:      os.Getenv("DEEPGRAM_API_KEY"),
@@ -103,6 +112,7 @@ func Load() (*Config, error) {
 		DeepgramThinkProvider: getEnv("DEEPGRAM_THINK_PROVIDER", "open_ai"),
 		DeepgramThinkModel:  getEnv("DEEPGRAM_THINK_MODEL", "gpt-4o-mini"),
 		LogLevel:            getEnv("LOG_LEVEL", "info"),
+		BusinessName:        getEnv("BUSINESS_NAME", "Porto Douro Restaurants"),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -191,6 +201,16 @@ func getEnvInt(key string, fallback int) int {
 		n, err := strconv.Atoi(v)
 		if err == nil {
 			return n
+		}
+	}
+	return fallback
+}
+
+func getEnvFloat(key string, fallback float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err == nil {
+			return f
 		}
 	}
 	return fallback

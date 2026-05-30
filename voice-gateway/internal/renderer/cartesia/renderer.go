@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -26,6 +27,9 @@ type Config struct {
 	VoiceID  string // Cartesia voice ID for British female
 	ModelID  string // "sonic-2" for streaming
 	Language string // "en"
+	Speed    float64
+	Volume   float64
+	Emotion  string
 }
 
 // ─── Renderer ────────────────────────────────────────────────────────────
@@ -80,14 +84,20 @@ func (r *Renderer) RenderStream(ctx context.Context, text string) (<-chan []byte
 	req := map[string]interface{}{
 		"model_id":   r.cfg.ModelID,
 		"transcript": text,
-		"continue":   true,
+		"context_id": fmt.Sprintf("voxlane-%d", time.Now().UnixNano()),
+		"continue":   false,
 		"voice":      map[string]interface{}{"mode": "id", "id": r.cfg.VoiceID},
 		"output_format": map[string]interface{}{
 			"container":   "raw",
-			"encoding":    "pcm_s16le",
+			"encoding":    "pcm_mulaw",
 			"sample_rate": 8000,
 		},
 		"language": r.cfg.Language,
+		"generation_config": map[string]interface{}{
+			"speed":   r.cfg.Speed,
+			"volume":  r.cfg.Volume,
+			"emotion": r.cfg.Emotion,
+		},
 	}
 
 	if err := conn.WriteJSON(req); err != nil {
