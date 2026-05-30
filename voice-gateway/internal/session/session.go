@@ -194,7 +194,7 @@ func (s *Session) Wait() {
 
 func (s *Session) runProviderLoop(ctx context.Context) {
 	switch s.provAdapter.Type() {
-	case provider.TypeTwilio:
+	case provider.TypeTwilio, provider.TypeTelnyx:
 		s.runProviderChannels(ctx)
 	default:
 		log.Printf("[%s] provider %s not yet supported in run loop", s.ID, s.provAdapter.Type())
