@@ -65,9 +65,16 @@ export class VoiceController {
 
     res.header('Content-Type', 'application/json');
     res.send({
-      stream_url: streamUrl,
-      stream_track: 'both_tracks',
-      client_state: callControlId,
+      commands: [
+        { command: 'answer' },
+        {
+          command: 'stream.start',
+          stream_url: streamUrl,
+          stream_track: 'both_tracks',
+          stream_bidirectional_codec: 'PCMU',
+          client_state: callControlId,
+        },
+      ],
     });
   }
 
