@@ -136,3 +136,69 @@ Once the VPS is provisioned, Telnyx can route calls directly to the public WebSo
 ## Rollback
 
 Keep Twilio + ngrok as emergency fallback during migration. Do not delete ngrok config until VPS is verified with live calls.
+
+---
+
+## Execution Order
+
+Follow these steps **in exact order**. Do not skip validation gates.
+
+### Phase A — Provision & Install
+
+| Step | Command / Action | Validation Gate |
+|------|-----------------|-----------------|
+| A1 | Provision VPS (Hetzner CX22 or equivalent) | SSH accessible |
+| A2 | Point DNS A record to VPS IP | `dig <domain>` returns VPS IP |
+| A3 | Run `docs/VPS_DEPLOYMENT_RUNBOOK.md` Steps 1-2 | `redis-cli ping` → PONG |
+| A4 | Clone repo | `git status` clean |
+
+### Phase B — Config & Build
+
+| Step | Command / Action | Validation Gate |
+|------|-----------------|-----------------|
+| B1 | Copy `deploy/env.production.example` → `.env` | Fill in ALL real values |
+| B2 | Build backend: `cd backend && npm ci && npm run build` | `npm run start` works locally |
+| B3 | Build gateway: `cd voice-gateway && go build` | Binary exists |
+| B4 | Install Caddy config | `caddy validate` passes |
+
+### Phase C — Deploy & Verify
+
+| Step | Command / Action | Validation Gate |
+|------|-----------------|-----------------|
+| C1 | Install systemd units | `systemctl daemon-reload` OK |
+| C2 | Start all services | `systemctl status` shows active |
+| C3 | Run `deploy/scripts/validate-public-endpoint.sh` | **ALL checks PASS** |
+| C4 | Verify public WebSocket upgrade | WS: 101 Switching Protocols |
+
+### Phase D — Cut Over
+
+| Step | Command / Action | Validation Gate |
+|------|-----------------|-----------------|
+| D1 | Update Twilio webhook to `https://<domain>/api/public/voice/webhook` | Webhook returns 200 |
+| D2 | Make test call: dial +441789336134 | Hear British greeting |
+| D3 | Verify conversation: ask a question | AI responds correctly |
+
+### Phase E — Telnyx (Future)
+
+**DO NOT START** until ALL Phase C and D gates pass.
+**Gate**: "Public WebSocket 101 is stable" must be verified.
+
+See `experimental/telnyx/TELNYX_ADAPTER_IMPLEMENTATION_PLAN.md`.
+
+---
+
+## Critical Gates
+
+| Gate # | Description | Must Pass |
+|--------|-------------|-----------|
+| G1 | Redis responding | PONG |
+| G2 | Local gateway health | 200 |
+| G3 | Local backend webhook | 200 XML |
+| G4 | Public webhook via Caddy | 200 XML |
+| G5 | Public WebSocket upgrade | 101 |
+| G6 | Live call audio | Hear greeting |
+| G7 | Live call conversation | AI responds |
+
+**Do not proceed to Phase D until G1-G5 all pass.**
+**Do not proceed to Phase E until G1-G7 all pass.**
+
