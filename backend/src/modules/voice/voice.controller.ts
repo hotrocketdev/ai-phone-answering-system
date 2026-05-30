@@ -65,9 +65,13 @@ export class VoiceController {
 
     res.header('Content-Type', 'application/json');
     res.send({
-      commands: [
-        { command: 'answer' },
+      data: [
         {
+          call_control_id: callControlId,
+          command: 'answer',
+        },
+        {
+          call_control_id: callControlId,
           command: 'stream.start',
           stream_url: streamUrl,
           stream_track: 'both_tracks',
