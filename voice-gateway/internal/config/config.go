@@ -68,7 +68,8 @@ type Config struct {
 
 	// Environment
 	LogLevel     string
-	BusinessName string
+	BusinessName       string // platform name (VoxLane) — used for logs, admin, dashboard
+	TenantBusinessName string // tenant name override — used for caller-facing greetings/prompts
 }
 
 func Load() (*Config, error) {
@@ -113,6 +114,7 @@ func Load() (*Config, error) {
 		DeepgramThinkModel:  getEnv("DEEPGRAM_THINK_MODEL", "gpt-4o-mini"),
 		LogLevel:            getEnv("LOG_LEVEL", "info"),
 		BusinessName:        getEnv("BUSINESS_NAME", "VoxLane"),
+		TenantBusinessName:  getEnv("TENANT_BUSINESS_NAME", ""),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -187,6 +189,16 @@ func (c *Config) SilencePromptDuration() time.Duration {
 
 func (c *Config) SilenceHangupDuration() time.Duration {
 	return time.Duration(c.SilenceHangupSecs) * time.Second
+}
+
+// CustomerName returns the tenant-facing name for greetings and prompts.
+// If TENANT_BUSINESS_NAME is set, that is used for customer calls.
+// Otherwise falls back to BUSINESS_NAME (platform name).
+func (c *Config) CustomerName() string {
+	if c.TenantBusinessName != "" {
+		return c.TenantBusinessName
+	}
+	return c.BusinessName
 }
 
 func getEnv(key, fallback string) string {

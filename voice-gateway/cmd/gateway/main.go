@@ -340,7 +340,7 @@ func runCartesiaDirectGreeting(ctx context.Context, callSid string, tw *provider
 	})
 	defer r.Close()
 
-	text := fmt.Sprintf("Good afternoon, %s, how can I help?", cfg.BusinessName)
+	text := fmt.Sprintf("Good afternoon, %s, how can I help?", cfg.CustomerName())
 	log.Printf("[%s] cartesia direct: sending text (%d chars)", callSid, len(text))
 
 	audioCh, err := r.RenderStream(ctx, text)

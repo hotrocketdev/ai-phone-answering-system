@@ -94,7 +94,7 @@ func NewSession(callSid string, adapter provider.Adapter, cfg *config.Config, re
 		provAdapter:         adapter,
 		redisC:              redisC,
 		audioP:              audio.NewPipeline(),
-		stateMachine:        sm.New(cfg.BusinessName),
+		stateMachine:        sm.New(cfg.CustomerName()),
 		metaState:           MetaCreated,
 		stopCh:              make(chan struct{}),
 		doneCh:              make(chan struct{}),
