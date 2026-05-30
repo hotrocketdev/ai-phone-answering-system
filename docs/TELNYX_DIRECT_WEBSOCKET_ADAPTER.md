@@ -1,7 +1,7 @@
 # Telnyx Direct WebSocket Adapter
 
-**Branch**: `feature/telnyx-direct-websocket-adapter`
-**Status**: Research / Planning
+**Branch**: `feature/telnyx-direct-websocket-adapter` (merged to `main`)  
+**Status**: **Phase 1 PCMU implemented** — adapter deployed, live test pending  
 **Date**: 2026-05-30
 
 ---
@@ -189,13 +189,30 @@ TELNYX_BIDIRECTIONAL_CODEC=PCMU  # PCMU or L16
 
 ## Codec Ladder
 
+**G711U/PCMU 8kHz is compatibility-only**, not a quality target. It matches Twilio's current µ-law path and proves the Telnyx adapter pipe works. The business goal is near-human voice quality.
+
 | Priority | Codec | Sample Rate | Bitrate | Quality | Status |
 |----------|-------|-------------|---------|---------|--------|
-| 1 | PCMU | 8000 Hz | 64 kbps | Baseline | Implement first |
-| 2 | L16 | 16000 Hz | 256 kbps | HD voice | After PCMU proven |
-| 3 | L16 | 48000 Hz | 768 kbps | Full HD | Future (with LiveKit) |
+| 1 | **PCMU (G711U)** | 8000 Hz | 64 kbps | Telephone (compatibility-only) | ✅ Adapter implemented, live test pending |
+| 2 | **G722** | 16000 Hz | 64 kbps | HD voice (first real quality target) | ⬜ Requires Cartesia L16 16kHz output |
+| 3 | **OPUS** | 8000–48000 Hz | 6–510 kbps | Modern HD (best if supported) | ⬜ Research needed |
+| 4 | **AMR-WB** | 16000 Hz | 12–24 kbps | Mobile HD (optional) | ⬜ Optional comparison |
+| 5 | **L16 48kHz** | 48000 Hz | 768 kbps | Full HD studio | ⬜ Future (LiveKit) |
 
-Cartesia can output PCMU 8kHz natively (current config). For L16, Cartesia output format needs to change to `pcm_s16le 16000` which requires changing the Cartesia renderer config (not in scope for Phase 1).
+### Codec Plan
+
+1. **PCMU first** — prove adapter pipe works, matches Cartesia's current `pcm_mulaw` output
+2. **G722 next** — change Cartesia output to `pcm_s16le 16000`, remap to G722 format in adapter. First real HD quality.
+3. **OPUS after** — if Telnyx Media Streaming supports OPUS bidirectional, evaluate quality
+4. **LiveKit** — only if Telnyx direct WS doesn't reach target quality with G722/OPUS
+
+### Telnyx Portal Codec Settings
+
+For the Telnyx application (Inbound tab), enable:
+- ✅ G722
+- ✅ OPUS  
+- ✅ AMR-WB
+- ✅ G711U (fallback only)
 
 ---
 
