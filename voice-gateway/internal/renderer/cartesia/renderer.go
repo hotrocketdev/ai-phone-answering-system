@@ -7,6 +7,7 @@ package cartesia
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -113,13 +114,15 @@ func (r *Renderer) RenderStream(ctx context.Context, text string) (<-chan []byte
 	return ch, nil
 }
 
-// readLoop reads binary PCM16 chunks from Cartesia WebSocket.
+// readLoop reads JSON text chunks from Cartesia WebSocket.
+// Cartesia sends: {"type":"chunk","data":"<base64>"} or {"type":"done"}.
 func (r *Renderer) readLoop(ch chan<- []byte) {
 	defer func() {
 		if r.conn != nil { r.conn.Close() }
 		close(ch)
 	}()
 
+	chunkCount := 0
 	for {
 		select {
 		case <-r.ctx.Done():
@@ -127,27 +130,35 @@ func (r *Renderer) readLoop(ch chan<- []byte) {
 		default:
 		}
 
-		msgType, data, err := r.conn.ReadMessage()
+		_, data, err := r.conn.ReadMessage()
 		if err != nil {
 			return
 		}
 
-		if msgType == websocket.BinaryMessage {
-			select {
-			case ch <- data:
-			case <-r.ctx.Done():
-				return
-			}
+		// Cartesia sends text JSON, not binary
+		var msg struct {
+			Type string `json:"type"`
+			Data string `json:"data"`
+		}
+		if err := json.Unmarshal(data, &msg); err != nil {
 			continue
 		}
 
-		// Text message — check for done signal
-		var msg struct {
-			Type string `json:"type"`
-			Done bool   `json:"done"`
-		}
-		json.Unmarshal(data, &msg)
-		if msg.Done || msg.Type == "done" {
+		switch msg.Type {
+		case "chunk":
+			decoded, err := base64.StdEncoding.DecodeString(msg.Data)
+			if err != nil {
+				log.Printf("[cartesia] base64 decode error: %v", err)
+				continue
+			}
+			chunkCount++
+			select {
+			case ch <- decoded:
+			case <-r.ctx.Done():
+				return
+			}
+		case "done":
+			log.Printf("[cartesia] stream complete: %d chunks", chunkCount)
 			return
 		}
 	}
