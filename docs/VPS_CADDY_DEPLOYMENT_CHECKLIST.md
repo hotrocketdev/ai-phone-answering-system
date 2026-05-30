@@ -99,7 +99,7 @@ REDIS_ADDR=localhost:6379
 REDIS_PASSWORD=
 
 # Business
-BUSINESS_NAME=Porto Douro Restaurants
+BUSINESS_NAME=Your Business Name
 LOG_LEVEL=info
 ```
 

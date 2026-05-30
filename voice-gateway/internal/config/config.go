@@ -112,7 +112,7 @@ func Load() (*Config, error) {
 		DeepgramThinkProvider: getEnv("DEEPGRAM_THINK_PROVIDER", "open_ai"),
 		DeepgramThinkModel:  getEnv("DEEPGRAM_THINK_MODEL", "gpt-4o-mini"),
 		LogLevel:            getEnv("LOG_LEVEL", "info"),
-		BusinessName:        getEnv("BUSINESS_NAME", "Porto Douro Restaurants"),
+		BusinessName:        getEnv("BUSINESS_NAME", "VoxLane"),
 	}
 
 	if err := cfg.validate(); err != nil {

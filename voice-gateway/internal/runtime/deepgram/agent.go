@@ -99,7 +99,7 @@ func (a *Agent) Start(ctx context.Context) error {
 					"model": a.cfg.DeepgramTTSModel,
 				},
 			},
-			"greeting": "Good afternoon. Porto Douro Restaurants. How can I help?",
+			"greeting": fmt.Sprintf("Good afternoon. %s. How can I help?", a.cfg.BusinessName),
 		},
 	}
 

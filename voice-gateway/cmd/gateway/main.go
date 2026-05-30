@@ -161,6 +161,7 @@ func main() {
 				DeepgramThinkProvider: cfg.DeepgramThinkProvider,
 				DeepgramThinkModel:    cfg.DeepgramThinkModel,
 				OpenAIAPIKey:          cfg.OpenAIAPIKey,
+				BusinessName:          cfg.BusinessName,
 			}
 			agent, err := dgagent.New(r.Context(), dgCfg)
 			if err != nil {
@@ -332,11 +333,14 @@ func runCartesiaDirectGreeting(ctx context.Context, callSid string, tw *provider
 		APIKey:   cfg.CartesiaAPIKey,
 		VoiceID:  cfg.CartesiaVoiceID,
 		ModelID:  cfg.CartesiaModel,
-		Language: "en",
+		Language: cfg.CartesiaLanguage,
+		Speed:    cfg.CartesiaSpeed,
+		Volume:   cfg.CartesiaVolume,
+		Emotion:  cfg.CartesiaEmotion,
 	})
 	defer r.Close()
 
-	text := "Good evening, Porto Douro Restaurants, how can I help?"
+	text := fmt.Sprintf("Good afternoon, %s, how can I help?", cfg.BusinessName)
 	log.Printf("[%s] cartesia direct: sending text (%d chars)", callSid, len(text))
 
 	audioCh, err := r.RenderStream(ctx, text)

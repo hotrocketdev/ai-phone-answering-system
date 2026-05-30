@@ -51,5 +51,6 @@ type Config struct {
 	DeepgramThinkModel   string
 
 	// Shared
-	OpenAIAPIKey string
+	OpenAIAPIKey  string
+	BusinessName  string
 }
