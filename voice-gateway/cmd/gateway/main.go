@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -126,9 +127,9 @@ func main() {
 				AuthToken:  cfg.TwilioAuthToken,
 			},
 			Telnyx: provider.TelnyxConfig{
-				APIKey:         cfg.TelnyxAPIKey,
-				ConnectionID:   cfg.TelnyxConnectionID,
-				StreamCodec:    cfg.TelnyxStreamCodec,
+				APIKey:             cfg.TelnyxAPIKey,
+				ConnectionID:       cfg.TelnyxConnectionID,
+				StreamCodec:        cfg.TelnyxStreamCodec,
 				BidirectionalCodec: cfg.TelnyxBidirectionalCodec,
 			},
 		}
@@ -149,6 +150,14 @@ func main() {
 			go a.ReadLoop()
 		case *providertelnyx.Adapter:
 			go a.ReadLoop()
+		}
+
+		if os.Getenv("DEBUG_TELNYX_TEST_TONE") == "true" {
+			if telnyxAdapter, ok := adapter.(*providertelnyx.Adapter); ok {
+				log.Printf("[%s] DEBUG: Telnyx PCMU test tone", callSid)
+				runTelnyxTestTone(r.Context(), callSid, telnyxAdapter)
+				return
+			}
 		}
 
 		// Cartesia direct greeting bypass (Twilio-specific debug path)
@@ -393,6 +402,56 @@ func runCartesiaDirectGreeting(ctx context.Context, callSid string, tw *provider
 		}
 	}
 	log.Printf("[%s] cartesia direct: %d chunks, %d total bytes sent to Twilio", callSid, chunkCount, chunkCount*160)
+}
+
+func runTelnyxTestTone(ctx context.Context, callSid string, telnyx *providertelnyx.Adapter) {
+	const (
+		sampleRate = 8000
+		frameSize  = 160
+		frames     = 50
+		frequency  = 440.0
+		amplitude  = 12000.0
+	)
+
+	for frameIndex := 0; frameIndex < frames; frameIndex++ {
+		select {
+		case <-ctx.Done():
+			log.Printf("[%s] telnyx test_tone stopped: context done", callSid)
+			return
+		default:
+		}
+
+		frame := make([]byte, frameSize)
+		toneOn := (frameIndex/5)%2 == 0
+		for i := 0; i < frameSize; i++ {
+			if !toneOn {
+				frame[i] = audio.EncodePCM16ToMulaw(0)
+				continue
+			}
+			sampleIndex := frameIndex*frameSize + i
+			sample := int16(math.Sin(2*math.Pi*frequency*float64(sampleIndex)/sampleRate) * amplitude)
+			frame[i] = audio.EncodePCM16ToMulaw(sample)
+		}
+
+		msg, err := telnyx.EncodeAudio(provider.AudioFrame{
+			Codec: "pcmu", SampleRate: sampleRate, Payload: frame, Direction: "outbound",
+		})
+		if err != nil {
+			log.Printf("[%s] telnyx test_tone encode failed: %v", callSid, err)
+			return
+		}
+		if err := telnyx.WriteRaw(msg); err != nil {
+			log.Printf("[%s] telnyx test_tone write failed: %v", callSid, err)
+			return
+		}
+		if frameIndex < 5 {
+			log.Printf("[%s] outbound media frame sent source=test_tone payload_len=%d", callSid, len(frame))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	log.Printf("[%s] telnyx test_tone complete: %d frames sent", callSid, frames)
+	time.Sleep(2 * time.Second)
 }
 
 func countSessions() int {
