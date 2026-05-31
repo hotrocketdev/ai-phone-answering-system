@@ -90,6 +90,7 @@ export class VoiceController {
       callTelnyx(callControlId, 'streaming_start', {
         stream_url: streamUrl,
         stream_track: 'both_tracks',
+        stream_bidirectional_codec: 'PCMU',
       }, apiKey);
     }, 2000);
   }
