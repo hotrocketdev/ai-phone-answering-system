@@ -139,7 +139,7 @@ func parseDate(lower string) string {
 }
 
 func parseTime(lower string, current sm.BookingData) string {
-	re := regexp.MustCompile(`\b([01]?\d|2[0-3])(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)\b`)
+	re := regexp.MustCompile(`\b([01]?\d|2[0-3])(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)\.?`)
 	if m := re.FindStringSubmatch(lower); len(m) > 0 {
 		hour, _ := strconv.Atoi(m[1])
 		minute := 0
@@ -153,6 +153,22 @@ func parseTime(lower string, current sm.BookingData) string {
 			hour = 0
 		}
 		return fmt.Sprintf("%02d:%02d", hour, minute)
+	}
+
+	wordTime := map[string]int{
+		"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+		"seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+	}
+	for word, hour := range wordTime {
+		if regexp.MustCompile(`\b` + word + `\s*(a\.?m\.?|p\.?m\.?)\.?`).MatchString(lower) {
+			if strings.Contains(lower, "p") && hour < 12 {
+				hour += 12
+			}
+			if strings.Contains(lower, "a") && hour == 12 {
+				hour = 0
+			}
+			return fmt.Sprintf("%02d:00", hour)
+		}
 	}
 
 	re24 := regexp.MustCompile(`\b([01]?\d|2[0-3]):([0-5]\d)\b`)
@@ -174,6 +190,64 @@ func parseTime(lower string, current sm.BookingData) string {
 	}
 
 	return ""
+}
+
+func expectedBookingFieldFromAssistant(text string) string {
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "what date") || strings.Contains(lower, "which date") || strings.Contains(lower, "what day"):
+		return "date"
+	case strings.Contains(lower, "what time") || strings.Contains(lower, "which time"):
+		return "time"
+	case strings.Contains(lower, "how many people") || strings.Contains(lower, "how many guests"):
+		return "guest_count"
+	case strings.Contains(lower, "take your name") || strings.Contains(lower, "what name"):
+		return "name"
+	case strings.Contains(lower, "contact number") || strings.Contains(lower, "phone number"):
+		return "phone"
+	default:
+		return ""
+	}
+}
+
+func markSlotsImpliedByAssistantQuestion(current sm.BookingData, field string) sm.BookingData {
+	switch field {
+	case "time":
+		if current.Date == "" {
+			current.Date = "provided"
+		}
+	case "guest_count":
+		if current.Date == "" {
+			current.Date = "provided"
+		}
+		if current.Time == "" {
+			current.Time = "provided"
+		}
+	case "name":
+		if current.Date == "" {
+			current.Date = "provided"
+		}
+		if current.Time == "" {
+			current.Time = "provided"
+		}
+		if current.PartySize == 0 {
+			current.PartySize = -1
+		}
+	case "phone":
+		if current.Date == "" {
+			current.Date = "provided"
+		}
+		if current.Time == "" {
+			current.Time = "provided"
+		}
+		if current.PartySize == 0 {
+			current.PartySize = -1
+		}
+		if current.Name == "" {
+			current.Name = "provided"
+		}
+	}
+	return current
 }
 
 func parsePartySize(lower string) int {

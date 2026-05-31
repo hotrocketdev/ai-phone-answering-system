@@ -51,6 +51,7 @@ type Session struct {
 	stateMachine *sm.Machine
 	booking      sm.BookingData
 	bookingLive  bool
+	bookingAsked string
 
 	// Components
 	provAdapter    provider.Adapter
@@ -489,6 +490,7 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 		if status == "cancelled" {
 			s.clearBargeIn()
 		}
+		s.noteAssistantBookingQuestion(evt.Data)
 		if s.isAssistantOutputSuppressed() {
 			return
 		}
@@ -553,6 +555,21 @@ func (s *Session) handleCallerTranscript(ctx context.Context, transcript string)
 		return
 	}
 	s.forceBookingQuestion(ctx, nextBookingQuestion(missing))
+}
+
+func (s *Session) noteAssistantBookingQuestion(raw json.RawMessage) {
+	text := extractTranscript(raw)
+	field := expectedBookingFieldFromAssistant(text)
+	if field == "" {
+		return
+	}
+	s.mu.Lock()
+	s.bookingLive = true
+	s.bookingAsked = field
+	s.booking = markSlotsImpliedByAssistantQuestion(s.booking, field)
+	summary := bookingSummary(s.booking)
+	s.mu.Unlock()
+	log.Printf("[%s] booking assistant asked=%s slots=%s", s.ID, field, summary)
 }
 
 func (s *Session) forceBookingQuestion(ctx context.Context, question string) {

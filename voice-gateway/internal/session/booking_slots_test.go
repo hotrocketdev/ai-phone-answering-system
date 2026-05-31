@@ -23,6 +23,13 @@ func TestParseBookingSlotsTomorrowAt7PMForFourPeople(t *testing.T) {
 	}
 }
 
+func TestParseBookingSlotsWordTimePM(t *testing.T) {
+	update := parseBookingSlots("at seven p.m.", sm.BookingData{})
+	if update.Time != "19:00" {
+		t.Fatalf("time = %q, want 19:00", update.Time)
+	}
+}
+
 func TestParseBookingSlotsForFour(t *testing.T) {
 	update := parseBookingSlots("For four.", sm.BookingData{})
 	if update.PartySize != 4 {
@@ -84,5 +91,11 @@ func TestFirstMissingBookingField(t *testing.T) {
 	b.Phone = "07917715734"
 	if got := firstMissingBookingField(b); got != "" {
 		t.Fatalf("first missing = %q, want empty", got)
+	}
+}
+
+func TestExpectedBookingFieldFromAssistant(t *testing.T) {
+	if got := expectedBookingFieldFromAssistant("Thanks, and how many people is that for?"); got != "guest_count" {
+		t.Fatalf("field = %q, want guest_count", got)
 	}
 }
