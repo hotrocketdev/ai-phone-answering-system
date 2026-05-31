@@ -49,6 +49,8 @@ type Session struct {
 	mu           sync.RWMutex
 	metaState    MetaState
 	stateMachine *sm.Machine
+	booking      sm.BookingData
+	bookingLive  bool
 
 	// Components
 	provAdapter    provider.Adapter
@@ -79,6 +81,7 @@ type Session struct {
 	openAIAudioDropLogged  bool
 	openAIAudioDropCount   int
 	openAIResponseActive   bool
+	assistantSuppressUntil time.Time
 	cartesiaRenderQueue    chan string
 	suppressInputUntil     time.Time
 	suppressedInputFrames  int
@@ -427,7 +430,17 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 		s.clearBargeIn()
 		log.Printf("[%s] speech_stopped received; letting OpenAI Realtime create the response", s.ID)
 
+	case "conversation.item.input_audio_transcription.completed":
+		transcript := logCallerTranscript(s.ID, evt.Data)
+		s.handleCallerTranscript(ctx, transcript)
+
+	case "conversation.item.input_audio_transcription.failed":
+		log.Printf("[%s] OpenAI caller transcript failed: %s", s.ID, trimLogPayload(evt.Data, 200))
+
 	case "text.delta":
+		if s.isAssistantOutputSuppressed() {
+			return
+		}
 		// Accumulate text for Cartesia rendering
 		if s.cartesiaRender != nil {
 			var delta struct {
@@ -439,6 +452,9 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 		}
 
 	case "audio_transcript.delta":
+		if s.isAssistantOutputSuppressed() {
+			return
+		}
 		if s.cartesiaRender != nil {
 			var delta struct {
 				Delta string `json:"delta"`
@@ -473,6 +489,9 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 		if status == "cancelled" {
 			s.clearBargeIn()
 		}
+		if s.isAssistantOutputSuppressed() {
+			return
+		}
 
 		// Route text to Cartesia for British voice rendering
 		if s.cartesiaRender != nil {
@@ -487,6 +506,105 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 	case "error":
 		log.Printf("[%s] OpenAI error: %s", s.ID, string(evt.Data))
 	}
+}
+
+func logCallerTranscript(sessionID string, raw json.RawMessage) string {
+	var evt struct {
+		Transcript string `json:"transcript"`
+	}
+	if err := json.Unmarshal(raw, &evt); err != nil || strings.TrimSpace(evt.Transcript) == "" {
+		log.Printf("[%s] OpenAI caller transcript event: %s", sessionID, trimLogPayload(raw, 200))
+		return ""
+	}
+	log.Printf("[%s] OpenAI caller transcript: %q", sessionID, trimLogPayload([]byte(evt.Transcript), 200))
+	return strings.TrimSpace(evt.Transcript)
+}
+
+func trimLogPayload(raw []byte, max int) string {
+	text := strings.TrimSpace(string(raw))
+	if len(text) <= max {
+		return text
+	}
+	return text[:max]
+}
+
+func (s *Session) handleCallerTranscript(ctx context.Context, transcript string) {
+	if strings.TrimSpace(transcript) == "" {
+		return
+	}
+
+	s.mu.Lock()
+	current := s.booking
+	active := s.bookingLive || bookingIntent(transcript)
+	update := parseBookingSlots(transcript, current)
+	if !active && !update.hasAny() {
+		s.mu.Unlock()
+		return
+	}
+	s.bookingLive = true
+	s.booking = mergeBookingSlots(current, update, correctionIntent(transcript))
+	booking := s.booking
+	missing := firstMissingBookingField(booking)
+	s.mu.Unlock()
+
+	log.Printf("[%s] booking slots: %s", s.ID, bookingSummary(booking))
+	if missing == "" {
+		s.forceBookingQuestion(ctx, "One moment, I'll check that.")
+		return
+	}
+	s.forceBookingQuestion(ctx, nextBookingQuestion(missing))
+}
+
+func (s *Session) forceBookingQuestion(ctx context.Context, question string) {
+	question = strings.TrimSpace(question)
+	if question == "" {
+		return
+	}
+	if s.openaiS != nil && !s.openaiS.IsClosed() {
+		if err := s.openaiS.CancelResponse(); err != nil {
+			log.Printf("[%s] booking response cancel skipped: %v", s.ID, err)
+		}
+	}
+	s.suppressAssistantOutputFor(2 * time.Second)
+	log.Printf("[%s] booking next question: %q", s.ID, question)
+	if s.cartesiaRender != nil {
+		s.enqueueCartesiaText(question)
+		return
+	}
+	if s.openaiS == nil || s.openaiS.IsClosed() {
+		return
+	}
+	if err := s.openaiS.WriteRaw(map[string]interface{}{
+		"type": "conversation.item.create",
+		"item": map[string]interface{}{
+			"type": "message",
+			"role": "user",
+			"content": []map[string]interface{}{
+				{"type": "input_text", "text": "Ask the caller exactly: " + question},
+			},
+		},
+	}); err != nil {
+		log.Printf("[%s] booking prompt inject failed: %v", s.ID, err)
+		return
+	}
+	if err := s.openaiS.CreateResponse(); err != nil {
+		log.Printf("[%s] booking response create failed: %v", s.ID, err)
+	}
+}
+
+func (s *Session) suppressAssistantOutputFor(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	until := time.Now().Add(d)
+	if until.After(s.assistantSuppressUntil) {
+		s.assistantSuppressUntil = until
+	}
+}
+
+func (s *Session) isAssistantOutputSuppressed() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return !s.assistantSuppressUntil.IsZero() && time.Now().Before(s.assistantSuppressUntil)
 }
 
 func (s *Session) bufferCartesiaTranscript(ctx context.Context, delta string) {
@@ -807,6 +925,7 @@ func allTools() []openai.Tool {
 	var all []openai.Tool
 	for _, t := range sm.AllTools() {
 		all = append(all, openai.Tool{
+			Type:        "function",
 			Name:        t.Name,
 			Description: t.Description,
 			Parameters:  t.Parameters,
@@ -819,6 +938,7 @@ func convertTools(smTools []sm.Tool) []openai.Tool {
 	tools := make([]openai.Tool, len(smTools))
 	for i, t := range smTools {
 		tools[i] = openai.Tool{
+			Type:        "function",
 			Name:        t.Name,
 			Description: t.Description,
 			Parameters:  t.Parameters,

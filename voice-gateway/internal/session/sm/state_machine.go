@@ -41,14 +41,14 @@ type BookingData struct {
 // MissingFields returns which booking fields still need to be collected.
 func (b BookingData) MissingFields() []string {
 	var missing []string
-	if b.PartySize == 0 {
-		missing = append(missing, "party_size")
-	}
 	if b.Date == "" {
 		missing = append(missing, "date")
 	}
 	if b.Time == "" {
 		missing = append(missing, "time")
+	}
+	if b.PartySize == 0 {
+		missing = append(missing, "party_size")
 	}
 	if b.Name == "" {
 		missing = append(missing, "name")

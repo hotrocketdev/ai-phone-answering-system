@@ -28,6 +28,7 @@ type Config struct {
 
 // Tool defines a tool available to the AI.
 type Tool struct {
+	Type        string                 `json:"type"`
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
 	Parameters  map[string]interface{} `json:"parameters"`
@@ -300,19 +301,29 @@ func (s *Session) CommitAudio() error {
 // ─── Internal ────────────────────────────────────────────────────────────
 
 func (s *Session) sendSessionUpdate() error {
+	return s.writeJSON(s.sessionUpdateMessage())
+}
+
+func (s *Session) sessionUpdateMessage() map[string]interface{} {
 	sessionCfg := map[string]interface{}{
 		"type":         "realtime",
 		"model":        s.config.Model,
 		"instructions": s.config.Instructions,
 		"tools":        s.config.Tools,
+		"audio": map[string]interface{}{
+			"input": map[string]interface{}{
+				"transcription": map[string]interface{}{
+					"model": "gpt-4o-mini-transcribe",
+				},
+			},
+		},
 	}
 
 	msg := map[string]interface{}{
 		"type":    "session.update",
 		"session": sessionCfg,
 	}
-
-	return s.writeJSON(msg)
+	return msg
 }
 
 // WriteRaw sends an arbitrary JSON message to OpenAI. Used for conversation control.
@@ -341,8 +352,8 @@ func (s *Session) writeJSON(v interface{}) error {
 // ParseFunctionCall extracts function call details from a function_call_arguments.done event.
 func ParseFunctionCall(raw json.RawMessage) (callID, name string, args json.RawMessage, err error) {
 	var event struct {
-		CallID string `json:"call_id"`
-		Name   string `json:"name"`
+		CallID    string `json:"call_id"`
+		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	}
 	if err := json.Unmarshal(raw, &event); err != nil {

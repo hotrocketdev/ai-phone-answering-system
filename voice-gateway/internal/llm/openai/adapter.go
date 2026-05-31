@@ -65,6 +65,7 @@ func convertTools(tools []llm.Tool) []existing.Tool {
 	result := make([]existing.Tool, len(tools))
 	for i, t := range tools {
 		result[i] = existing.Tool{
+			Type:        "function",
 			Name:        t.Name,
 			Description: t.Description,
 			Parameters:  t.Parameters,

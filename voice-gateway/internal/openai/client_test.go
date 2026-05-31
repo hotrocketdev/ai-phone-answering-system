@@ -89,6 +89,35 @@ func TestBuildGreetingPrompt(t *testing.T) {
 	}
 }
 
+func TestToolIncludesRealtimeFunctionType(t *testing.T) {
+	tool := Tool{
+		Type:        "function",
+		Name:        "check_availability",
+		Description: "Check availability",
+		Parameters:  map[string]interface{}{"type": "object"},
+	}
+
+	raw, err := json.Marshal(tool)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"type":"function"`) {
+		t.Fatalf("tool JSON missing function type: %s", raw)
+	}
+}
+
+func TestSessionUpdateEnablesInputTranscription(t *testing.T) {
+	s := &Session{config: Config{Model: "gpt-realtime-1.5", Instructions: "Test"}}
+	raw, err := json.Marshal(s.sessionUpdateMessage())
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, `"transcription":{"model":"gpt-4o-mini-transcribe"}`) {
+		t.Fatalf("session.update missing input transcription config: %s", text)
+	}
+}
+
 // Mock OpenAI Realtime server for testing the WebSocket client
 func setupMockOpenAIServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
