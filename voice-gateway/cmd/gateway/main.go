@@ -413,6 +413,14 @@ func runTelnyxTestTone(ctx context.Context, callSid string, telnyx *providerteln
 		amplitude  = 12000.0
 	)
 
+	log.Printf("[%s] telnyx test_tone waiting for stream readiness", callSid)
+	select {
+	case <-ctx.Done():
+		log.Printf("[%s] telnyx test_tone stopped before send: context done", callSid)
+		return
+	case <-time.After(2 * time.Second):
+	}
+
 	for frameIndex := 0; frameIndex < frames; frameIndex++ {
 		select {
 		case <-ctx.Done():
