@@ -92,7 +92,7 @@ The architecture critique identified OpenAI Realtime as economically unviable at
 | State-scoped tool availability | ✅ Complete | sm/state_machine.go (AvailableTools) | Yes |
 | State transition validation | ✅ Complete | sm/state_machine.go (isValidTransition) | Yes |
 | Anti-hallucination guardrails | ✅ Complete | sm/state_machine.go (ValidateResponse) | Yes |
-| State-specific prompt injection | ✅ Complete | sm/state_machine.go (BuildSystemPrompt) | Yes |
+| State-specific prompt injection | ✅ Complete | sm/state_machine.go (BuildSystemPrompt) | Now layered as Core Receptionist + Restaurant Behaviour Pack + Tenant Configuration |
 | Barge-in handling | ⚠️ Partial | session.go (handleBargeIn) | Partial — cancels response but doesn't clear audio buffer |
 | Silence detection | ⚠️ Partial | session.go (runSupervisor) | Partial — has timers but nudge injects raw JSON, not proper conversation.item.create |
 | Tool call pipeline (Go→NestJS) | ❌ Missing | N/A | Blueprint specifies HMAC-signed HTTP to NestJS. Session.go uses fake in-process tools. |
@@ -170,7 +170,29 @@ The session store exists but is **never connected**. Session state is purely in-
 
 **Severity**: Medium. Sessions survive Go process lifetime but are lost on restart. For PoC this is acceptable, but the wiring is incomplete.
 
-### 3.3 System Prompt Rewrite Without State Machine Tests
+### 3.3 System Prompt Architecture
+
+Current prompt assembly now follows:
+
+```text
+VoxLane Core Receptionist
++ Restaurant Behaviour Pack
++ Tenant Configuration
++ Current Conversation State
+= Live System Prompt
+```
+
+The implementation lives in `voice-gateway/internal/session/sm/state_machine.go`.
+
+Layer responsibilities:
+
+- Core Receptionist: universal phone behaviour, tone, transfers, manager/staff requests, messages, complaints, emergencies, closing.
+- Restaurant Behaviour Pack: bookings, changes, cancellations, opening days, address, parking, events, dietary requirements, menu enquiries, group bookings, occasions, waiting list, and general restaurant enquiries.
+- Tenant Configuration: business name, agent name, industry pack, and reminder that tenant facts such as address, phone, opening hours, parking, live music, manager names, and staff names must come from config/tools.
+
+This prevents VoxLane from becoming a single hardcoded restaurant assistant.
+
+### 3.4 Historical System Prompt Rewrite Without State Machine Tests
 
 The system prompt was rewritten in commit `ab74218` with a complete persona overhaul. The state machine tests were updated to match the new text. However:
 
@@ -182,19 +204,19 @@ The system prompt was rewritten in commit `ab74218` with a complete persona over
 
 **Severity**: Low for PoC, but represents a pattern of speculative improvement without validation.
 
-### 3.4 VAD/voice Tuning Without Validation
+### 3.5 VAD/voice Tuning Without Validation
 
 Commit `ab74218` changed VAD threshold (0.5→0.4), silence duration (500→400ms), voice (alloy→shimmer), temperature (0.7→0.8), and silence timers (8s→10s, 15s→20s) — all without a single live call test.
 
 **Severity**: Low for PoC but these values are guesses. They need real-call validation.
 
-### 3.5 Go-to-NestJS Tool Call Not Wired
+### 3.6 Go-to-NestJS Tool Call Not Wired
 
 The Go session manager has `executeToolCall()` with fake responses. The NestJS `/api/internal/tools/*` endpoints are built and tested, but Go never calls them. The HMAC guard exists but is never invoked from Go.
 
 **Severity**: High. This is the core architectural boundary (Go↔NestJS) and it's bypassed entirely.
 
-### 3.6 Session Manager Missing Key Features
+### 3.7 Session Manager Missing Key Features
 
 The session manager (T8) was marked "complete" but has significant gaps:
 - No OpenAI reconnection logic
@@ -204,7 +226,7 @@ The session manager (T8) was marked "complete" but has significant gaps:
 - Supervisor goroutine is a skeleton
 - Metrics are defined but not emitted
 
-### 3.7 Empty Directories (Abandoned Modules)
+### 3.8 Empty Directories (Abandoned Modules)
 
 These directories exist but are empty — suggesting planned work that was abandoned:
 - `backend/src/adapters/resdiary/`
@@ -217,7 +239,7 @@ These directories exist but are empty — suggesting planned work that was aband
 - `voice-gateway/internal/tools/`
 - `voice-gateway/audio/fallback/`
 
-### 3.8 Frontend Never Started
+### 3.9 Frontend Never Started
 
 The blueprint specifies Next.js App Router with React 19 and Tailwind. Zero frontend code exists. The `frontend/` directory from the blueprint was never created.
 

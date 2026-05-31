@@ -194,13 +194,78 @@ func TestBuildSystemPrompt_ContainsRestaurant(t *testing.T) {
 	if !containsStr(prompt, "Bella Roma") {
 		t.Error("prompt should contain restaurant name")
 	}
+	if containsStr(prompt, "Portuguese restaurant in Birmingham") {
+		t.Error("prompt should not hardcode tenant-specific restaurant facts")
+	}
+}
+
+func TestBuildSystemPrompt_UsesLayeredArchitecture(t *testing.T) {
+	m := NewWithTenant(TenantConfig{
+		BusinessName: "Test Restaurant",
+		AgentName:    "Sam",
+		Industry:     "restaurant",
+	})
+	prompt := m.BuildSystemPrompt()
+	for _, want := range []string{
+		"LAYER 1: VOXLANE CORE RECEPTIONIST",
+		"LAYER 2: RESTAURANT BEHAVIOUR PACK",
+		"LAYER 3: TENANT CONFIGURATION",
+		"Agent name: Sam.",
+		"Business name: Test Restaurant.",
+	} {
+		if !containsStr(prompt, want) {
+			t.Fatalf("prompt missing layered architecture text %q", want)
+		}
+	}
 }
 
 func TestBuildSystemPrompt_ContainsGuardrails(t *testing.T) {
 	m := New("Test")
 	prompt := m.BuildSystemPrompt()
-	if !containsStr(prompt, "Never tell a caller") {
+	if !containsStr(prompt, "Never confirm a booking") {
 		t.Error("prompt should contain anti-hallucination guardrail")
+	}
+}
+
+func TestBuildSystemPrompt_BookingIntentRule(t *testing.T) {
+	m := New("Test")
+	prompt := m.BuildSystemPrompt()
+	if !containsStr(prompt, "treat that as a booking") {
+		t.Error("prompt should treat table/reservation requests as booking intent")
+	}
+	if !containsStr(prompt, "Do not ask whether they want a table or a drink") {
+		t.Error("prompt should forbid table-or-drink clarification after booking intent")
+	}
+	if !containsStr(prompt, "Do not say \"I'm all ears\"") {
+		t.Error("prompt should forbid generic chatty assistant language")
+	}
+	if !containsStr(prompt, "Do not sound excited") {
+		t.Error("prompt should keep Alex calm")
+	}
+	if !containsStr(prompt, "gives multiple details in one answer") {
+		t.Error("prompt should preserve combined date/time answers")
+	}
+	if !containsStr(prompt, "do not ask for the date or time again") {
+		t.Error("prompt should not repeat questions after combined date/time answers")
+	}
+	if !containsStr(prompt, "Collect exactly: date") {
+		t.Error("prompt should source the restaurant booking workflow from the restaurant pack layer")
+	}
+}
+
+func TestBuildSystemPrompt_GeneralReceptionistAndRestaurantEnquiries(t *testing.T) {
+	m := New("Test")
+	prompt := m.BuildSystemPrompt()
+	for _, want := range []string{
+		"manager, owner, named staff member, or transfer",
+		"take a message and callback details",
+		"Opening days and times",
+		"address, phone, opening hours, parking, live music, manager names, and staff names must come from tenant config or tools",
+		"offer to take a message or arrange a callback",
+	} {
+		if !containsStr(prompt, want) {
+			t.Fatalf("prompt missing receptionist behaviour %q", want)
+		}
 	}
 }
 
@@ -211,11 +276,11 @@ func TestBuildSystemPrompt_StateSpecific(t *testing.T) {
 	m.SetBookingData("date", "2026-05-22")
 
 	prompt := m.BuildSystemPrompt()
-	if !containsStr(prompt, "COLLECTING") {
+	if !containsStr(prompt, "BOOKING") {
 		t.Error("prompt should contain current state context")
 	}
-	if !containsStr(prompt, "4 people") || !containsStr(prompt, "2026-05-22") {
-		t.Error("prompt should contain collected booking data in natural language")
+	if !containsStr(prompt, "time") || !containsStr(prompt, "name") {
+		t.Error("prompt should contain missing booking fields")
 	}
 }
 

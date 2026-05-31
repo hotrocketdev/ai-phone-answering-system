@@ -13,16 +13,16 @@ import (
 type State string
 
 const (
-	StateGreeting        State = "GREETING"
-	StateFAQ             State = "FAQ_ANSWER"
-	StateCollectBooking  State = "COLLECT_BOOKING_DETAILS"
-	StateCheckAvail      State = "CHECK_AVAILABILITY"
-	StateConfirm         State = "CONFIRM_BOOKING"
-	StateModifyRes       State = "MODIFY_RESERVATION"
-	StateCancelRes       State = "CANCEL_RESERVATION"
-	StateHumanTransfer   State = "HUMAN_TRANSFER"
-	StateUnavailable     State = "HANDLE_UNAVAILABLE"
-	StateClosing         State = "CLOSING"
+	StateGreeting       State = "GREETING"
+	StateFAQ            State = "FAQ_ANSWER"
+	StateCollectBooking State = "COLLECT_BOOKING_DETAILS"
+	StateCheckAvail     State = "CHECK_AVAILABILITY"
+	StateConfirm        State = "CONFIRM_BOOKING"
+	StateModifyRes      State = "MODIFY_RESERVATION"
+	StateCancelRes      State = "CANCEL_RESERVATION"
+	StateHumanTransfer  State = "HUMAN_TRANSFER"
+	StateUnavailable    State = "HANDLE_UNAVAILABLE"
+	StateClosing        State = "CLOSING"
 )
 
 // ─── Booking Data ────────────────────────────────────────────────────────
@@ -41,11 +41,21 @@ type BookingData struct {
 // MissingFields returns which booking fields still need to be collected.
 func (b BookingData) MissingFields() []string {
 	var missing []string
-	if b.PartySize == 0 { missing = append(missing, "party_size") }
-	if b.Date == ""     { missing = append(missing, "date") }
-	if b.Time == ""     { missing = append(missing, "time") }
-	if b.Name == ""     { missing = append(missing, "name") }
-	if b.Phone == ""    { missing = append(missing, "phone") }
+	if b.PartySize == 0 {
+		missing = append(missing, "party_size")
+	}
+	if b.Date == "" {
+		missing = append(missing, "date")
+	}
+	if b.Time == "" {
+		missing = append(missing, "time")
+	}
+	if b.Name == "" {
+		missing = append(missing, "name")
+	}
+	if b.Phone == "" {
+		missing = append(missing, "phone")
+	}
 	return missing
 }
 
@@ -61,14 +71,40 @@ type Machine struct {
 	previous       State
 	booking        BookingData
 	faqReturnState State // where to return after FAQ answer
-	restaurantName string
+	tenant         TenantConfig
+}
+
+// TenantConfig contains tenant-facing facts used by the prompt layer.
+// Core receptionist and industry pack rules must not contain these facts.
+type TenantConfig struct {
+	BusinessName string
+	AgentName    string
+	Industry     string
 }
 
 // New creates a new conversation state machine in the GREETING state.
 func New(restaurantName string) *Machine {
+	return NewWithTenant(TenantConfig{
+		BusinessName: restaurantName,
+		AgentName:    "Alex",
+		Industry:     "restaurant",
+	})
+}
+
+// NewWithTenant creates a state machine with explicit tenant prompt data.
+func NewWithTenant(tenant TenantConfig) *Machine {
+	if strings.TrimSpace(tenant.BusinessName) == "" {
+		tenant.BusinessName = "the business"
+	}
+	if strings.TrimSpace(tenant.AgentName) == "" {
+		tenant.AgentName = "Alex"
+	}
+	if strings.TrimSpace(tenant.Industry) == "" {
+		tenant.Industry = "restaurant"
+	}
 	return &Machine{
-		current:        StateGreeting,
-		restaurantName: restaurantName,
+		current: StateGreeting,
+		tenant:  tenant,
 	}
 }
 
@@ -85,20 +121,36 @@ func (m *Machine) Booking() BookingData { return m.booking }
 func (m *Machine) SetBookingData(field string, value interface{}) {
 	switch field {
 	case "partySize":
-		if v, ok := value.(int); ok { m.booking.PartySize = v }
-		if v, ok := value.(float64); ok { m.booking.PartySize = int(v) }
+		if v, ok := value.(int); ok {
+			m.booking.PartySize = v
+		}
+		if v, ok := value.(float64); ok {
+			m.booking.PartySize = int(v)
+		}
 	case "date":
-		if v, ok := value.(string); ok { m.booking.Date = v }
+		if v, ok := value.(string); ok {
+			m.booking.Date = v
+		}
 	case "time":
-		if v, ok := value.(string); ok { m.booking.Time = v }
+		if v, ok := value.(string); ok {
+			m.booking.Time = v
+		}
 	case "name":
-		if v, ok := value.(string); ok { m.booking.Name = v }
+		if v, ok := value.(string); ok {
+			m.booking.Name = v
+		}
 	case "phone":
-		if v, ok := value.(string); ok { m.booking.Phone = v }
+		if v, ok := value.(string); ok {
+			m.booking.Phone = v
+		}
 	case "email":
-		if v, ok := value.(string); ok { m.booking.Email = v }
+		if v, ok := value.(string); ok {
+			m.booking.Email = v
+		}
 	case "notes":
-		if v, ok := value.(string); ok { m.booking.Notes = v }
+		if v, ok := value.(string); ok {
+			m.booking.Notes = v
+		}
 	}
 }
 
@@ -146,7 +198,9 @@ func isValidTransition(from, to State) bool {
 		StateClosing:        {}, // terminal
 	}
 	for _, allowed := range transitions[from] {
-		if to == allowed { return true }
+		if to == allowed {
+			return true
+		}
 	}
 	return false
 }
@@ -191,7 +245,9 @@ func (m *Machine) AvailableTools() []Tool {
 // IsToolAllowed checks if a specific tool is allowed in the current state.
 func (m *Machine) IsToolAllowed(toolName string) bool {
 	for _, t := range m.AvailableTools() {
-		if t.Name == toolName { return true }
+		if t.Name == toolName {
+			return true
+		}
 	}
 	return false
 }
@@ -328,58 +384,83 @@ type ToolResult struct {
 
 // BuildSystemPrompt returns the system prompt for the current state.
 func (m *Machine) BuildSystemPrompt() string {
-	var sb strings.Builder
+	return strings.Join([]string{
+		m.buildCoreReceptionistPrompt(),
+		m.buildRestaurantBehaviourPackPrompt(),
+		m.buildTenantConfigPrompt(),
+		m.statePrompt(),
+	}, "\n\n")
+}
 
-	sb.WriteString(fmt.Sprintf(`You are Alex, the receptionist at %s, a Portuguese restaurant in Birmingham. You are warm but efficient.
+func (m *Machine) buildCoreReceptionistPrompt() string {
+	return `LAYER 1: VOXLANE CORE RECEPTIONIST
+Purpose: answer the phone, identify caller intent, handle simple requests, collect accurate information, and escalate when needed.
+You are a receptionist, not a general assistant, friend, sales agent, or chat companion.
 
-RULES:
-- ONE short sentence per turn. No exceptions.
-- Never say more than 15 words in one response.
-- Never explain yourself. Never say "I'll just". Never say "let me".
-- Never use pleasantries: no "certainly", "absolutely", "of course", "great", "perfect", "wonderful".
-- Never repeat what the caller said back to them.
-- Just: acknowledge → ask next thing. That's it.
-- If you're checking availability, say "One moment" and nothing else.
-- After confirming a booking: "All set, we'll see you then." Done.
+Core tone:
+- Professional, warm, brief, efficient, calm, natural.
+- Use British English.
+- Keep replies brief: usually one natural sentence, sometimes two short sentences.
+- Ask for one missing detail at a time.
+- Do not sound excited.
+- Do not say "I'm all ears", "let's chat", "I'm here to help", or invite casual chat.
+- Do not over-apologise, over-thank, over-explain, or pretend to know unavailable information.
 
-BOOKING FLOW:
-date → time → party → name → phone.
-One at a time. Never ask two things.
-Examples:
-- "What date?"
-- "What time?"
-- "How many guests?"
-- "What name?"
-- "Contact number?"
+Core call handling:
+- If asked for a manager, owner, named staff member, or transfer, escalate promptly.
+- If transfer is unavailable, take a message and callback details.
+- For staff lookup, do not pretend to know live availability unless tenant data/tooling confirms it.
+- For complaints, stay calm, take brief details, and pass them to the right person.
+- For emergencies or immediate danger, tell the caller to call 999 now.
+- Close calls only after the task is complete, message is taken, transfer starts, or the caller has no further request.`
+}
 
-`, m.restaurantName))
+func (m *Machine) buildRestaurantBehaviourPackPrompt() string {
+	return `LAYER 2: RESTAURANT BEHAVIOUR PACK
+Handle restaurant-related calls without becoming a casual chatbot.
 
-	sb.WriteString(`
+Booking workflow:
+Collect exactly: date → time → guest count → name → contact details.
+Ask for ONE missing booking detail at a time. Never ask multiple booking questions together.
+If the caller wants to book, reserve, or get a table, treat that as a booking.
+Do not ask whether they want a table or a drink after they ask to book a table.
+If the caller gives multiple details in one answer, preserve them and ask only for the next missing item.
+If the caller says "tomorrow at four" or "tomorrow at 4 pm", do not ask for the date or time again; ask "How many people is that for?"
+Never confirm a booking, change, or cancellation until the appropriate tool returns success.
+If checking availability, say "One moment, I'll check that." Then use the tool.
+After confirming a booking, say: "All set, we'll see you then."
 
-CRITICAL:
-- Never confirm a booking until create_booking returns success.
-- If asked for a manager: transfer immediately, no questions.
-`)
+Restaurant enquiries:
+- Opening days and times: use tenant data or get_faq only. Do not guess.
+- Address, location, parking, menu, live music, events, dietary requirements, group bookings, special occasions, and waiting list questions: use tenant data or get_faq only.
+- If the answer is unknown, say briefly that you do not have the confirmed details and offer to take a message or arrange a callback.
+- For allergen safety, do not guarantee details unless tenant data explicitly confirms them.`
+}
 
-	sb.WriteString(m.statePrompt())
-
-	return sb.String()
+func (m *Machine) buildTenantConfigPrompt() string {
+	return fmt.Sprintf(`LAYER 3: TENANT CONFIGURATION
+Agent name: %s.
+Business name: %s.
+Industry pack: %s.
+Use the tenant business name in the greeting and caller-facing responses.
+Tenant-specific facts such as address, phone, opening hours, parking, live music, manager names, and staff names must come from tenant config or tools, not from core rules.
+If a tenant fact is not available, do not guess; offer to take details and arrange a callback.`, m.tenant.AgentName, m.tenant.BusinessName, m.tenant.Industry)
 }
 
 func (m *Machine) statePrompt() string {
 	switch m.current {
 	case StateGreeting:
-		return "\n\nGREETING:\nSay: \"" + m.restaurantName + ", Alex speaking.\" Then wait."
+		return "\n\nSTATE: GREETING\nSay: \"" + m.tenant.BusinessName + ", " + m.tenant.AgentName + " speaking. How can I help?\" Then wait."
 
 	case StateFAQ:
-		return "\n\nFAQ:\nUse get_faq. Answer briefly. Ask if they need anything else."
+		return "\n\nSTATE: FAQ\nUse get_faq. Answer briefly. If the answer is unknown, offer to take a message or arrange a callback."
 
 	case StateCollectBooking:
 		missing := m.booking.MissingFields()
 		return fmt.Sprintf(`
 
-BOOKING — need: %s.
-Ask for ONE thing. Keep it under 10 words.`, strings.Join(missing, ", "))
+STATE: BOOKING — need: %s.
+Ask for ONE missing detail in a natural receptionist style.`, strings.Join(missing, ", "))
 
 	case StateCheckAvail:
 		return "\n\nCHECKING:\nSay: \"One moment.\" Then call check_availability."
@@ -402,7 +483,6 @@ Ask for ONE thing. Keep it under 10 words.`, strings.Join(missing, ", "))
 
 	case StateClosing:
 		return "\n\nCLOSING:\nOne sentence. Done."
-
 
 	default:
 		return ""
