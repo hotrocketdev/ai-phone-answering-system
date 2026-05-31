@@ -1,18 +1,18 @@
 // Package telnyx implements the provider.Adapter for Telnyx Media Streaming.
 //
 // Telnyx uses bidirectional RTP streaming over WebSocket:
-// - Outbound: RTP-encapsulated PCMU payloads (172 bytes = 12 header + 160 payload)
-// - Inbound: RTP-encapsulated PCMU payloads (header stripped to raw PCMU)
+// - Outbound: JSON media event with a base64 encoded RTP payload (raw audio, no RTP header)
+// - Inbound: JSON media event with base64 encoded RTP payload (raw audio, no RTP header)
 //
-// Reference: https://developers.telnyx.com/docs/voice/voice-ai/media-streams
+// Reference: https://developers.telnyx.com/docs/voice/programmable-voice/media-streaming
 package telnyx
 
 import (
 	"context"
-	"encoding/binary"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -23,39 +23,31 @@ import (
 // ─── Adapter ─────────────────────────────────────────────────────────────
 
 type Adapter struct {
-	conn   *websocket.Conn
-	cfg    provider.TelnyxConfig
-	callID string
+	conn     *websocket.Conn
+	cfg      provider.TelnyxConfig
+	callID   string
+	streamID string
 
 	writeMu sync.Mutex
 
 	Frames chan provider.AudioFrame
 	Events chan provider.Event
 
-	// RTP state
-	rtpSeq   uint16
-	rtpTS    uint32
-	rtpSSRC  uint32
-	rtpFirst bool // true until first packet sent
+	outPacketCount int
 }
 
 // New creates a Telnyx adapter from a gorilla WebSocket connection.
 func New(conn *websocket.Conn, callID string, cfg provider.TelnyxConfig) *Adapter {
 	return &Adapter{
-		conn:     conn,
-		cfg:      cfg,
-		callID:   callID,
-		Frames:   make(chan provider.AudioFrame, 8),
-		Events:   make(chan provider.Event, 16),
-		rtpSeq:   uint16(rand.Intn(65536)),
-		rtpTS:    uint32(rand.Intn(65536)),
-		rtpSSRC:  rand.Uint32(),
-		rtpFirst: true,
+		conn:   conn,
+		cfg:    cfg,
+		callID: callID,
+		Frames: make(chan provider.AudioFrame, 8),
+		Events: make(chan provider.Event, 16),
 	}
 }
 
-// ReadLoop reads RTP-framed PCMU data from the Telnyx WebSocket.
-// Strips 12-byte RTP header, emits raw PCMU payloads.
+// ReadLoop reads Telnyx JSON media events from the WebSocket.
 func (a *Adapter) ReadLoop() {
 	defer func() {
 		a.conn.Close()
@@ -76,20 +68,29 @@ func (a *Adapter) ReadLoop() {
 			return
 		}
 
-		if msgType == websocket.BinaryMessage {
-			// Strip RTP header (12 bytes) to get raw PCMU
-			pcmu := raw
-			if len(raw) >= 12 {
-				pcmu = raw[12:]
+		if msgType == websocket.TextMessage {
+			frame, event := a.ParseMediaEvent(raw)
+			if frame != nil {
+				select {
+				case a.Frames <- *frame:
+				default:
+				}
 			}
-			if len(pcmu) == 0 {
+			if event != nil {
+				a.Events <- *event
+			}
+			continue
+		}
+
+		if msgType == websocket.BinaryMessage {
+			if len(raw) == 0 {
 				continue
 			}
 			select {
 			case a.Frames <- provider.AudioFrame{
 				Codec:      "pcmu",
 				SampleRate: 8000,
-				Payload:    pcmu,
+				Payload:    raw,
 				Direction:  "inbound",
 				CallID:     a.callID,
 			}:
@@ -111,51 +112,122 @@ func (a *Adapter) GenerateCallControl(_ string, ctrl provider.CallControlRespons
 	return []byte(body), "application/json", nil
 }
 
-func (a *Adapter) ParseMediaEvent(_ []byte) (*provider.AudioFrame, *provider.Event) {
+func (a *Adapter) ParseMediaEvent(raw []byte) (*provider.AudioFrame, *provider.Event) {
+	var msg struct {
+		Event          string `json:"event"`
+		StreamID       string `json:"stream_id,omitempty"`
+		SequenceNumber string `json:"sequence_number,omitempty"`
+		Start          *struct {
+			MediaFormat *struct {
+				Encoding   string `json:"encoding"`
+				SampleRate int    `json:"sample_rate"`
+				Channels   int    `json:"channels"`
+			} `json:"media_format,omitempty"`
+		} `json:"start,omitempty"`
+		Media *struct {
+			Track     string `json:"track"`
+			Chunk     string `json:"chunk"`
+			Timestamp string `json:"timestamp"`
+			Payload   string `json:"payload"`
+		} `json:"media,omitempty"`
+		Mark *struct {
+			Name string `json:"name"`
+		} `json:"mark,omitempty"`
+		Payload *struct {
+			Code   int    `json:"code"`
+			Title  string `json:"title"`
+			Detail string `json:"detail"`
+		} `json:"payload,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return nil, &provider.Event{Type: provider.EventError, Error: err}
+	}
+
+	if msg.StreamID != "" {
+		a.streamID = msg.StreamID
+	}
+
+	switch msg.Event {
+	case "connected":
+		return nil, &provider.Event{Type: provider.EventConnected}
+	case "start":
+		return nil, &provider.Event{Type: provider.EventStarted}
+	case "media":
+		if msg.Media == nil || msg.Media.Payload == "" {
+			return nil, nil
+		}
+		audio, err := base64.StdEncoding.DecodeString(msg.Media.Payload)
+		if err != nil {
+			return nil, &provider.Event{Type: provider.EventError, Error: err}
+		}
+		return &provider.AudioFrame{
+			Codec:      "pcmu",
+			SampleRate: 8000,
+			Payload:    audio,
+			Timestamp:  msg.Media.Timestamp,
+			Direction:  "inbound",
+			CallID:     a.callID,
+			StreamID:   a.streamID,
+		}, nil
+	case "stop":
+		return nil, &provider.Event{Type: provider.EventStopped}
+	case "mark":
+		label := ""
+		if msg.Mark != nil {
+			label = msg.Mark.Name
+		}
+		return nil, &provider.Event{Type: provider.EventMark, Label: label}
+	case "error":
+		err := fmt.Errorf("telnyx stream error")
+		if msg.Payload != nil {
+			err = fmt.Errorf("telnyx stream error %d %s: %s", msg.Payload.Code, msg.Payload.Title, msg.Payload.Detail)
+		}
+		return nil, &provider.Event{Type: provider.EventError, Error: err}
+	}
 	return nil, nil
 }
 
-// EncodeAudio wraps PCMU payload in an RTP header and returns the full packet.
+// EncodeAudio returns raw PCMU RTP payload bytes. Telnyx wraps these bytes in
+// a JSON media envelope in WriteRaw; no 12-byte RTP header is sent.
 func (a *Adapter) EncodeAudio(frame provider.AudioFrame) ([]byte, error) {
 	pcmu := frame.Payload
-
-	packet := make([]byte, 12+len(pcmu))
-	packet[0] = 0x80 // V=2, P=0, X=0, CC=0
-	if a.rtpFirst {
-		packet[1] = 0x80 // marker bit set on first packet
-		a.rtpFirst = false
+	a.outPacketCount++
+	if a.outPacketCount <= 5 {
+		log.Printf("[telnyx] RTP payload out packet=%d payload_len=%d", a.outPacketCount, len(pcmu))
 	}
-	// packet[1] bits 0-6 are payload type (0 for PCMU) — already 0
-
-	binary.BigEndian.PutUint16(packet[2:], a.rtpSeq)
-	a.rtpSeq++
-
-	binary.BigEndian.PutUint32(packet[4:], a.rtpTS)
-	a.rtpTS += uint32(len(pcmu)) // 160 for 20ms PCMU
-
-	binary.BigEndian.PutUint32(packet[8:], a.rtpSSRC)
-
-	copy(packet[12:], pcmu)
-
-	// Debug first 5 packets
-	if a.rtpSeq <= 5 {
-		log.Printf("[telnyx] RTP out seq=%d ts=%d pt=0 ssrc=%x plen=%d tlen=%d",
-			a.rtpSeq-1, a.rtpTS-uint32(len(pcmu)), a.rtpSSRC, len(pcmu), len(packet))
-	}
-
-	return packet, nil
+	return pcmu, nil
 }
 
-func (a *Adapter) EncodeMark(_ string) ([]byte, error) { return nil, nil }
+func (a *Adapter) EncodeMark(label string) ([]byte, error) {
+	msg := map[string]interface{}{
+		"event": "mark",
+		"mark":  map[string]string{"name": label},
+	}
+	return json.Marshal(msg)
+}
 
-// WriteRaw sends binary data directly on the WebSocket.
+// WriteRaw sends a Telnyx media event containing base64 encoded RTP payload data.
 func (a *Adapter) WriteRaw(data []byte) error {
 	a.writeMu.Lock()
 	defer a.writeMu.Unlock()
-	return a.conn.WriteMessage(websocket.BinaryMessage, data)
+	msg, err := encodeOutboundMedia(data)
+	if err != nil {
+		return err
+	}
+	return a.conn.WriteMessage(websocket.TextMessage, msg)
 }
 
 func (a *Adapter) CloseMessage() []byte { return nil }
-func (a *Adapter) CallID() string      { return a.callID }
-func (a *Adapter) StreamID() string     { return a.callID }
+func (a *Adapter) CallID() string       { return a.callID }
+func (a *Adapter) StreamID() string     { return a.streamID }
 func (a *Adapter) Close() error         { return a.conn.Close() }
+
+func encodeOutboundMedia(payload []byte) ([]byte, error) {
+	msg := map[string]interface{}{
+		"event": "media",
+		"media": map[string]string{
+			"payload": base64.StdEncoding.EncodeToString(payload),
+		},
+	}
+	return json.Marshal(msg)
+}
