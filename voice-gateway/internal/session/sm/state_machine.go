@@ -196,6 +196,19 @@ func (m *Machine) IsToolAllowed(toolName string) bool {
 	return false
 }
 
+// AllTools returns every tool regardless of state. Used for session initialization.
+func AllTools() []Tool {
+	return []Tool{
+		toolCheckAvailability,
+		toolCreateBooking,
+		toolCancelBooking,
+		toolModifyBooking,
+		toolLookupReservation,
+		toolGetFAQ,
+		toolTransferCall,
+	}
+}
+
 // ─── Tool Definitions ────────────────────────────────────────────────────
 
 var toolCheckAvailability = Tool{

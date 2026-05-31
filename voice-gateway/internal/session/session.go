@@ -80,6 +80,8 @@ type Session struct {
 	openAIAudioDropCount   int
 	openAIResponseActive   bool
 	cartesiaRenderQueue    chan string
+	suppressInputUntil     time.Time
+	suppressedInputFrames  int
 
 	// Manual turn detection
 	lastAudioTime time.Time
@@ -134,7 +136,7 @@ func (s *Session) Run(ctx context.Context) error {
 		Model:        s.Config.OpenAIRealtimeModel,
 		Voice:        "marin",
 		Instructions: s.stateMachine.BuildSystemPrompt(),
-		Tools:        convertTools(s.stateMachine.AvailableTools()),
+		Tools:        allTools(),
 	}
 	log.Printf("[%s] instruction source: business_name=%q", s.ID, s.Config.BusinessName)
 	log.Printf("[%s] OpenAI instructions preview: %.200s", s.ID, strings.ReplaceAll(oaCfg.Instructions, "\n", " "))
@@ -225,6 +227,14 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 			if !ok {
 				s.handleProviderDisconnect(ctx)
 				return
+			}
+			if frame.Direction != "" && frame.Direction != "inbound" {
+				log.Printf("[%s] dropping provider audio direction=%s before OpenAI", s.ID, frame.Direction)
+				continue
+			}
+			if s.isInputSuppressed() {
+				s.noteSuppressedInputFrame()
+				continue
 			}
 			b64 := s.audioP.ProcessInbound(frame.Payload)
 			s.inputSecs += 0.020
@@ -586,6 +596,32 @@ func (s *Session) setOpenAIResponseActive(active bool) {
 	s.mu.Unlock()
 }
 
+func (s *Session) suppressInputFor(d time.Duration) {
+	s.mu.Lock()
+	until := time.Now().Add(d)
+	if until.After(s.suppressInputUntil) {
+		s.suppressInputUntil = until
+	}
+	s.mu.Unlock()
+}
+
+func (s *Session) isInputSuppressed() bool {
+	s.mu.RLock()
+	until := s.suppressInputUntil
+	s.mu.RUnlock()
+	return !until.IsZero() && time.Now().Before(until)
+}
+
+func (s *Session) noteSuppressedInputFrame() {
+	s.mu.Lock()
+	s.suppressedInputFrames++
+	count := s.suppressedInputFrames
+	s.mu.Unlock()
+	if count == 1 || count%50 == 0 {
+		log.Printf("[%s] suppressing inbound audio during assistant playback count=%d", s.ID, count)
+	}
+}
+
 func (s *Session) handleToolCall(ctx context.Context, raw json.RawMessage) {
 	callID, name, args, err := openai.ParseFunctionCall(raw)
 	if err != nil {
@@ -745,8 +781,38 @@ func (s *Session) isAISpeaking() bool {
 	return s.outputSecs > 0
 }
 
+func (s *Session) updateTools() {
+	if s.openaiS == nil || s.openaiS.IsClosed() {
+		return
+	}
+	tools := convertTools(s.stateMachine.AvailableTools())
+	msg := map[string]interface{}{
+		"type": "session.update",
+		"session": map[string]interface{}{
+			"type":  "realtime",
+			"model": s.Config.OpenAIRealtimeModel,
+			"tools": tools,
+		},
+	}
+	if err := s.openaiS.WriteRaw(msg); err != nil {
+		log.Printf("[%s] updateTools failed: %v", s.ID, err)
+	}
+}
+
 func (s *Session) getActiveTools() []openai.Tool {
 	return convertTools(s.stateMachine.AvailableTools())
+}
+
+func allTools() []openai.Tool {
+	var all []openai.Tool
+	for _, t := range sm.AllTools() {
+		all = append(all, openai.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  t.Parameters,
+		})
+	}
+	return all
 }
 
 func convertTools(smTools []sm.Tool) []openai.Tool {
@@ -784,20 +850,24 @@ func (s *Session) renderWithCartesia(ctx context.Context, text string) {
 		return
 	}
 	log.Printf("[%s] cartesia: sending text (%d chars)", s.ID, len(text))
+	s.suppressInputFor(750 * time.Millisecond)
 
 	audioCh, err := s.cartesiaRender.RenderStream(ctx, text)
 	if err != nil {
 		log.Printf("[%s] cartesia render failed: %v", s.ID, err)
+		s.suppressInputFor(250 * time.Millisecond)
 		return
 	}
 
 	chunkCount := 0
 	for chunk := range audioCh {
 		chunkCount++
+		s.suppressInputFor(250 * time.Millisecond)
 		// Cartesia outputs pcm_mulaw 8kHz natively — send directly
 		s.outputSecs += float64(len(chunk)) / 8000.0
 		s.sendMulawToTwilio(chunk)
 	}
+	s.suppressInputFor(250 * time.Millisecond)
 	log.Printf("[%s] cartesia: %d chunks sent to Twilio", s.ID, chunkCount)
 	log.Printf("[%s] cartesia: audio complete", s.ID)
 }
