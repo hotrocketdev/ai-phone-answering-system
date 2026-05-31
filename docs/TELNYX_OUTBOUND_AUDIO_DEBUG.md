@@ -59,10 +59,26 @@ So the WebSocket frame format was wrong, and the 12-byte RTP packet header was n
 - sends the envelope as a WebSocket text message
 - parses Telnyx JSON `media`, `start`, `stop`, `mark`, and `error` events
 
-## Remaining Boundary
+## Target Leg Matrix
 
-Needs live Telnyx call validation:
+Known PCMU test tone used for all rows:
 
-- test tone heard: unknown
-- Cartesia heard over Telnyx: unknown
-- Telnyx close/error events after this fix: unknown
+- `stream_bidirectional_mode=rtp`
+- `stream_bidirectional_codec=PCMU`
+- WebSocket JSON text `media` events
+- `media.payload` is base64 raw PCMU
+- 160-byte frames with 20 ms pacing
+- tone starts after stream readiness
+
+| mode | target_legs | stream_track | payload format | caller heard audio | notes |
+| ---- | ----------- | ------------ | -------------- | ------------------ | ----- |
+| rtp | opposite | both_tracks | JSON media, base64 raw PCMU | no | Delayed test tone sent successfully, Telnyx accepted media events, caller heard silence. |
+| rtp | self | both_tracks | JSON media, base64 raw PCMU | yes | Caller heard delayed beep tone after pickup. |
+| rtp | both | both_tracks | JSON media, base64 raw PCMU | yes | Caller heard delayed beep tone after pickup. |
+
+## Current Boundary
+
+Telnyx outbound playback is proven with `stream_bidirectional_target_legs=self` and `both`.
+The silent boundary was `stream_bidirectional_target_legs=opposite`.
+
+Next validation should disable the debug tone and run the normal Cartesia path with a working target leg.
