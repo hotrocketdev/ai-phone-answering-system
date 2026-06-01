@@ -127,6 +127,12 @@ type Session struct {
 	manualFallbackFired   int
 	manualCommitAttempts  int
 	manualCommitRejected  int
+
+	// Fast static greeting
+	staticGreetingSent       bool
+	staticGreetingTextValue  string
+	staticGreetingRenderAt   time.Time
+	staticGreetingFirstFrame bool
 }
 
 // ─── Creation ────────────────────────────────────────────────────────────
@@ -152,7 +158,8 @@ func NewSession(callSid string, adapter provider.Adapter, cfg *config.Config, re
 
 // Run executes the full session lifecycle. Blocks until the call ends.
 func (s *Session) Run(ctx context.Context) error {
-	// Phase 1: Connect to OpenAI
+	// Phase 1: Prepare local renderer/provider loops before OpenAI so an
+	// opt-in static Cartesia greeting can start as soon as the stream is ready.
 	s.setMeta(MetaConnecting)
 	log.Printf("[%s] connecting to OpenAI Realtime (model=%s)...", s.ID, s.Config.OpenAIRealtimeModel)
 
@@ -173,6 +180,9 @@ func (s *Session) Run(ctx context.Context) error {
 		log.Printf("[%s] voice renderer: cartesia", s.ID)
 	}
 
+	go s.runProviderLoop(ctx)
+	go s.runCartesiaRenderLoop(ctx)
+
 	oaCfg := openai.Config{
 		APIKey:       s.Config.OpenAIAPIKey,
 		Model:        s.Config.OpenAIRealtimeModel,
@@ -185,11 +195,13 @@ func (s *Session) Run(ctx context.Context) error {
 
 	oaSess, err := openai.NewSession(ctx, oaCfg)
 	if err != nil {
+		s.Stop()
 		return fmt.Errorf("openai connect: %w", err)
 	}
 	s.openaiS = oaSess
 
 	if err := s.openaiS.Start(ctx); err != nil {
+		s.Stop()
 		return fmt.Errorf("openai start: %w", err)
 	}
 	s.setMeta(MetaActive)
@@ -199,16 +211,17 @@ func (s *Session) Run(ctx context.Context) error {
 
 	// Start read loops
 	go s.openaiS.ReadLoop()
-	go s.runProviderLoop(ctx)
 	go s.runOpenAILoop(ctx)
 	go s.runSupervisor(ctx)
-	go s.runCartesiaRenderLoop(ctx)
 	log.Printf("[%s] turn mode: server_vad_only=%t manual_fallback_enabled=%t", s.ID, !s.Config.OpenAIManualTurnFallback, s.Config.OpenAIManualTurnFallback)
 	log.Printf("[%s] telnyx echo suppression enabled=%t tail_ms=%d",
 		s.ID, s.telnyxEchoSuppressionEnabled(), s.Config.TelnyxEchoSuppressionTailMs)
 
 	// Trigger initial AI response (greeting)
-	if s.openaiS != nil && !s.openaiS.IsClosed() {
+	if s.Config.FastStaticGreeting && s.cartesiaRender != nil {
+		log.Printf("[%s] openai_initial_greeting_skipped=true", s.ID)
+		s.noteStaticGreetingInOpenAI()
+	} else if s.openaiS != nil && !s.openaiS.IsClosed() {
 		if err := s.openaiS.CreateResponse(); err != nil {
 			log.Printf("[%s] CreateResponse failed: %v", s.ID, err)
 		} else {
@@ -321,6 +334,9 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 				log.Printf("[%s] provider event error: %v", s.ID, evt.Error)
 			} else if evt.Type == provider.EventStarted || evt.Type == provider.EventMark {
 				log.Printf("[%s] provider event: type=%s label=%s", s.ID, evt.Type, evt.Label)
+			}
+			if evt.Type == provider.EventStarted {
+				s.maybeSendStaticGreeting()
 			}
 			if evt.Type == provider.EventStopped || evt.Type == provider.EventDisconnected {
 				log.Printf("[%s] provider event: type=%s", s.ID, evt.Type)
@@ -490,6 +506,53 @@ func (s *Session) injectSilencePrompt() {
 	}
 	if err := s.openaiS.WriteRaw(map[string]interface{}{"type": "response.create"}); err != nil {
 		log.Printf("[%s] silence response skipped: %v", s.ID, err)
+	}
+}
+
+func (s *Session) staticGreetingText() string {
+	return fmt.Sprintf("%s, Alex speaking. How can I help?", s.Config.CustomerName())
+}
+
+func (s *Session) maybeSendStaticGreeting() {
+	if s.Config == nil || !s.Config.FastStaticGreeting || s.cartesiaRender == nil {
+		return
+	}
+
+	text := s.staticGreetingText()
+	now := time.Now()
+	s.mu.Lock()
+	if s.staticGreetingSent {
+		s.mu.Unlock()
+		return
+	}
+	s.staticGreetingSent = true
+	s.staticGreetingTextValue = text
+	s.staticGreetingRenderAt = now
+	s.mu.Unlock()
+
+	log.Printf("[%s] static_greeting_render_start at=%s text_len=%d",
+		s.ID, now.Format(time.RFC3339Nano), len(text))
+	s.enqueueCartesiaText(text)
+	log.Printf("[%s] static_greeting_sent=true openai_initial_greeting_skipped=true", s.ID)
+}
+
+func (s *Session) noteStaticGreetingInOpenAI() {
+	if s.openaiS == nil || s.openaiS.IsClosed() {
+		return
+	}
+	text := s.staticGreetingText()
+	msg := map[string]interface{}{
+		"type": "conversation.item.create",
+		"item": map[string]interface{}{
+			"type": "message",
+			"role": "system",
+			"content": []map[string]interface{}{
+				{"type": "input_text", "text": "The receptionist has already greeted the caller with: " + text + ". Do not greet again; respond directly to the caller's first request."},
+			},
+		},
+	}
+	if err := s.openaiS.WriteRaw(msg); err != nil {
+		log.Printf("[%s] static greeting context skipped: %v", s.ID, err)
 	}
 }
 
@@ -1086,6 +1149,7 @@ func (s *Session) telnyxEchoSuppressionEnabled() bool {
 }
 
 func (s *Session) noteCartesiaOutboundFrame() {
+	s.noteStaticGreetingOutboundFrame()
 	if !s.telnyxEchoSuppressionEnabled() {
 		return
 	}
@@ -1098,6 +1162,21 @@ func (s *Session) noteCartesiaOutboundFrame() {
 	}
 	s.cartesiaLastFrameAt = now
 	s.mu.Unlock()
+}
+
+func (s *Session) noteStaticGreetingOutboundFrame() {
+	now := time.Now()
+	s.mu.Lock()
+	active := s.staticGreetingSent && !s.staticGreetingFirstFrame && !s.staticGreetingRenderAt.IsZero()
+	if active {
+		s.staticGreetingFirstFrame = true
+	}
+	started := s.staticGreetingRenderAt
+	s.mu.Unlock()
+	if active {
+		log.Printf("[%s] static_greeting_first_outbound_frame at=%s since_render_start_ms=%d",
+			s.ID, now.Format(time.RFC3339Nano), now.Sub(started).Milliseconds())
+	}
 }
 
 func (s *Session) noteSuppressedInputFrame() {
@@ -1373,6 +1452,7 @@ func (s *Session) renderWithCartesia(ctx context.Context, text string) {
 	if s.cartesiaRender == nil {
 		return
 	}
+	isStaticGreeting := s.isStaticGreetingText(text)
 	log.Printf("[%s] cartesia: sending text (%d chars)", s.ID, len(text))
 	s.setCartesiaResponseActive(true)
 	defer s.setCartesiaResponseActive(false)
@@ -1395,7 +1475,16 @@ func (s *Session) renderWithCartesia(ctx context.Context, text string) {
 	}
 	s.suppressInputFor(250 * time.Millisecond)
 	log.Printf("[%s] cartesia: %d chunks sent to Twilio", s.ID, chunkCount)
+	if isStaticGreeting {
+		log.Printf("[%s] static_greeting_playback_completed=true chunks=%d", s.ID, chunkCount)
+	}
 	log.Printf("[%s] cartesia: audio complete", s.ID)
+}
+
+func (s *Session) isStaticGreetingText(text string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.staticGreetingSent && s.staticGreetingTextValue != "" && text == s.staticGreetingTextValue
 }
 
 // extractTranscript pulls the assistant text from a response.done event.

@@ -51,15 +51,16 @@ type Config struct {
 	LLMProvider string // "openai" | "grok"
 
 	// Voice Renderer
-	VoiceRenderer    string // "openai" | "cartesia" | "elevenlabs"
-	CartesiaAPIKey   string
-	CartesiaVoiceID  string
-	CartesiaModel    string
-	CartesiaLanguage string
-	CartesiaSpeed    float64
-	CartesiaVolume   float64
-	CartesiaEmotion  string
-	ElevenLabsAPIKey string
+	VoiceRenderer      string // "openai" | "cartesia" | "elevenlabs"
+	FastStaticGreeting bool
+	CartesiaAPIKey     string
+	CartesiaVoiceID    string
+	CartesiaModel      string
+	CartesiaLanguage   string
+	CartesiaSpeed      float64
+	CartesiaVolume     float64
+	CartesiaEmotion    string
+	ElevenLabsAPIKey   string
 
 	// Voice Runtime
 	VoiceRuntime          string // "custom" | "deepgram_agent"
@@ -105,6 +106,7 @@ func Load() (*Config, error) {
 		HMACSecret:                  os.Getenv("HMAC_SECRET"),
 		LLMProvider:                 getEnv("LLM_PROVIDER", "openai"),
 		VoiceRenderer:               getEnv("VOICE_RENDERER", "openai"),
+		FastStaticGreeting:          getEnvBool("FAST_STATIC_GREETING", false),
 		CartesiaAPIKey:              os.Getenv("CARTESIA_API_KEY"),
 		CartesiaVoiceID:             os.Getenv("CARTESIA_VOICE_ID"),
 		CartesiaModel:               getEnv("CARTESIA_MODEL", "sonic-2"),

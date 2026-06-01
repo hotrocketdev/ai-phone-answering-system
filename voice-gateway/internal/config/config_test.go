@@ -29,6 +29,7 @@ func TestLoad_ValidConfig(t *testing.T) {
 	os.Setenv("OPENAI_API_KEY", "sk-test")
 	os.Setenv("HMAC_SECRET", "test-secret")
 	os.Unsetenv("OPENAI_MANUAL_TURN_FALLBACK")
+	os.Unsetenv("FAST_STATIC_GREETING")
 	os.Unsetenv("TELNYX_ECHO_SUPPRESSION_TAIL_MS")
 
 	cfg, err := Load()
@@ -44,6 +45,9 @@ func TestLoad_ValidConfig(t *testing.T) {
 	if cfg.TelnyxEchoSuppressionTailMs != 300 {
 		t.Errorf("expected telnyx echo suppression tail 300ms, got %d", cfg.TelnyxEchoSuppressionTailMs)
 	}
+	if cfg.FastStaticGreeting {
+		t.Errorf("expected fast static greeting disabled by default")
+	}
 }
 
 func TestLoad_ManualTurnFallbackOptIn(t *testing.T) {
@@ -57,6 +61,20 @@ func TestLoad_ManualTurnFallbackOptIn(t *testing.T) {
 	}
 	if !cfg.OpenAIManualTurnFallback {
 		t.Errorf("expected manual turn fallback enabled when explicitly configured")
+	}
+}
+
+func TestLoad_FastStaticGreetingOptIn(t *testing.T) {
+	os.Setenv("OPENAI_API_KEY", "sk-test")
+	os.Setenv("HMAC_SECRET", "test-secret")
+	os.Setenv("FAST_STATIC_GREETING", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.FastStaticGreeting {
+		t.Errorf("expected fast static greeting enabled when explicitly configured")
 	}
 }
 
