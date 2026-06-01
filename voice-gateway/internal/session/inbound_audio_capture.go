@@ -12,7 +12,7 @@ import (
 	"github.com/voxlane/voice-gateway/internal/provider"
 )
 
-const debugCaptureFrames = 150 // 3 seconds at 20ms per PCMU frame.
+const debugCaptureFrames = 900 // 18 seconds at 20ms per PCMU frame.
 
 type inboundAudioCapture struct {
 	mu       sync.Mutex
