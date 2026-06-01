@@ -241,7 +241,8 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 				dropped := s.droppedProviderFrames
 				s.mu.Unlock()
 				if dropped <= 5 || dropped%100 == 0 {
-					log.Printf("[%s] dropping provider audio direction=%s before OpenAI count=%d", s.ID, frame.Direction, dropped)
+					log.Printf("[%s] dropping provider audio before OpenAI track=%s payload_len=%d count=%d sent_to_openai=false",
+						s.ID, frame.Direction, len(frame.Payload), dropped)
 				}
 				continue
 			}
@@ -249,13 +250,17 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 				s.noteSuppressedInputFrame()
 				continue
 			}
-			s.noteInboundFrame(frame)
+			inboundCount := s.noteInboundFrame(frame)
 			b64 := s.audioP.ProcessInbound(frame.Payload)
 			s.inputSecs += 0.020
 			if s.openaiS != nil {
 				if err := s.openaiS.SendAudio(b64); err != nil {
 					log.Printf("[%s] OpenAI SendAudio skipped: %v", s.ID, err)
 				}
+			}
+			if inboundCount <= 5 || inboundCount%50 == 0 {
+				log.Printf("[%s] provider audio sent to OpenAI track=%s payload_len=%d sent_to_openai=true",
+					s.ID, frame.Direction, len(frame.Payload))
 			}
 			s.lastAudioTime = time.Now()
 

@@ -9,14 +9,20 @@ package telnyx
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"sync"
 
 	"github.com/gorilla/websocket"
 
+	"github.com/voxlane/voice-gateway/internal/audio"
 	"github.com/voxlane/voice-gateway/internal/provider"
 )
 
@@ -34,6 +40,9 @@ type Adapter struct {
 	Events chan provider.Event
 
 	outPacketCount int
+	trackMu        sync.Mutex
+	trackStats     map[string]*trackStats
+	trackCaptures  map[string]*trackCapture
 }
 
 // New creates a Telnyx adapter from a gorilla WebSocket connection.
@@ -44,6 +53,8 @@ func New(conn *websocket.Conn, callID string, cfg provider.TelnyxConfig) *Adapte
 		callID: callID,
 		Frames: make(chan provider.AudioFrame, 8),
 		Events: make(chan provider.Event, 16),
+		trackStats:    make(map[string]*trackStats),
+		trackCaptures: make(map[string]*trackCapture),
 	}
 }
 
@@ -168,6 +179,7 @@ func (a *Adapter) ParseMediaEvent(raw []byte) (*provider.AudioFrame, *provider.E
 		if err != nil {
 			return nil, &provider.Event{Type: provider.EventError, Error: err}
 		}
+		a.noteTrackFrame(track, audio)
 		return &provider.AudioFrame{
 			Codec:      "pcmu",
 			SampleRate: 8000,
@@ -238,4 +250,173 @@ func encodeOutboundMedia(payload []byte) ([]byte, error) {
 		},
 	}
 	return json.Marshal(msg)
+}
+
+type trackStats struct {
+	frames int
+	bytes  int
+	first  map[byte]int
+}
+
+type trackCapture struct {
+	pcmuPath string
+	wavPath  string
+	pcmu     []byte
+	pcm16    []byte
+	frames   int
+	closed   bool
+}
+
+const debugTrackCaptureFrames = 900
+
+func (a *Adapter) noteTrackFrame(track string, payload []byte) {
+	a.trackMu.Lock()
+	defer a.trackMu.Unlock()
+
+	if a.trackStats == nil {
+		a.trackStats = make(map[string]*trackStats)
+	}
+	if a.trackCaptures == nil {
+		a.trackCaptures = make(map[string]*trackCapture)
+	}
+
+	stats := a.trackStats[track]
+	if stats == nil {
+		stats = &trackStats{first: make(map[byte]int)}
+		a.trackStats[track] = stats
+	}
+	stats.frames++
+	stats.bytes += len(payload)
+	if len(payload) > 0 {
+		stats.first[payload[0]]++
+	}
+
+	if stats.frames <= 5 || stats.frames%50 == 0 {
+		log.Printf("[telnyx] track metadata call_suffix=%s track=%s payload_len=%d first_bytes=%s direction_assigned=%s",
+			callIDSuffix(a.callID), track, len(payload), firstByteSummary(stats.first), track)
+	}
+
+	if os.Getenv("DEBUG_TELNYX_TRACK_CAPTURE") != "true" {
+		return
+	}
+	capture := a.trackCaptures[track]
+	if capture == nil {
+		capture = newTrackCapture(a.callID, track)
+		a.trackCaptures[track] = capture
+	}
+	capture.add(payload, a.callID, track)
+}
+
+func newTrackCapture(callID, track string) *trackCapture {
+	safeID := safeFilename(callID)
+	safeTrack := safeFilename(track)
+	base := filepath.Join(os.TempDir(), "voxlane-"+safeTrack+"-track-"+safeID)
+	c := &trackCapture{
+		pcmuPath: base + ".pcmu",
+		wavPath:  base + ".wav",
+	}
+	log.Printf("[telnyx] track capture enabled call_suffix=%s track=%s pcmu=%s wav=%s max_frames=%d",
+		callIDSuffix(callID), track, c.pcmuPath, c.wavPath, debugTrackCaptureFrames)
+	return c
+}
+
+func (c *trackCapture) add(pcmu []byte, callID, track string) {
+	if c.closed || c.frames >= debugTrackCaptureFrames {
+		return
+	}
+	c.pcmu = append(c.pcmu, pcmu...)
+	pcm16 := make([]byte, len(pcmu)*2)
+	audio.MulawToPCM16(pcmu, pcm16)
+	c.pcm16 = append(c.pcm16, pcm16...)
+	c.frames++
+	if c.frames == debugTrackCaptureFrames {
+		c.close(callID, track)
+	}
+}
+
+func (c *trackCapture) close(callID, track string) {
+	if c.closed || len(c.pcmu) == 0 {
+		return
+	}
+	c.closed = true
+	if err := os.WriteFile(c.pcmuPath, c.pcmu, 0600); err != nil {
+		log.Printf("[telnyx] track capture pcmu write failed call_suffix=%s track=%s: %v", callIDSuffix(callID), track, err)
+		return
+	}
+	if err := writePCM16WAV(c.wavPath, c.pcm16, 8000); err != nil {
+		log.Printf("[telnyx] track capture wav write failed call_suffix=%s track=%s: %v", callIDSuffix(callID), track, err)
+		return
+	}
+	log.Printf("[telnyx] track capture saved call_suffix=%s track=%s pcmu=%s wav=%s frames=%d bytes=%d",
+		callIDSuffix(callID), track, c.pcmuPath, c.wavPath, c.frames, len(c.pcmu))
+}
+
+func firstByteSummary(counts map[byte]int) string {
+	type kv struct {
+		b byte
+		n int
+	}
+	items := make([]kv, 0, len(counts))
+	for b, n := range counts {
+		items = append(items, kv{b: b, n: n})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].n > items[j].n })
+	if len(items) > 3 {
+		items = items[:3]
+	}
+	out := ""
+	for i, item := range items {
+		if i > 0 {
+			out += ","
+		}
+		out += fmt.Sprintf("0x%02X:%d", item.b, item.n)
+	}
+	return out
+}
+
+func callIDSuffix(callID string) string {
+	if len(callID) <= 8 {
+		return callID
+	}
+	return callID[len(callID)-8:]
+}
+
+func safeFilename(value string) string {
+	return regexp.MustCompile(`[^a-zA-Z0-9_.-]+`).ReplaceAllString(value, "_")
+}
+
+func writePCM16WAV(path string, pcm16 []byte, sampleRate uint32) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	dataSize := uint32(len(pcm16))
+	byteRate := sampleRate * 2
+	blockAlign := uint16(2)
+	if _, err := f.Write([]byte("RIFF")); err != nil {
+		return err
+	}
+	if err := binary.Write(f, binary.LittleEndian, uint32(36)+dataSize); err != nil {
+		return err
+	}
+	if _, err := f.Write([]byte("WAVEfmt ")); err != nil {
+		return err
+	}
+	for _, v := range []interface{}{
+		uint32(16), uint16(1), uint16(1), sampleRate, byteRate, blockAlign, uint16(16),
+	} {
+		if err := binary.Write(f, binary.LittleEndian, v); err != nil {
+			return err
+		}
+	}
+	if _, err := f.Write([]byte("data")); err != nil {
+		return err
+	}
+	if err := binary.Write(f, binary.LittleEndian, dataSize); err != nil {
+		return err
+	}
+	_, err = f.Write(pcm16)
+	return err
 }

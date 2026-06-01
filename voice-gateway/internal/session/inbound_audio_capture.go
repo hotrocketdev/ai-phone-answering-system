@@ -25,7 +25,7 @@ type inboundAudioCapture struct {
 	frames   int
 }
 
-func (s *Session) noteInboundFrame(frame provider.AudioFrame) {
+func (s *Session) noteInboundFrame(frame provider.AudioFrame) int {
 	s.mu.Lock()
 	s.inboundFrames++
 	count := s.inboundFrames
@@ -37,12 +37,13 @@ func (s *Session) noteInboundFrame(frame provider.AudioFrame) {
 	}
 
 	if s.provAdapter.Type() != provider.TypeTelnyx || os.Getenv("DEBUG_TELNYX_CAPTURE_AUDIO") != "true" {
-		return
+		return count
 	}
 	if s.capture == nil {
 		s.capture = newInboundAudioCapture(s.ID)
 	}
 	s.capture.Add(frame.Payload, s.ID)
+	return count
 }
 
 func newInboundAudioCapture(callID string) *inboundAudioCapture {
