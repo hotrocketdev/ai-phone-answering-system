@@ -45,23 +45,7 @@ func NewPipeline() *Pipeline {
 // Input: 160 bytes u-law 8kHz (one 20ms frame from Twilio)
 // Output: base64-encoded PCM16 24kHz (960 bytes → 1280 base64 chars)
 func (p *Pipeline) ProcessInbound(mulaw []byte) string {
-	// Stage 1: u-law → PCM16 8kHz (160 bytes → 320 bytes)
-	pcm8k := make([]byte, FrameSizePCM16_8k)
-	MulawToPCM16(mulaw, pcm8k)
-
-	// Stage 2: Convert to float64 for resampling
-	floats8k := make([]float64, Samples8k)
-	PCM16ToFloat64(pcm8k, floats8k)
-
-	// Stage 3: Resample 8kHz → 24kHz (160 samples → 480 samples)
-	floats24k := make([]float64, Samples24k)
-	p.resampler.Upsample8to24(floats8k, floats24k)
-
-	// Stage 4: Convert back to PCM16 bytes (480 samples → 960 bytes)
-	pcm24k := make([]byte, FrameSizePCM16_24k)
-	Float64ToPCM16(floats24k, pcm24k)
-
-	// Stage 5: Base64 encode for OpenAI
+	pcm24k := p.ProcessInboundBytes(mulaw)
 	return base64.StdEncoding.EncodeToString(pcm24k)
 }
 
@@ -101,17 +85,7 @@ func (p *Pipeline) ProcessOutbound(b64 string) ([]byte, error) {
 func (p *Pipeline) ProcessInboundBytes(mulaw []byte) []byte {
 	pcm8k := make([]byte, FrameSizePCM16_8k)
 	MulawToPCM16(mulaw, pcm8k)
-
-	floats8k := make([]float64, Samples8k)
-	PCM16ToFloat64(pcm8k, floats8k)
-
-	floats24k := make([]float64, Samples24k)
-	p.resampler.Upsample8to24(floats8k, floats24k)
-
-	pcm24k := make([]byte, FrameSizePCM16_24k)
-	Float64ToPCM16(floats24k, pcm24k)
-
-	return pcm24k
+	return p.ResamplePCM16_8kTo24k(pcm8k)
 }
 
 // ProcessInboundBytesForCodec converts a raw G.711 8kHz frame to PCM16 24kHz bytes.
@@ -145,6 +119,9 @@ func (p *Pipeline) ResamplePCM16_8kTo24k(pcm8k []byte) []byte {
 
 	floats24k := make([]float64, samples8k*3)
 	p.resampler.Upsample8to24(floats8k, floats24k)
+	for i := range floats24k {
+		floats24k[i] *= 3.0
+	}
 
 	pcm24k := make([]byte, len(floats24k)*2)
 	Float64ToPCM16(floats24k, pcm24k)

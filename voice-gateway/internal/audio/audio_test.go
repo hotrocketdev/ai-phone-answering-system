@@ -166,6 +166,23 @@ func TestProcessInboundBytesForCodecFrameSizes(t *testing.T) {
 	}
 }
 
+func TestResamplePCM16_8kTo24kPreservesLevel(t *testing.T) {
+	p := NewPipeline()
+	pcm8k := make([]byte, FrameSizePCM16_8k)
+	for i := 0; i < Samples8k; i++ {
+		sample := int16(math.Sin(2.0*math.Pi*1000.0*float64(i)/8000.0) * 8000.0)
+		putInt16LE(pcm8k[i*2:], sample)
+	}
+
+	pcm24k := p.ResamplePCM16_8kTo24k(pcm8k)
+	inRMS := pcmRMS(pcm8k[40*2:])
+	outRMS := pcmRMS(pcm24k[120*2:])
+	ratio := outRMS / inRMS
+	if ratio < 0.75 || ratio > 1.25 {
+		t.Fatalf("resample level ratio out/in: want near 1.0, got %.3f", ratio)
+	}
+}
+
 func TestPCM16ToMulaw_BufferSizes(t *testing.T) {
 	input := make([]byte, FrameSizePCM16_8k) // zeroed = PCM silence
 	output := make([]byte, FrameSizeMulaw8k)
@@ -481,4 +498,18 @@ func absDiff(a, b int16) int16 {
 		return -d
 	}
 	return d
+}
+
+func pcmRMS(pcm []byte) float64 {
+	var sum float64
+	var count int
+	for i := 0; i+1 < len(pcm); i += 2 {
+		sample := float64(int16FromLE(pcm[i:]))
+		sum += sample * sample
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+	return math.Sqrt(sum / float64(count))
 }
