@@ -137,17 +137,28 @@ func (s *Session) Start(ctx context.Context) error {
 // ReadLoop reads events from the OpenAI WebSocket in a loop.
 // Should be run in its own goroutine after Start().
 func (s *Session) ReadLoop() {
+	s.mu.Lock()
+	conn := s.conn
+	s.mu.Unlock()
+
 	defer func() {
-		s.conn.Close()
+		if conn != nil {
+			_ = conn.Close()
+		}
 		close(s.AudioOut)
 		close(s.Events)
 		close(s.Done)
 	}()
 
+	if conn == nil {
+		log.Printf("OpenAI ReadLoop ended: connection already closed")
+		return
+	}
+
 	log.Printf("OpenAI ReadLoop started")
 
 	for {
-		_, raw, err := s.conn.ReadMessage()
+		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("OpenAI ReadLoop ended: %v", err)
 			return
@@ -313,7 +324,7 @@ func (s *Session) sessionUpdateMessage() map[string]interface{} {
 		"audio": map[string]interface{}{
 			"input": map[string]interface{}{
 				"transcription": map[string]interface{}{
-					"model": "gpt-4o-mini-transcribe",
+					"model":    "gpt-4o-mini-transcribe",
 					"language": "en",
 				},
 				"turn_detection": map[string]interface{}{
