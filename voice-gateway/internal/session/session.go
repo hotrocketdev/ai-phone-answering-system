@@ -84,18 +84,26 @@ type Session struct {
 	pendingToolCallID string
 
 	// Cartesia state
-	cartesiaMu             sync.Mutex
-	cartesiaText           strings.Builder
-	cartesiaRemain         []byte // accumulates partial u-law frames
-	cartesiaTranscriptSeen bool
-	openAIAudioDropLogged  bool
-	openAIAudioDropCount   int
-	openAIResponseActive   bool
-	cartesiaResponseActive bool
-	assistantSuppressUntil time.Time
-	cartesiaRenderQueue    chan string
-	suppressInputUntil     time.Time
-	suppressedInputFrames  int
+	cartesiaMu                     sync.Mutex
+	cartesiaText                   strings.Builder
+	cartesiaRemain                 []byte // accumulates partial u-law frames
+	cartesiaTranscriptSeen         bool
+	openAIAudioDropLogged          bool
+	openAIAudioDropCount           int
+	openAIResponseActive           bool
+	cartesiaResponseActive         bool
+	cartesiaFirstFrameAt           time.Time
+	cartesiaLastFrameAt            time.Time
+	assistantSuppressUntil         time.Time
+	cartesiaRenderQueue            chan string
+	suppressInputUntil             time.Time
+	suppressedInputFrames          int
+	suppressionStartedAt           time.Time
+	suppressionLastAt              time.Time
+	suppressedInputMs              int
+	appendedInputFrames            int
+	appendAfterSuppressLogged      bool
+	speechStartedDuringSuppression bool
 
 	// Manual turn detection
 	lastAudioTime         time.Time
@@ -196,6 +204,8 @@ func (s *Session) Run(ctx context.Context) error {
 	go s.runSupervisor(ctx)
 	go s.runCartesiaRenderLoop(ctx)
 	log.Printf("[%s] turn mode: server_vad_only=%t manual_fallback_enabled=%t", s.ID, !s.Config.OpenAIManualTurnFallback, s.Config.OpenAIManualTurnFallback)
+	log.Printf("[%s] telnyx echo suppression enabled=%t tail_ms=%d",
+		s.ID, s.telnyxEchoSuppressionEnabled(), s.Config.TelnyxEchoSuppressionTailMs)
 
 	// Trigger initial AI response (greeting)
 	if s.openaiS != nil && !s.openaiS.IsClosed() {
@@ -285,6 +295,7 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 				if err := s.openaiS.SendAudio(b64); err != nil {
 					log.Printf("[%s] OpenAI SendAudio skipped: %v", s.ID, err)
 				} else {
+					s.noteAppendedInputFrame()
 					s.noteOpenAIAppend(len(b64))
 				}
 			}
@@ -412,6 +423,9 @@ func (s *Session) sendProviderMessage(data []byte, source string) {
 		}
 	default:
 		return
+	}
+	if source == "cartesia" {
+		s.noteCartesiaOutboundFrame()
 	}
 	log.Printf("[%s] outbound media frame sent source=%s", s.ID, source)
 }
@@ -582,6 +596,9 @@ func (s *Session) noteServerVADSpeech() {
 	if s.manualTurnActive {
 		s.manualTurnServerSeen = true
 	}
+	if s.inputSuppressedLocked(time.Now()) {
+		s.speechStartedDuringSuppression = true
+	}
 	log.Printf("[%s] realtime turn=%d speech_started at=%s",
 		s.ID, s.currentTurnID, s.turnSpeechStartedAt.Format(time.RFC3339Nano))
 }
@@ -667,9 +684,12 @@ func (s *Session) noteOpenAIResponseDone() {
 	manualFired := s.manualFallbackFired
 	commitAttempts := s.manualCommitAttempts
 	commitRejected := s.manualCommitRejected
+	suppressed := s.suppressedInputFrames
+	appended := s.appendedInputFrames
+	speechDuringSuppression := s.speechStartedDuringSuppression
 	s.mu.RUnlock()
-	log.Printf("[%s] realtime turn=%d response_done at=%s speech_stopped=%s manual_fallback_fired=%d manual_commit_attempts=%d manual_commit_rejected=%d",
-		s.ID, turnID, time.Now().Format(time.RFC3339Nano), formatTimeForLog(stoppedAt), manualFired, commitAttempts, commitRejected)
+	log.Printf("[%s] realtime turn=%d response_done at=%s speech_stopped=%s manual_fallback_fired=%d manual_commit_attempts=%d manual_commit_rejected=%d suppressed_inbound_frames=%d appended_inbound_frames=%d speech_started_during_suppression=%t",
+		s.ID, turnID, time.Now().Format(time.RFC3339Nano), formatTimeForLog(stoppedAt), manualFired, commitAttempts, commitRejected, suppressed, appended, speechDuringSuppression)
 }
 
 func (s *Session) noteOpenAIError(raw json.RawMessage) {
@@ -1008,6 +1028,13 @@ func (s *Session) setOpenAIResponseActive(active bool) {
 
 func (s *Session) setCartesiaResponseActive(active bool) {
 	s.mu.Lock()
+	if active {
+		s.cartesiaFirstFrameAt = time.Time{}
+		s.cartesiaLastFrameAt = time.Time{}
+		s.suppressionStartedAt = time.Time{}
+		s.suppressionLastAt = time.Time{}
+		s.appendAfterSuppressLogged = false
+	}
 	s.cartesiaResponseActive = active
 	s.mu.Unlock()
 }
@@ -1026,18 +1053,81 @@ func (s *Session) suppressInputFor(d time.Duration) {
 
 func (s *Session) isInputSuppressed() bool {
 	s.mu.RLock()
-	until := s.suppressInputUntil
+	suppressed := s.inputSuppressedLocked(time.Now())
 	s.mu.RUnlock()
-	return !until.IsZero() && time.Now().Before(until)
+	return suppressed
+}
+
+func (s *Session) inputSuppressedLocked(now time.Time) bool {
+	if s.telnyxEchoSuppressionEnabled() {
+		if s.cartesiaResponseActive {
+			return true
+		}
+		if !s.cartesiaLastFrameAt.IsZero() {
+			tail := time.Duration(s.Config.TelnyxEchoSuppressionTailMs) * time.Millisecond
+			return now.Before(s.cartesiaLastFrameAt.Add(tail))
+		}
+		return false
+	}
+	until := s.suppressInputUntil
+	return !until.IsZero() && now.Before(until)
+}
+
+func (s *Session) telnyxEchoSuppressionEnabled() bool {
+	return s.provAdapter != nil &&
+		s.provAdapter.Type() == provider.TypeTelnyx &&
+		s.Config != nil &&
+		s.Config.TelnyxEchoSuppressionTailMs > 0
+}
+
+func (s *Session) noteCartesiaOutboundFrame() {
+	if !s.telnyxEchoSuppressionEnabled() {
+		return
+	}
+	now := time.Now()
+	s.mu.Lock()
+	if s.cartesiaFirstFrameAt.IsZero() {
+		s.cartesiaFirstFrameAt = now
+		log.Printf("[%s] echo suppression playback started at=%s tail_ms=%d",
+			s.ID, now.Format(time.RFC3339Nano), s.Config.TelnyxEchoSuppressionTailMs)
+	}
+	s.cartesiaLastFrameAt = now
+	s.mu.Unlock()
 }
 
 func (s *Session) noteSuppressedInputFrame() {
 	s.mu.Lock()
 	s.suppressedInputFrames++
 	count := s.suppressedInputFrames
+	now := time.Now()
+	if s.suppressionStartedAt.IsZero() {
+		s.suppressionStartedAt = now
+		log.Printf("[%s] echo suppression started at=%s", s.ID, now.Format(time.RFC3339Nano))
+	}
+	s.suppressionLastAt = now
+	s.suppressedInputMs += 20
 	s.mu.Unlock()
 	if count == 1 || count%50 == 0 {
-		log.Printf("[%s] suppressing inbound audio during assistant playback count=%d", s.ID, count)
+		log.Printf("[%s] suppressing inbound audio during assistant playback count=%d duration_ms=%d", s.ID, count, count*20)
+	}
+}
+
+func (s *Session) noteAppendedInputFrame() {
+	s.mu.Lock()
+	s.appendedInputFrames++
+	appended := s.appendedInputFrames
+	wasSuppressed := !s.suppressionLastAt.IsZero() && !s.appendAfterSuppressLogged
+	if wasSuppressed {
+		s.appendAfterSuppressLogged = true
+	}
+	suppressionEnd := s.suppressionLastAt
+	suppressedFrames := s.suppressedInputFrames
+	suppressedMs := s.suppressedInputMs
+	s.mu.Unlock()
+
+	if wasSuppressed {
+		log.Printf("[%s] first inbound frame appended after echo suppression at=%s suppression_end=%s suppressed_frames=%d suppressed_duration_ms=%d appended_frames=%d",
+			s.ID, time.Now().Format(time.RFC3339Nano), formatTimeForLog(suppressionEnd), suppressedFrames, suppressedMs, appended)
 	}
 }
 

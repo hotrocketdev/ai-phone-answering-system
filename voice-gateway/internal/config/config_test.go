@@ -29,6 +29,7 @@ func TestLoad_ValidConfig(t *testing.T) {
 	os.Setenv("OPENAI_API_KEY", "sk-test")
 	os.Setenv("HMAC_SECRET", "test-secret")
 	os.Unsetenv("OPENAI_MANUAL_TURN_FALLBACK")
+	os.Unsetenv("TELNYX_ECHO_SUPPRESSION_TAIL_MS")
 
 	cfg, err := Load()
 	if err != nil {
@@ -39,6 +40,9 @@ func TestLoad_ValidConfig(t *testing.T) {
 	}
 	if cfg.OpenAIManualTurnFallback {
 		t.Errorf("expected manual turn fallback disabled by default")
+	}
+	if cfg.TelnyxEchoSuppressionTailMs != 300 {
+		t.Errorf("expected telnyx echo suppression tail 300ms, got %d", cfg.TelnyxEchoSuppressionTailMs)
 	}
 }
 
@@ -53,6 +57,20 @@ func TestLoad_ManualTurnFallbackOptIn(t *testing.T) {
 	}
 	if !cfg.OpenAIManualTurnFallback {
 		t.Errorf("expected manual turn fallback enabled when explicitly configured")
+	}
+}
+
+func TestLoad_TelnyxEchoSuppressionTailOverride(t *testing.T) {
+	os.Setenv("OPENAI_API_KEY", "sk-test")
+	os.Setenv("HMAC_SECRET", "test-secret")
+	os.Setenv("TELNYX_ECHO_SUPPRESSION_TAIL_MS", "150")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.TelnyxEchoSuppressionTailMs != 150 {
+		t.Errorf("expected telnyx echo suppression tail 150ms, got %d", cfg.TelnyxEchoSuppressionTailMs)
 	}
 }
 
