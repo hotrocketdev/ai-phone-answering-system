@@ -26,6 +26,17 @@ Current behaviour focus:
 - avoid repeated identical questions
 - ask callers to repeat or spell unclear names
 
+Codec-quality update:
+
+- Optional G722 outbound support was implemented behind env flags.
+- One live G722 test was run and then reverted.
+- G722 did not pass live validation because Telnyx sent inbound media as G722 and the gateway currently only decodes PCMA/PCMU inbound before OpenAI.
+- Production/runtime baseline remains PCMU with Cartesia `pcm_mulaw` at 8000 Hz.
+
+Known follow-up:
+
+- During contact-number collection, a longer phrase such as "my number is the one I'm calling from, 079..." can be interrupted before the number is complete. Handle this later as a phone-slot/VAD issue, not as part of codec work.
+
 ## 1. ORIGINAL PROJECT DIRECTION
 
 ### What VoxLane Was Intended to Become

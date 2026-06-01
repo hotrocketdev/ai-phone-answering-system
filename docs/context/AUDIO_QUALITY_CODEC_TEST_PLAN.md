@@ -208,3 +208,57 @@ CARTESIA_OUTPUT_SAMPLE_RATE=8000
 ```
 
 Do not leave the VPS in an experimental codec state.
+
+## G722 Live Test Result — 2026-06-01
+
+Test commit:
+
+```text
+0d75f4388fe76be0d74580d50ef24a15835ddd41
+```
+
+G722 runtime used:
+
+```text
+TELNYX_STREAM_BIDIRECTIONAL_CODEC=G722
+CARTESIA_OUTPUT_ENCODING=pcm_s16le
+CARTESIA_OUTPUT_SAMPLE_RATE=16000
+AUDIO_TRANSCODE_OUTBOUND_TO=g722
+```
+
+Live result:
+
+- caller heard greeting: yes
+- voice quality: worse than PCMU because the call began very noisy
+- booking flow: failed after caller said they wanted to book a table
+- Telnyx API errors: none observed
+- WebSocket write errors: none observed
+- exact failure boundary: Telnyx inbound media arrived as `G722`, but the gateway inbound path only supports G.711 PCMA/PCMU for OpenAI input, so caller audio was dropped with `unsupported inbound G.711 codec "G722"`
+
+Relevant log pattern:
+
+```text
+dropping provider audio before OpenAI codec=G722 payload_len=160 error=unsupported inbound G.711 codec "G722" sent_to_openai=false
+```
+
+Action taken:
+
+```text
+Reverted VPS runtime to PCMU baseline immediately.
+```
+
+Restored runtime:
+
+```text
+TELNYX_STREAM_BIDIRECTIONAL_CODEC=PCMU
+CARTESIA_OUTPUT_ENCODING=pcm_mulaw
+CARTESIA_OUTPUT_SAMPLE_RATE=8000
+AUDIO_TRANSCODE_OUTBOUND_TO=none
+```
+
+Conclusion:
+
+G722 outbound code is implemented behind flags, but G722 cannot become a candidate default until the inbound G722 decode path is implemented and validated. The next codec task should be either:
+
+1. implement inbound G722 decode to PCM16 24 kHz for OpenAI, then retry G722 end-to-end, or
+2. test L16 as a separate controlled path if Telnyx can provide inbound/outbound linear PCM without G722 ADPCM decode complexity.

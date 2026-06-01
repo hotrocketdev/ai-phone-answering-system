@@ -113,6 +113,35 @@ Validate receptionist naturalness in live calls while preserving deterministic b
 - guest count should advance to name
 - unclear names should trigger repeat/spell clarification, not repeated identical wording
 
+## Known Follow-Up Issues
+
+### Contact Number Turn Interruption
+
+During contact-number collection, if the caller gives a longer phrase such as:
+
+```text
+My number is the one I'm calling from, 079...
+```
+
+Alex may interrupt before the number is complete and ask for the number again. Do not fix this inside codec work. Treat it as a separate phone-slot/VAD task. Possible future approaches:
+
+- tune turn timing for contact-number collection
+- handle "the number I'm calling from" as a request to use caller ID
+- avoid interrupting while a phone-number phrase is still in progress
+
+### G722 Codec Test Result
+
+G722 outbound support exists behind env flags, but the first live G722 test failed because Telnyx also sent inbound media as `G722`, and the gateway currently only decodes inbound `PCMA`/`PCMU` before OpenAI.
+
+The VPS was reverted to the PCMU baseline:
+
+```text
+TELNYX_STREAM_BIDIRECTIONAL_CODEC=PCMU
+CARTESIA_OUTPUT_ENCODING=pcm_mulaw
+CARTESIA_OUTPUT_SAMPLE_RATE=8000
+AUDIO_TRANSCODE_OUTBOUND_TO=none
+```
+
 Next tests:
 
 1. Change only `stream_bidirectional_target_legs=self`
