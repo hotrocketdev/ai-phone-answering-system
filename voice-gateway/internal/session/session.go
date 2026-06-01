@@ -52,6 +52,7 @@ type Session struct {
 	booking      sm.BookingData
 	bookingLive  bool
 	bookingAsked string
+	capture      *inboundAudioCapture
 
 	// Components
 	provAdapter    provider.Adapter
@@ -88,7 +89,9 @@ type Session struct {
 	suppressedInputFrames  int
 
 	// Manual turn detection
-	lastAudioTime time.Time
+	lastAudioTime         time.Time
+	inboundFrames         int
+	droppedProviderFrames int
 }
 
 // ─── Creation ────────────────────────────────────────────────────────────
@@ -233,13 +236,20 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 				return
 			}
 			if frame.Direction != "" && frame.Direction != "inbound" {
-				log.Printf("[%s] dropping provider audio direction=%s before OpenAI", s.ID, frame.Direction)
+				s.mu.Lock()
+				s.droppedProviderFrames++
+				dropped := s.droppedProviderFrames
+				s.mu.Unlock()
+				if dropped <= 5 || dropped%100 == 0 {
+					log.Printf("[%s] dropping provider audio direction=%s before OpenAI count=%d", s.ID, frame.Direction, dropped)
+				}
 				continue
 			}
 			if s.isInputSuppressed() {
 				s.noteSuppressedInputFrame()
 				continue
 			}
+			s.noteInboundFrame(frame)
 			b64 := s.audioP.ProcessInbound(frame.Payload)
 			s.inputSecs += 0.020
 			if s.openaiS != nil {
@@ -253,7 +263,13 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 			if !ok {
 				return
 			}
+			if evt.Type == provider.EventError {
+				log.Printf("[%s] provider event error: %v", s.ID, evt.Error)
+			} else if evt.Type == provider.EventStarted || evt.Type == provider.EventMark {
+				log.Printf("[%s] provider event: type=%s label=%s", s.ID, evt.Type, evt.Label)
+			}
 			if evt.Type == provider.EventStopped || evt.Type == provider.EventDisconnected {
+				log.Printf("[%s] provider event: type=%s", s.ID, evt.Type)
 				s.handleProviderDisconnect(ctx)
 				return
 			}
@@ -864,6 +880,10 @@ func (s *Session) executeToolCall(ctx context.Context, name string, args json.Ra
 func (s *Session) handleProviderDisconnect(ctx context.Context) {
 	log.Printf("[%s] Twilio disconnected, cleaning up", s.ID)
 	s.setMeta(MetaEnding)
+	if s.capture != nil {
+		s.capture.Close(s.ID)
+		s.capture = nil
+	}
 
 	// Close OpenAI connection
 	if s.openaiS != nil {
@@ -882,6 +902,10 @@ func (s *Session) handleProviderDisconnect(ctx context.Context) {
 }
 
 func (s *Session) cleanup() {
+	if s.capture != nil {
+		s.capture.Close(s.ID)
+		s.capture = nil
+	}
 	if s.provAdapter != nil {
 		s.provAdapter.Close()
 	}

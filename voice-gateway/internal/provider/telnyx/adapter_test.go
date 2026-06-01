@@ -82,7 +82,34 @@ func TestParseJSONMediaEvent(t *testing.T) {
 	if frame.StreamID != "stream-123" {
 		t.Fatalf("stream id: want stream-123, got %q", frame.StreamID)
 	}
+	if frame.Direction != "inbound" {
+		t.Fatalf("direction: want inbound, got %q", frame.Direction)
+	}
 	if string(frame.Payload) != string(pcmu) {
 		t.Fatalf("payload mismatch: want %v, got %v", pcmu, frame.Payload)
+	}
+}
+
+func TestParseJSONMediaEventPreservesTrackDirection(t *testing.T) {
+	a := &Adapter{callID: "call-123"}
+	pcmu := []byte{0xff, 0x7f, 0x00, 0x80}
+	raw, _ := json.Marshal(map[string]interface{}{
+		"event":     "media",
+		"stream_id": "stream-123",
+		"media": map[string]string{
+			"track":   "outbound",
+			"payload": base64.StdEncoding.EncodeToString(pcmu),
+		},
+	})
+
+	frame, event := a.ParseMediaEvent(raw)
+	if event != nil {
+		t.Fatalf("event: want nil, got %#v", event)
+	}
+	if frame == nil {
+		t.Fatal("frame: want non-nil")
+	}
+	if frame.Direction != "outbound" {
+		t.Fatalf("direction: want outbound, got %q", frame.Direction)
 	}
 }

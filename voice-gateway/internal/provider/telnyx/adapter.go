@@ -151,10 +151,18 @@ func (a *Adapter) ParseMediaEvent(raw []byte) (*provider.AudioFrame, *provider.E
 	case "connected":
 		return nil, &provider.Event{Type: provider.EventConnected}
 	case "start":
+		if msg.Start != nil && msg.Start.MediaFormat != nil {
+			log.Printf("[telnyx] inbound media format encoding=%s sample_rate=%d channels=%d",
+				msg.Start.MediaFormat.Encoding, msg.Start.MediaFormat.SampleRate, msg.Start.MediaFormat.Channels)
+		}
 		return nil, &provider.Event{Type: provider.EventStarted}
 	case "media":
 		if msg.Media == nil || msg.Media.Payload == "" {
 			return nil, nil
+		}
+		track := msg.Media.Track
+		if track == "" {
+			track = "inbound"
 		}
 		audio, err := base64.StdEncoding.DecodeString(msg.Media.Payload)
 		if err != nil {
@@ -165,7 +173,7 @@ func (a *Adapter) ParseMediaEvent(raw []byte) (*provider.AudioFrame, *provider.E
 			SampleRate: 8000,
 			Payload:    audio,
 			Timestamp:  msg.Media.Timestamp,
-			Direction:  "inbound",
+			Direction:  track,
 			CallID:     a.callID,
 			StreamID:   a.streamID,
 		}, nil
