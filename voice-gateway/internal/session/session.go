@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -110,6 +111,11 @@ type Session struct {
 	pendingInputBytes     int
 	turnAppendFrames      int
 	turnAppendBytes       int
+	currentTurnID         int
+	turnFirstAppendAt     time.Time
+	turnLastAppendAt      time.Time
+	turnSpeechStartedAt   time.Time
+	turnSpeechStoppedAt   time.Time
 }
 
 // ─── Creation ────────────────────────────────────────────────────────────
@@ -268,8 +274,9 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 				s.noteSuppressedInputFrame()
 				continue
 			}
-			inboundCount := s.noteInboundFrame(frame)
-			b64 := s.audioP.ProcessInbound(frame.Payload)
+			pcm24k := s.audioP.ProcessInboundBytes(frame.Payload)
+			inboundCount := s.noteInboundFrame(frame, pcm24k)
+			b64 := base64.StdEncoding.EncodeToString(pcm24k)
 			s.inputSecs += 0.020
 			if s.openaiS != nil {
 				if err := s.openaiS.SendAudio(b64); err != nil {
@@ -471,14 +478,15 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 		s.handleBargeIn()
 
 	case "speech_stopped":
+		s.noteServerVADStopped()
 		s.clearBargeIn()
-		log.Printf("[%s] speech_stopped received; letting OpenAI Realtime create the response", s.ID)
 
 	case "input_audio_buffer.committed":
 		s.noteOpenAIInputCommitted()
 
 	case "conversation.item.input_audio_transcription.completed":
 		transcript := logCallerTranscript(s.ID, evt.Data)
+		s.noteOpenAITranscriptCompleted(transcript)
 		s.handleCallerTranscript(ctx, transcript)
 
 	case "conversation.item.input_audio_transcription.failed":
@@ -529,6 +537,7 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 
 	case "response.created":
 		s.setOpenAIResponseActive(true)
+		s.noteOpenAIResponseCreated()
 
 	case "response.done":
 		s.setOpenAIResponseActive(false)
@@ -559,15 +568,43 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 func (s *Session) noteServerVADSpeech() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.currentTurnID++
 	s.serverVADLastSeen = time.Now()
+	s.turnSpeechStartedAt = s.serverVADLastSeen
+	s.turnSpeechStoppedAt = time.Time{}
 	if s.manualTurnActive {
 		s.manualTurnServerSeen = true
 	}
+	log.Printf("[%s] realtime turn=%d speech_started at=%s",
+		s.ID, s.currentTurnID, s.turnSpeechStartedAt.Format(time.RFC3339Nano))
+}
+
+func (s *Session) noteServerVADStopped() {
+	s.mu.Lock()
+	turnID := s.currentTurnID
+	stoppedAt := time.Now()
+	s.turnSpeechStoppedAt = stoppedAt
+	startedAt := s.turnSpeechStartedAt
+	firstAppend := s.turnFirstAppendAt
+	lastAppend := s.turnLastAppendAt
+	frames := s.turnAppendFrames
+	bytes := s.turnAppendBytes
+	pendingFrames := s.pendingInputFrames
+	pendingBytes := s.pendingInputBytes
+	s.mu.Unlock()
+
+	log.Printf("[%s] realtime turn=%d speech_stopped at=%s started_at=%s first_append=%s last_append=%s turn_frames=%d turn_encoded_bytes=%d pending_frames=%d pending_encoded_bytes=%d; letting OpenAI Realtime create the response",
+		s.ID, turnID, stoppedAt.Format(time.RFC3339Nano), formatTimeForLog(startedAt), formatTimeForLog(firstAppend), formatTimeForLog(lastAppend), frames, bytes, pendingFrames, pendingBytes)
 }
 
 func (s *Session) noteOpenAIAppend(encodedBytes int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := time.Now()
+	if s.turnFirstAppendAt.IsZero() {
+		s.turnFirstAppendAt = now
+	}
+	s.turnLastAppendAt = now
 	s.pendingInputFrames++
 	s.pendingInputBytes += encodedBytes
 	s.turnAppendFrames++
@@ -580,14 +617,47 @@ func (s *Session) noteOpenAIAppend(encodedBytes int) {
 
 func (s *Session) noteOpenAIInputCommitted() {
 	s.mu.Lock()
+	turnID := s.currentTurnID
 	frames := s.pendingInputFrames
 	bytes := s.pendingInputBytes
+	startedAt := s.turnSpeechStartedAt
+	stoppedAt := s.turnSpeechStoppedAt
+	firstAppend := s.turnFirstAppendAt
+	lastAppend := s.turnLastAppendAt
 	s.pendingInputFrames = 0
 	s.pendingInputBytes = 0
 	s.turnAppendFrames = 0
 	s.turnAppendBytes = 0
+	s.turnFirstAppendAt = time.Time{}
+	s.turnLastAppendAt = time.Time{}
 	s.mu.Unlock()
-	log.Printf("[%s] openai input committed pending_frames=%d pending_encoded_bytes=%d", s.ID, frames, bytes)
+	log.Printf("[%s] openai input committed turn=%d pending_frames=%d pending_encoded_bytes=%d speech_started=%s speech_stopped=%s first_append=%s last_append=%s buffer_cleared=false",
+		s.ID, turnID, frames, bytes, formatTimeForLog(startedAt), formatTimeForLog(stoppedAt), formatTimeForLog(firstAppend), formatTimeForLog(lastAppend))
+}
+
+func (s *Session) noteOpenAITranscriptCompleted(transcript string) {
+	s.mu.RLock()
+	turnID := s.currentTurnID
+	stoppedAt := s.turnSpeechStoppedAt
+	s.mu.RUnlock()
+	log.Printf("[%s] realtime turn=%d transcript_completed at=%s speech_stopped=%s transcript_chars=%d",
+		s.ID, turnID, time.Now().Format(time.RFC3339Nano), formatTimeForLog(stoppedAt), len(transcript))
+}
+
+func (s *Session) noteOpenAIResponseCreated() {
+	s.mu.RLock()
+	turnID := s.currentTurnID
+	stoppedAt := s.turnSpeechStoppedAt
+	s.mu.RUnlock()
+	log.Printf("[%s] realtime turn=%d response_created at=%s speech_stopped=%s",
+		s.ID, turnID, time.Now().Format(time.RFC3339Nano), formatTimeForLog(stoppedAt))
+}
+
+func formatTimeForLog(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	return t.Format(time.RFC3339Nano)
 }
 
 func (s *Session) observeManualVAD(mulaw []byte) {

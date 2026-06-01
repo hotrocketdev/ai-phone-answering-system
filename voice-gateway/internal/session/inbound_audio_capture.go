@@ -15,17 +15,21 @@ import (
 const debugCaptureFrames = 900 // 18 seconds at 20ms per PCMU frame.
 
 type inboundAudioCapture struct {
-	mu       sync.Mutex
-	enabled  bool
-	closed   bool
-	pcmuPath string
-	wavPath  string
-	pcmu     []byte
-	pcm16    []byte
-	frames   int
+	mu        sync.Mutex
+	enabled   bool
+	closed    bool
+	pcmuPath  string
+	pcm8Path  string
+	wavPath   string
+	pcm24Path string
+	wav24Path string
+	pcmu      []byte
+	pcm16     []byte
+	pcm24     []byte
+	frames    int
 }
 
-func (s *Session) noteInboundFrame(frame provider.AudioFrame) int {
+func (s *Session) noteInboundFrame(frame provider.AudioFrame, pcm24k []byte) int {
 	s.mu.Lock()
 	s.inboundFrames++
 	count := s.inboundFrames
@@ -42,7 +46,7 @@ func (s *Session) noteInboundFrame(frame provider.AudioFrame) int {
 	if s.capture == nil {
 		s.capture = newInboundAudioCapture(s.ID)
 	}
-	s.capture.Add(frame.Payload, s.ID)
+	s.capture.Add(frame.Payload, pcm24k, s.ID)
 	return count
 }
 
@@ -50,15 +54,19 @@ func newInboundAudioCapture(callID string) *inboundAudioCapture {
 	safeID := regexp.MustCompile(`[^a-zA-Z0-9_.-]+`).ReplaceAllString(callID, "_")
 	base := filepath.Join(os.TempDir(), "voxlane-inbound-"+safeID)
 	c := &inboundAudioCapture{
-		enabled:  true,
-		pcmuPath: base + ".pcmu",
-		wavPath:  base + ".wav",
+		enabled:   true,
+		pcmuPath:  base + ".pcmu",
+		pcm8Path:  base + ".pcm16_8k",
+		wavPath:   base + ".wav",
+		pcm24Path: base + ".pcm16_24k",
+		wav24Path: base + ".24k.wav",
 	}
-	log.Printf("[%s] inbound audio capture enabled pcmu=%s wav=%s max_frames=%d", callID, c.pcmuPath, c.wavPath, debugCaptureFrames)
+	log.Printf("[%s] inbound audio capture enabled pcmu=%s pcm8=%s wav8=%s pcm24=%s wav24=%s max_frames=%d",
+		callID, c.pcmuPath, c.pcm8Path, c.wavPath, c.pcm24Path, c.wav24Path, debugCaptureFrames)
 	return c
 }
 
-func (c *inboundAudioCapture) Add(pcmu []byte, callID string) {
+func (c *inboundAudioCapture) Add(pcmu []byte, pcm24k []byte, callID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.enabled || c.closed || c.frames >= debugCaptureFrames {
@@ -73,6 +81,7 @@ func (c *inboundAudioCapture) Add(pcmu []byte, callID string) {
 	pcm16 := make([]byte, len(pcmu)*2)
 	audio.MulawToPCM16(pcmu, pcm16)
 	c.pcm16 = append(c.pcm16, pcm16...)
+	c.pcm24 = append(c.pcm24, pcm24k...)
 	c.frames++
 
 	if c.frames == debugCaptureFrames {
@@ -98,11 +107,24 @@ func (c *inboundAudioCapture) closeLocked(callID string) {
 		log.Printf("[%s] inbound audio capture pcmu write failed: %v", callID, err)
 		return
 	}
+	if err := os.WriteFile(c.pcm8Path, c.pcm16, 0600); err != nil {
+		log.Printf("[%s] inbound audio capture pcm8 write failed: %v", callID, err)
+		return
+	}
 	if err := writePCM16WAV(c.wavPath, c.pcm16, 8000); err != nil {
 		log.Printf("[%s] inbound audio capture wav write failed: %v", callID, err)
 		return
 	}
-	log.Printf("[%s] inbound audio capture saved pcmu=%s wav=%s frames=%d bytes=%d", callID, c.pcmuPath, c.wavPath, c.frames, len(c.pcmu))
+	if err := os.WriteFile(c.pcm24Path, c.pcm24, 0600); err != nil {
+		log.Printf("[%s] inbound audio capture pcm24 write failed: %v", callID, err)
+		return
+	}
+	if err := writePCM16WAV(c.wav24Path, c.pcm24, 24000); err != nil {
+		log.Printf("[%s] inbound audio capture wav24 write failed: %v", callID, err)
+		return
+	}
+	log.Printf("[%s] inbound audio capture saved pcmu=%s pcm8=%s wav8=%s pcm24=%s wav24=%s frames=%d pcmu_bytes=%d pcm24_bytes=%d",
+		callID, c.pcmuPath, c.pcm8Path, c.wavPath, c.pcm24Path, c.wav24Path, c.frames, len(c.pcmu), len(c.pcm24))
 }
 
 func writePCM16WAV(path string, pcm16 []byte, sampleRate uint32) error {
