@@ -32,35 +32,37 @@ Do not ask multiple booking questions together.
 
 Do not confirm a booking until the booking tool or tenant booking system returns success.
 
+Implementation rule: deterministic booking state decides the next missing item. A small wording layer may make the question sound natural, but it must not choose a different field or let the LLM improvise the booking order.
+
 Example:
 
 ```text
 Customer: I'd like to book a table.
-Receptionist: Certainly. What date would you like to book for?
+Receptionist: Of course, I can help with that. What date would you like to book for?
 ```
 
 Then:
 
 ```text
-What time would you like?
+Lovely. What time would you like?
 ```
 
 Then:
 
 ```text
-How many guests?
+Perfect. How many guests will that be for?
 ```
 
 Then:
 
 ```text
-Can I take your name please?
+Great. Can I take your name please?
 ```
 
 Then:
 
 ```text
-And a contact number?
+Thanks, {name}. And what's the best contact number?
 ```
 
 If the caller gives multiple details in one answer, keep them and ask only for the next missing item.
@@ -69,14 +71,26 @@ Example:
 
 ```text
 Customer: Tomorrow at 4 pm.
-Receptionist: How many guests?
+Receptionist: Perfect. How many guests will that be for?
 ```
 
 Example:
 
 ```text
 Customer: Tomorrow at 7 for four people.
-Receptionist: Can I take your name please?
+Receptionist: Great. Can I take your name please?
+```
+
+If a required answer is unclear, do not repeat the exact same question. Use a short clarification:
+
+```text
+Sorry, could you say your name again please?
+```
+
+If the name is still unclear:
+
+```text
+Sorry, could you spell your name for me please?
 ```
 
 ## 2. Reservation Changes

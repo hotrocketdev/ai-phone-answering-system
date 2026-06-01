@@ -96,15 +96,38 @@ func firstMissingBookingField(b sm.BookingData) string {
 func nextBookingQuestion(field string) string {
 	switch field {
 	case "date":
-		return "What date would you like to book for?"
+		return "Of course, I can help with that. What date would you like to book for?"
 	case "time":
-		return "What time would you like?"
+		return "Lovely. What time would you like?"
 	case "guest_count":
-		return "How many guests?"
+		return "Perfect. How many guests will that be for?"
 	case "name":
-		return "Can I take your name please?"
+		return "Great. Can I take your name please?"
 	case "phone":
-		return "And a contact number?"
+		return "And what's the best contact number?"
+	default:
+		return "One moment, I'll check that."
+	}
+}
+
+func naturalBookingQuestion(field string, update bookingSlotUpdate, booking sm.BookingData) string {
+	switch field {
+	case "date":
+		return "Of course, I can help with that. What date would you like to book for?"
+	case "time":
+		return "Lovely. What time would you like?"
+	case "guest_count":
+		return "Perfect. How many guests will that be for?"
+	case "name":
+		return "Great. Can I take your name please?"
+	case "phone":
+		if update.Name != "" {
+			return fmt.Sprintf("Thanks, %s. And what's the best contact number?", update.Name)
+		}
+		if booking.Name != "" && booking.Name != "provided" {
+			return fmt.Sprintf("Thanks, %s. And what's the best contact number?", booking.Name)
+		}
+		return "And what's the best contact number?"
 	default:
 		return "One moment, I'll check that."
 	}
@@ -223,7 +246,7 @@ func expectedBookingFieldFromAssistant(text string) string {
 		return "guest_count"
 	case strings.Contains(lower, "take your name") || strings.Contains(lower, "what name"):
 		return "name"
-	case strings.Contains(lower, "contact number") || strings.Contains(lower, "phone number"):
+	case strings.Contains(lower, "contact number") || strings.Contains(lower, "phone number") || strings.Contains(lower, "best contact number"):
 		return "phone"
 	default:
 		return ""

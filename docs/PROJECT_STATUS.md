@@ -6,6 +6,26 @@
 
 ---
 
+## Current Runtime Update — 2026-06-01
+
+Telnyx + OpenAI Realtime + Cartesia is the active validation path. Fast static Cartesia greeting is enabled, caller speech reaches OpenAI, and the deterministic booking state layer controls the booking slot order.
+
+Booking flow must remain:
+
+```text
+date -> time -> guest count -> name -> contact details
+```
+
+A natural receptionist wording layer now formats the next state-selected question. The wording layer may add short acknowledgements such as "Lovely", "Perfect", or "Thanks, George", but it must not choose the next slot or return booking collection to a fully LLM-driven flow.
+
+Current behaviour focus:
+
+- keep Alex calm, brief, and natural
+- ask one question at a time
+- avoid blunt phrases such as "For when?"
+- avoid repeated identical questions
+- ask callers to repeat or spell unclear names
+
 ## 1. ORIGINAL PROJECT DIRECTION
 
 ### What VoxLane Was Intended to Become

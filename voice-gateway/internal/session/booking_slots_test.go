@@ -1,6 +1,7 @@
 package session
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/voxlane/voice-gateway/internal/session/sm"
@@ -100,11 +101,96 @@ func TestExpectedBookingFieldFromAssistant(t *testing.T) {
 	}
 }
 
+func TestNaturalBookingQuestionBookingIntentDate(t *testing.T) {
+	got := naturalBookingQuestion("date", bookingSlotUpdate{}, sm.BookingData{})
+	want := "Of course, I can help with that. What date would you like to book for?"
+	if got != want {
+		t.Fatalf("question = %q, want %q", got, want)
+	}
+}
+
+func TestNaturalBookingQuestionDateOnlyAsksTime(t *testing.T) {
+	got := naturalBookingQuestion("time", bookingSlotUpdate{Date: "tomorrow"}, sm.BookingData{Date: "tomorrow"})
+	want := "Lovely. What time would you like?"
+	if got != want {
+		t.Fatalf("question = %q, want %q", got, want)
+	}
+}
+
+func TestNaturalBookingQuestionDateTimeAsksGuests(t *testing.T) {
+	got := naturalBookingQuestion("guest_count", bookingSlotUpdate{Date: "tomorrow", Time: "19:00"}, sm.BookingData{Date: "tomorrow", Time: "19:00"})
+	want := "Perfect. How many guests will that be for?"
+	if got != want {
+		t.Fatalf("question = %q, want %q", got, want)
+	}
+}
+
+func TestNaturalBookingQuestionDateTimeGuestsAsksName(t *testing.T) {
+	got := naturalBookingQuestion("name", bookingSlotUpdate{Date: "tomorrow", Time: "19:00", PartySize: 4}, sm.BookingData{Date: "tomorrow", Time: "19:00", PartySize: 4})
+	want := "Great. Can I take your name please?"
+	if got != want {
+		t.Fatalf("question = %q, want %q", got, want)
+	}
+}
+
+func TestNaturalBookingQuestionGuestCountAsksName(t *testing.T) {
+	got := naturalBookingQuestion("name", bookingSlotUpdate{PartySize: 4}, sm.BookingData{Date: "tomorrow", Time: "19:00", PartySize: 4})
+	want := "Great. Can I take your name please?"
+	if got != want {
+		t.Fatalf("question = %q, want %q", got, want)
+	}
+}
+
+func TestNaturalBookingQuestionNameAsksPhone(t *testing.T) {
+	got := naturalBookingQuestion("phone", bookingSlotUpdate{Name: "George"}, sm.BookingData{Date: "tomorrow", Time: "19:00", PartySize: 4, Name: "George"})
+	want := "Thanks, George. And what's the best contact number?"
+	if got != want {
+		t.Fatalf("question = %q, want %q", got, want)
+	}
+}
+
 func TestClarificationBookingQuestionForName(t *testing.T) {
 	if got := clarificationBookingQuestion("name", 1); got != "Sorry, could you say your name again please?" {
 		t.Fatalf("first clarification = %q", got)
 	}
 	if got := clarificationBookingQuestion("name", 2); got != "Sorry, could you spell your name for me please?" {
 		t.Fatalf("second clarification = %q", got)
+	}
+}
+
+func TestBookingResponsesAvoidForbiddenPhrases(t *testing.T) {
+	responses := []string{
+		nextBookingQuestion("date"),
+		nextBookingQuestion("time"),
+		nextBookingQuestion("guest_count"),
+		nextBookingQuestion("name"),
+		nextBookingQuestion("phone"),
+		clarificationBookingQuestion("name", 1),
+		clarificationBookingQuestion("name", 2),
+	}
+	forbidden := []string{
+		"i'm here to help",
+		"would you like to chat",
+		"how may i assist you today",
+		"for when",
+		"what's the date",
+	}
+	for _, response := range responses {
+		lower := strings.ToLower(response)
+		for _, phrase := range forbidden {
+			if strings.Contains(lower, phrase) {
+				t.Fatalf("response %q contains forbidden phrase %q", response, phrase)
+			}
+		}
+	}
+}
+
+func TestStateStillControlsMissingSlotOrder(t *testing.T) {
+	b := mergeBookingSlots(sm.BookingData{}, parseBookingSlots("Tomorrow at seven p.m. for four people.", sm.BookingData{}), false)
+	if got := firstMissingBookingField(b); got != "name" {
+		t.Fatalf("missing = %q, want name", got)
+	}
+	if got := naturalBookingQuestion(firstMissingBookingField(b), bookingSlotUpdate{Date: "tomorrow", Time: "19:00", PartySize: 4}, b); got != "Great. Can I take your name please?" {
+		t.Fatalf("question = %q", got)
 	}
 }

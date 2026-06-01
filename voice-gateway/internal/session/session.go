@@ -939,7 +939,7 @@ func (s *Session) handleCallerTranscript(ctx context.Context, transcript string)
 		s.forceBookingQuestion(ctx, clarificationBookingQuestion(missing, clarifyCount))
 		return
 	}
-	s.forceBookingQuestion(ctx, nextBookingQuestion(missing))
+	s.forceBookingQuestion(ctx, naturalBookingQuestion(missing, update, booking))
 }
 
 func (s *Session) noteAssistantBookingQuestion(raw json.RawMessage) {

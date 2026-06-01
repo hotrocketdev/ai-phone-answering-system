@@ -10,9 +10,9 @@ Porto Douro Restaurants is the first tenant.
 
 The current working fallback path is Twilio + OpenAI Realtime + Cartesia.
 
-The active migration path is Telnyx + OpenAI Realtime + Cartesia.
+The active path is Telnyx + OpenAI Realtime + Cartesia.
 
-The current blocker is Telnyx outbound playback: calls answer, streaming starts, WebSocket opens, media is sent, but caller hears silence.
+Telnyx inbound/outbound audio, Cartesia playback, fast static greeting, and OpenAI caller transcription are working well enough for receptionist behaviour validation.
 
 ## Current Working State
 
@@ -35,7 +35,7 @@ Working fallback path:
 
 ### Telnyx
 
-Partially working:
+Working for current validation:
 
 - inbound call reaches backend
 - answer command works
@@ -45,8 +45,8 @@ Partially working:
 - WebSocket opens
 - OpenAI runs
 - Cartesia runs
-- media frames are written
-- caller hears silence
+- caller hears Cartesia voice
+- caller speech reaches OpenAI
 
 ## Current Telnyx Number
 
@@ -100,24 +100,18 @@ VoxLane Core Receptionist
 = Live System Prompt
 ```
 
+Booking collection now uses deterministic booking state for the slot order, with a natural wording layer for the spoken question. Do not return booking collection to a fully LLM-driven flow.
+
 Do not debug or change Telnyx, Cartesia, OpenAI model selection, codecs, Twilio fallback, G722, or LiveKit while this boundary is active.
 
 ## Next Exact Task
 
-Run Telnyx bidirectional playback matrix with PCMU test tone only.
+Validate receptionist naturalness in live calls while preserving deterministic booking state:
 
-Current known test:
-
-- `stream_bidirectional_target_legs=opposite`
-- `stream_track=both_tracks`
-- JSON media event
-- base64 raw PCMU payload
-- no RTP header
-- delayed until stream readiness
-
-Result:
-
-Silence.
+- booking intent should receive a warm date question
+- combined date/time should advance to guest count
+- guest count should advance to name
+- unclear names should trigger repeat/spell clarification, not repeated identical wording
 
 Next tests:
 
