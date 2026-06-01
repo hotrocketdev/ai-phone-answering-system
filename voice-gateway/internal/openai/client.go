@@ -114,6 +114,7 @@ func (s *Session) Start(ctx context.Context) error {
 
 	// Send session configuration
 	log.Printf("OpenAI session.update payload (model=%s, voice=%s)", s.config.Model, s.config.Voice)
+	log.Printf("OpenAI realtime audio input summary: format=audio/pcm rate=24000 transcription_model=gpt-4o-mini-transcribe language=en turn_detection=server_vad threshold=0.35 prefix_padding_ms=1200 silence_duration_ms=500 create_response=true interrupt_response=true")
 	if err := s.sendSessionUpdate(); err != nil {
 		return fmt.Errorf("send session.update: %w", err)
 	}

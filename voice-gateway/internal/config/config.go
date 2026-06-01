@@ -9,31 +9,32 @@ import (
 
 type Config struct {
 	// Gateway
-	Port           int
-	WSURL          string
+	Port                int
+	WSURL               string
 	MaxConcurrentCalls  int
 	MaxCallDurationSecs int
 	SilencePromptSecs   int
 	SilenceHangupSecs   int
 
 	// OpenAI
-	OpenAIAPIKey       string
-	OpenAIRealtimeModel string
+	OpenAIAPIKey             string
+	OpenAIRealtimeModel      string
+	OpenAIManualTurnFallback bool
 
 	// Twilio
-	TwilioAccountSID  string
-	TwilioAuthToken   string
+	TwilioAccountSID string
+	TwilioAuthToken  string
 
 	// Voice Provider
-	VoiceProvider string // "twilio" | "telnyx" | "signalwire"
-	TelnyxAPIKey            string
-	TelnyxConnectionID      string
-	TelnyxPublicKey         string
-	TelnyxStreamCodec       string // "PCMU" (default) or "L16"
+	VoiceProvider            string // "twilio" | "telnyx" | "signalwire"
+	TelnyxAPIKey             string
+	TelnyxConnectionID       string
+	TelnyxPublicKey          string
+	TelnyxStreamCodec        string // "PCMU" (default) or "L16"
 	TelnyxBidirectionalCodec string // "PCMU" (default) or "L16"
-	SignalWireProjectID string
-	SignalWireToken     string
-	SignalWireSpaceURL  string
+	SignalWireProjectID      string
+	SignalWireToken          string
+	SignalWireSpaceURL       string
 
 	// Redis
 	RedisAddr     string
@@ -49,8 +50,8 @@ type Config struct {
 	LLMProvider string // "openai" | "grok"
 
 	// Voice Renderer
-	VoiceRenderer   string // "openai" | "cartesia" | "elevenlabs"
-	CartesiaAPIKey  string
+	VoiceRenderer    string // "openai" | "cartesia" | "elevenlabs"
+	CartesiaAPIKey   string
 	CartesiaVoiceID  string
 	CartesiaModel    string
 	CartesiaLanguage string
@@ -60,65 +61,66 @@ type Config struct {
 	ElevenLabsAPIKey string
 
 	// Voice Runtime
-	VoiceRuntime        string // "custom" | "deepgram_agent"
-	DeepgramAPIKey      string
-	DeepgramListenModel string
-	DeepgramListenLang  string
-	DeepgramTTSModel    string
+	VoiceRuntime          string // "custom" | "deepgram_agent"
+	DeepgramAPIKey        string
+	DeepgramListenModel   string
+	DeepgramListenLang    string
+	DeepgramTTSModel      string
 	DeepgramThinkProvider string
-	DeepgramThinkModel  string
+	DeepgramThinkModel    string
 
 	// Environment
-	LogLevel     string
+	LogLevel           string
 	BusinessName       string // platform name (VoxLane) — used for logs, admin, dashboard
 	TenantBusinessName string // tenant name override — used for caller-facing greetings/prompts
 }
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		Port:           getEnvInt("GATEWAY_PORT", 8080),
-		WSURL:          getEnv("GATEWAY_WS_URL", "wss://voice.voxlane.com/stream"),
-		MaxConcurrentCalls:  getEnvInt("GATEWAY_MAX_CONCURRENT_CALLS", 100),
-		MaxCallDurationSecs: getEnvInt("GATEWAY_MAX_CALL_DURATION_SECONDS", 1800),
-	SilencePromptSecs:   getEnvInt("GATEWAY_SILENCE_TIMEOUT_PROMPT_SECONDS", 10),
-	SilenceHangupSecs:   getEnvInt("GATEWAY_SILENCE_TIMEOUT_HANGUP_SECONDS", 20),
-		OpenAIAPIKey:        os.Getenv("OPENAI_API_KEY"),
-		OpenAIRealtimeModel: getEnv("OPENAI_REALTIME_MODEL", "gpt-realtime-mini"),
-		TwilioAccountSID:    os.Getenv("TWILIO_ACCOUNT_SID"),
-		TwilioAuthToken:     os.Getenv("TWILIO_AUTH_TOKEN"),
-		VoiceProvider:       getEnv("VOICE_PROVIDER", "twilio"),
-		TelnyxAPIKey:        os.Getenv("TELNYX_API_KEY"),
-		TelnyxConnectionID:  os.Getenv("TELNYX_CONNECTION_ID"),
-		TelnyxPublicKey:     os.Getenv("TELNYX_PUBLIC_KEY"),
-		TelnyxStreamCodec:   getEnv("TELNYX_STREAM_CODEC", "PCMU"),
+		Port:                     getEnvInt("GATEWAY_PORT", 8080),
+		WSURL:                    getEnv("GATEWAY_WS_URL", "wss://voice.voxlane.com/stream"),
+		MaxConcurrentCalls:       getEnvInt("GATEWAY_MAX_CONCURRENT_CALLS", 100),
+		MaxCallDurationSecs:      getEnvInt("GATEWAY_MAX_CALL_DURATION_SECONDS", 1800),
+		SilencePromptSecs:        getEnvInt("GATEWAY_SILENCE_TIMEOUT_PROMPT_SECONDS", 10),
+		SilenceHangupSecs:        getEnvInt("GATEWAY_SILENCE_TIMEOUT_HANGUP_SECONDS", 20),
+		OpenAIAPIKey:             os.Getenv("OPENAI_API_KEY"),
+		OpenAIRealtimeModel:      getEnv("OPENAI_REALTIME_MODEL", "gpt-realtime-mini"),
+		OpenAIManualTurnFallback: getEnvBool("OPENAI_MANUAL_TURN_FALLBACK", false),
+		TwilioAccountSID:         os.Getenv("TWILIO_ACCOUNT_SID"),
+		TwilioAuthToken:          os.Getenv("TWILIO_AUTH_TOKEN"),
+		VoiceProvider:            getEnv("VOICE_PROVIDER", "twilio"),
+		TelnyxAPIKey:             os.Getenv("TELNYX_API_KEY"),
+		TelnyxConnectionID:       os.Getenv("TELNYX_CONNECTION_ID"),
+		TelnyxPublicKey:          os.Getenv("TELNYX_PUBLIC_KEY"),
+		TelnyxStreamCodec:        getEnv("TELNYX_STREAM_CODEC", "PCMU"),
 		TelnyxBidirectionalCodec: getEnv("TELNYX_BIDIRECTIONAL_CODEC", "PCMU"),
-		SignalWireProjectID: os.Getenv("SIGNALWIRE_PROJECT_ID"),
-		SignalWireToken:     os.Getenv("SIGNALWIRE_TOKEN"),
-		SignalWireSpaceURL:  getEnv("SIGNALWIRE_SPACE_URL", "example.signalwire.com"),
-		RedisAddr:           getEnv("REDIS_ADDR", "localhost:6379"),
-		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
-		NestJSUrl:           getEnv("NESTJS_URL", "http://localhost:3000"),
-		HMACSecret:          os.Getenv("HMAC_SECRET"),
-		LLMProvider:         getEnv("LLM_PROVIDER", "openai"),
-		VoiceRenderer:       getEnv("VOICE_RENDERER", "openai"),
-		CartesiaAPIKey:      os.Getenv("CARTESIA_API_KEY"),
-		CartesiaVoiceID:     os.Getenv("CARTESIA_VOICE_ID"),
-		CartesiaModel:       getEnv("CARTESIA_MODEL", "sonic-2"),
-		CartesiaLanguage:     getEnv("CARTESIA_LANGUAGE", "en"),
-		CartesiaSpeed:        getEnvFloat("CARTESIA_SPEED", 0.95),
-		CartesiaVolume:       getEnvFloat("CARTESIA_VOLUME", 0.9),
-		CartesiaEmotion:      getEnv("CARTESIA_EMOTION", "content"),
-		ElevenLabsAPIKey:    os.Getenv("ELEVENLABS_API_KEY"),
-		VoiceRuntime:        getEnv("VOICE_RUNTIME", "custom"),
-		DeepgramAPIKey:      os.Getenv("DEEPGRAM_API_KEY"),
-		DeepgramListenModel: getEnv("DEEPGRAM_LISTEN_MODEL", "flux-general-en"),
-		DeepgramListenLang:  getEnv("DEEPGRAM_LISTEN_LANGUAGE", "en"),
-		DeepgramTTSModel:    getEnv("DEEPGRAM_TTS_MODEL", "aura-2-pandora-en"),
-		DeepgramThinkProvider: getEnv("DEEPGRAM_THINK_PROVIDER", "open_ai"),
-		DeepgramThinkModel:  getEnv("DEEPGRAM_THINK_MODEL", "gpt-4o-mini"),
-		LogLevel:            getEnv("LOG_LEVEL", "info"),
-		BusinessName:        getEnv("BUSINESS_NAME", "VoxLane"),
-		TenantBusinessName:  getEnv("TENANT_BUSINESS_NAME", ""),
+		SignalWireProjectID:      os.Getenv("SIGNALWIRE_PROJECT_ID"),
+		SignalWireToken:          os.Getenv("SIGNALWIRE_TOKEN"),
+		SignalWireSpaceURL:       getEnv("SIGNALWIRE_SPACE_URL", "example.signalwire.com"),
+		RedisAddr:                getEnv("REDIS_ADDR", "localhost:6379"),
+		RedisPassword:            os.Getenv("REDIS_PASSWORD"),
+		NestJSUrl:                getEnv("NESTJS_URL", "http://localhost:3000"),
+		HMACSecret:               os.Getenv("HMAC_SECRET"),
+		LLMProvider:              getEnv("LLM_PROVIDER", "openai"),
+		VoiceRenderer:            getEnv("VOICE_RENDERER", "openai"),
+		CartesiaAPIKey:           os.Getenv("CARTESIA_API_KEY"),
+		CartesiaVoiceID:          os.Getenv("CARTESIA_VOICE_ID"),
+		CartesiaModel:            getEnv("CARTESIA_MODEL", "sonic-2"),
+		CartesiaLanguage:         getEnv("CARTESIA_LANGUAGE", "en"),
+		CartesiaSpeed:            getEnvFloat("CARTESIA_SPEED", 0.95),
+		CartesiaVolume:           getEnvFloat("CARTESIA_VOLUME", 0.9),
+		CartesiaEmotion:          getEnv("CARTESIA_EMOTION", "content"),
+		ElevenLabsAPIKey:         os.Getenv("ELEVENLABS_API_KEY"),
+		VoiceRuntime:             getEnv("VOICE_RUNTIME", "custom"),
+		DeepgramAPIKey:           os.Getenv("DEEPGRAM_API_KEY"),
+		DeepgramListenModel:      getEnv("DEEPGRAM_LISTEN_MODEL", "flux-general-en"),
+		DeepgramListenLang:       getEnv("DEEPGRAM_LISTEN_LANGUAGE", "en"),
+		DeepgramTTSModel:         getEnv("DEEPGRAM_TTS_MODEL", "aura-2-pandora-en"),
+		DeepgramThinkProvider:    getEnv("DEEPGRAM_THINK_PROVIDER", "open_ai"),
+		DeepgramThinkModel:       getEnv("DEEPGRAM_THINK_MODEL", "gpt-4o-mini"),
+		LogLevel:                 getEnv("LOG_LEVEL", "info"),
+		BusinessName:             getEnv("BUSINESS_NAME", "VoxLane"),
+		TenantBusinessName:       getEnv("TENANT_BUSINESS_NAME", ""),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -227,6 +229,16 @@ func getEnvFloat(key string, fallback float64) float64 {
 		f, err := strconv.ParseFloat(v, 64)
 		if err == nil {
 			return f
+		}
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if v := os.Getenv(key); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err == nil {
+			return b
 		}
 	}
 	return fallback

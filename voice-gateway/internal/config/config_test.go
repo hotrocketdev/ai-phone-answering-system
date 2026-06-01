@@ -28,6 +28,7 @@ func TestLoad_RequiresHMACSecret(t *testing.T) {
 func TestLoad_ValidConfig(t *testing.T) {
 	os.Setenv("OPENAI_API_KEY", "sk-test")
 	os.Setenv("HMAC_SECRET", "test-secret")
+	os.Unsetenv("OPENAI_MANUAL_TURN_FALLBACK")
 
 	cfg, err := Load()
 	if err != nil {
@@ -35,6 +36,23 @@ func TestLoad_ValidConfig(t *testing.T) {
 	}
 	if cfg.Port != 8080 {
 		t.Errorf("expected port 8080, got %d", cfg.Port)
+	}
+	if cfg.OpenAIManualTurnFallback {
+		t.Errorf("expected manual turn fallback disabled by default")
+	}
+}
+
+func TestLoad_ManualTurnFallbackOptIn(t *testing.T) {
+	os.Setenv("OPENAI_API_KEY", "sk-test")
+	os.Setenv("HMAC_SECRET", "test-secret")
+	os.Setenv("OPENAI_MANUAL_TURN_FALLBACK", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.OpenAIManualTurnFallback {
+		t.Errorf("expected manual turn fallback enabled when explicitly configured")
 	}
 }
 

@@ -116,6 +116,9 @@ type Session struct {
 	turnLastAppendAt      time.Time
 	turnSpeechStartedAt   time.Time
 	turnSpeechStoppedAt   time.Time
+	manualFallbackFired   int
+	manualCommitAttempts  int
+	manualCommitRejected  int
 }
 
 // ─── Creation ────────────────────────────────────────────────────────────
@@ -192,7 +195,7 @@ func (s *Session) Run(ctx context.Context) error {
 	go s.runOpenAILoop(ctx)
 	go s.runSupervisor(ctx)
 	go s.runCartesiaRenderLoop(ctx)
-	log.Printf("[%s] manual turn detection disabled; using OpenAI Realtime turn events", s.ID)
+	log.Printf("[%s] turn mode: server_vad_only=%t manual_fallback_enabled=%t", s.ID, !s.Config.OpenAIManualTurnFallback, s.Config.OpenAIManualTurnFallback)
 
 	// Trigger initial AI response (greeting)
 	if s.openaiS != nil && !s.openaiS.IsClosed() {
@@ -285,7 +288,9 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 					s.noteOpenAIAppend(len(b64))
 				}
 			}
-			s.observeManualVAD(frame.Payload)
+			if s.Config.OpenAIManualTurnFallback {
+				s.observeManualVAD(frame.Payload)
+			}
 			if inboundCount <= 5 || inboundCount%50 == 0 {
 				log.Printf("[%s] provider audio sent to OpenAI track=%s payload_len=%d sent_to_openai=true",
 					s.ID, frame.Direction, len(frame.Payload))
@@ -541,6 +546,7 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 
 	case "response.done":
 		s.setOpenAIResponseActive(false)
+		s.noteOpenAIResponseDone()
 		status, _ := openai.ParseResponseDone(evt.Data)
 		if status == "cancelled" {
 			s.clearBargeIn()
@@ -561,6 +567,7 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 		}
 
 	case "error":
+		s.noteOpenAIError(evt.Data)
 		log.Printf("[%s] OpenAI error: %s", s.ID, string(evt.Data))
 	}
 }
@@ -653,6 +660,29 @@ func (s *Session) noteOpenAIResponseCreated() {
 		s.ID, turnID, time.Now().Format(time.RFC3339Nano), formatTimeForLog(stoppedAt))
 }
 
+func (s *Session) noteOpenAIResponseDone() {
+	s.mu.RLock()
+	turnID := s.currentTurnID
+	stoppedAt := s.turnSpeechStoppedAt
+	manualFired := s.manualFallbackFired
+	commitAttempts := s.manualCommitAttempts
+	commitRejected := s.manualCommitRejected
+	s.mu.RUnlock()
+	log.Printf("[%s] realtime turn=%d response_done at=%s speech_stopped=%s manual_fallback_fired=%d manual_commit_attempts=%d manual_commit_rejected=%d",
+		s.ID, turnID, time.Now().Format(time.RFC3339Nano), formatTimeForLog(stoppedAt), manualFired, commitAttempts, commitRejected)
+}
+
+func (s *Session) noteOpenAIError(raw json.RawMessage) {
+	if !strings.Contains(string(raw), "input_audio_buffer_commit_empty") {
+		return
+	}
+	s.mu.Lock()
+	s.manualCommitRejected++
+	rejected := s.manualCommitRejected
+	s.mu.Unlock()
+	log.Printf("[%s] openai commit rejected code=input_audio_buffer_commit_empty count=%d", s.ID, rejected)
+}
+
 func formatTimeForLog(t time.Time) string {
 	if t.IsZero() {
 		return "-"
@@ -721,10 +751,16 @@ func (s *Session) observeManualVAD(mulaw []byte) {
 	if s.openaiS == nil || s.openaiS.IsClosed() {
 		return
 	}
-	log.Printf("[%s] manual vad fallback firing: voiced_frames=%d pending_frames=%d pending_encoded_bytes=%d",
-		s.ID, voiced, pendingFrames, pendingBytes)
+	s.mu.Lock()
+	s.manualFallbackFired++
+	s.manualCommitAttempts++
+	fired := s.manualFallbackFired
+	attempts := s.manualCommitAttempts
+	s.mu.Unlock()
+	log.Printf("[%s] manual vad fallback firing: voiced_frames=%d pending_frames=%d pending_encoded_bytes=%d fired=%d commit_attempts=%d",
+		s.ID, voiced, pendingFrames, pendingBytes, fired, attempts)
 	if err := s.openaiS.CommitAudio(); err != nil {
-		log.Printf("[%s] manual vad CommitAudio skipped: %v", s.ID, err)
+		log.Printf("[%s] manual vad CommitAudio skipped: %v fired=%d commit_attempts=%d", s.ID, err, fired, attempts)
 		return
 	}
 	if err := s.openaiS.CreateResponse(); err != nil {
