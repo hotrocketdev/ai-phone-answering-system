@@ -18,8 +18,16 @@ type G722Encoder struct {
 	buf []byte
 }
 
+type G722Decoder struct {
+	dec *g722codec.Decoder
+}
+
 func NewG722Encoder() *G722Encoder {
 	return &G722Encoder{enc: g722codec.NewEncoder(g722codec.RateDefault, 0)}
+}
+
+func NewG722Decoder() *G722Decoder {
+	return &G722Decoder{dec: g722codec.NewDecoder(g722codec.RateDefault, 0)}
 }
 
 func (e *G722Encoder) EncodePCM16Frame(pcm16 []byte) ([]byte, error) {
@@ -58,4 +66,17 @@ func (e *G722Encoder) Flush() ([][]byte, error) {
 		e.buf = append(e.buf, 0)
 	}
 	return e.ProcessPCM16Bytes(nil)
+}
+
+func (d *G722Decoder) Decode(payload []byte) ([]byte, error) {
+	if len(payload) == 0 {
+		return nil, nil
+	}
+	samples := make([]int16, len(payload)*2)
+	n := d.dec.Decode(samples, payload)
+	pcm16 := make([]byte, n*2)
+	for i := 0; i < n; i++ {
+		binary.LittleEndian.PutUint16(pcm16[i*2:], uint16(samples[i]))
+	}
+	return pcm16, nil
 }

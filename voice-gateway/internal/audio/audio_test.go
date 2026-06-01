@@ -166,6 +166,48 @@ func TestProcessInboundBytesForCodecFrameSizes(t *testing.T) {
 	}
 }
 
+func TestG722DecoderProducesPCM16_16k(t *testing.T) {
+	pcm16k := makePCM16Sine16k(1000.0)
+	enc := NewG722Encoder()
+	encoded, err := enc.EncodePCM16Frame(pcm16k)
+	if err != nil {
+		t.Fatalf("EncodePCM16Frame: %v", err)
+	}
+
+	dec := NewG722Decoder()
+	decoded, err := dec.Decode(encoded)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if len(decoded) != FrameSizePCM16_16k {
+		t.Fatalf("expected %d PCM16 bytes, got %d", FrameSizePCM16_16k, len(decoded))
+	}
+	if pcmRMS(decoded) == 0 {
+		t.Fatal("decoded signal is silent")
+	}
+}
+
+func TestProcessInboundBytesForCodecG722FrameSize(t *testing.T) {
+	pcm16k := makePCM16Sine16k(700.0)
+	enc := NewG722Encoder()
+	encoded, err := enc.EncodePCM16Frame(pcm16k)
+	if err != nil {
+		t.Fatalf("EncodePCM16Frame: %v", err)
+	}
+
+	p := NewPipeline()
+	pcm24k, err := p.ProcessInboundBytesForCodec("G722", encoded)
+	if err != nil {
+		t.Fatalf("ProcessInboundBytesForCodec: %v", err)
+	}
+	if len(pcm24k) != FrameSizePCM16_24k {
+		t.Fatalf("expected %d PCM16 24k bytes, got %d", FrameSizePCM16_24k, len(pcm24k))
+	}
+	if pcmRMS(pcm24k) == 0 {
+		t.Fatal("decoded/resampled signal is silent")
+	}
+}
+
 func TestResamplePCM16_8kTo24kPreservesLevel(t *testing.T) {
 	p := NewPipeline()
 	pcm8k := make([]byte, FrameSizePCM16_8k)
@@ -178,6 +220,20 @@ func TestResamplePCM16_8kTo24kPreservesLevel(t *testing.T) {
 	inRMS := pcmRMS(pcm8k[40*2:])
 	outRMS := pcmRMS(pcm24k[120*2:])
 	ratio := outRMS / inRMS
+	if ratio < 0.75 || ratio > 1.25 {
+		t.Fatalf("resample level ratio out/in: want near 1.0, got %.3f", ratio)
+	}
+}
+
+func TestResamplePCM16_16kTo24kPreservesLevel(t *testing.T) {
+	p := NewPipeline()
+	pcm16k := makePCM16Sine16k(1000.0)
+
+	pcm24k := p.ResamplePCM16_16kTo24k(pcm16k)
+	if len(pcm24k) != FrameSizePCM16_24k {
+		t.Fatalf("expected %d PCM16 24k bytes, got %d", FrameSizePCM16_24k, len(pcm24k))
+	}
+	ratio := pcmRMS(pcm24k) / pcmRMS(pcm16k)
 	if ratio < 0.75 || ratio > 1.25 {
 		t.Fatalf("resample level ratio out/in: want near 1.0, got %.3f", ratio)
 	}
@@ -535,6 +591,15 @@ func int16FromLE(b []byte) int16 {
 func putInt16LE(b []byte, v int16) {
 	b[0] = byte(v)
 	b[1] = byte(v >> 8)
+}
+
+func makePCM16Sine16k(freq float64) []byte {
+	pcm16k := make([]byte, FrameSizePCM16_16k)
+	for i := 0; i < Samples16k; i++ {
+		sample := int16(math.Sin(2.0*math.Pi*freq*float64(i)/16000.0) * 8000.0)
+		putInt16LE(pcm16k[i*2:], sample)
+	}
+	return pcm16k
 }
 
 func absDiff(a, b int16) int16 {

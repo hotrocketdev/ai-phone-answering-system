@@ -103,7 +103,7 @@ func (a *Adapter) ReadLoop() {
 			select {
 			case a.Frames <- provider.AudioFrame{
 				Codec:      a.currentInboundCodec(),
-				SampleRate: 8000,
+				SampleRate: a.currentInboundRate(),
 				Payload:    raw,
 				Direction:  "inbound",
 				CallID:     a.callID,
@@ -189,7 +189,7 @@ func (a *Adapter) ParseMediaEvent(raw []byte) (*provider.AudioFrame, *provider.E
 		a.noteTrackFrame(track, audio, codec)
 		return &provider.AudioFrame{
 			Codec:      codec,
-			SampleRate: 8000,
+			SampleRate: a.currentInboundRate(),
 			Payload:    audio,
 			Timestamp:  msg.Media.Timestamp,
 			Direction:  track,
@@ -256,12 +256,21 @@ func (a *Adapter) currentInboundCodec() string {
 	return a.inboundCodec
 }
 
+func (a *Adapter) currentInboundRate() int {
+	if a.inboundRate == 0 {
+		return 8000
+	}
+	return a.inboundRate
+}
+
 func normalizeTelnyxCodec(codec string) string {
 	switch codec {
 	case "PCMA", "pcma", "alaw", "A-LAW":
 		return "pcma"
 	case "PCMU", "pcmu", "ulaw", "U-LAW":
 		return "pcmu"
+	case "G722", "g722", "G.722", "g.722":
+		return "g722"
 	default:
 		return codec
 	}
@@ -286,6 +295,8 @@ type trackStats struct {
 type trackCapture struct {
 	pcmuPath string
 	wavPath  string
+	pipeline *audio.Pipeline
+	rate     uint32
 	pcmu     []byte
 	pcm16    []byte
 	frames   int
@@ -339,6 +350,8 @@ func newTrackCapture(callID, track, codec string) *trackCapture {
 	c := &trackCapture{
 		pcmuPath: base + "." + codec,
 		wavPath:  base + ".wav",
+		pipeline: audio.NewPipeline(),
+		rate:     captureSampleRate(codec),
 	}
 	log.Printf("[telnyx] track capture enabled call_suffix=%s track=%s codec=%s raw=%s wav=%s max_frames=%d",
 		callIDSuffix(callID), track, codec, c.pcmuPath, c.wavPath, debugTrackCaptureFrames)
@@ -350,7 +363,7 @@ func (c *trackCapture) add(pcmu []byte, callID, track, codec string) {
 		return
 	}
 	c.pcmu = append(c.pcmu, pcmu...)
-	pcm16, err := audio.G711ToPCM16(codec, pcmu)
+	pcm16, err := c.decode(codec, pcmu)
 	if err != nil {
 		log.Printf("[telnyx] track capture decode failed call_suffix=%s track=%s codec=%s: %v", callIDSuffix(callID), track, codec, err)
 		return
@@ -371,12 +384,26 @@ func (c *trackCapture) close(callID, track string) {
 		log.Printf("[telnyx] track capture pcmu write failed call_suffix=%s track=%s: %v", callIDSuffix(callID), track, err)
 		return
 	}
-	if err := writePCM16WAV(c.wavPath, c.pcm16, 8000); err != nil {
+	if err := writePCM16WAV(c.wavPath, c.pcm16, c.rate); err != nil {
 		log.Printf("[telnyx] track capture wav write failed call_suffix=%s track=%s: %v", callIDSuffix(callID), track, err)
 		return
 	}
 	log.Printf("[telnyx] track capture saved call_suffix=%s track=%s pcmu=%s wav=%s frames=%d bytes=%d",
 		callIDSuffix(callID), track, c.pcmuPath, c.wavPath, c.frames, len(c.pcmu))
+}
+
+func (c *trackCapture) decode(codec string, payload []byte) ([]byte, error) {
+	if normalizeTelnyxCodec(codec) == "g722" {
+		return c.pipeline.G722ToPCM16(payload)
+	}
+	return audio.G711ToPCM16(codec, payload)
+}
+
+func captureSampleRate(codec string) uint32 {
+	if normalizeTelnyxCodec(codec) == "g722" {
+		return 16000
+	}
+	return 8000
 }
 
 func firstByteSummary(counts map[byte]int) string {

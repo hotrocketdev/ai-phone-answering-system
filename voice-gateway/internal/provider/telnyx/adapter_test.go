@@ -178,6 +178,39 @@ func TestParseStartPCMUSelectsMulawCodec(t *testing.T) {
 	}
 }
 
+func TestParseStartG722SelectsG722Codec(t *testing.T) {
+	a := &Adapter{callID: "call-123"}
+	start, _ := json.Marshal(map[string]interface{}{
+		"event": "start",
+		"start": map[string]interface{}{
+			"media_format": map[string]interface{}{
+				"encoding":    "G722",
+				"sample_rate": 16000,
+				"channels":    1,
+			},
+		},
+	})
+	a.ParseMediaEvent(start)
+
+	payload := make([]byte, 160)
+	media, _ := json.Marshal(map[string]interface{}{
+		"event": "media",
+		"media": map[string]string{
+			"payload": base64.StdEncoding.EncodeToString(payload),
+		},
+	})
+	frame, _ := a.ParseMediaEvent(media)
+	if frame == nil {
+		t.Fatal("frame: want non-nil")
+	}
+	if frame.Codec != "g722" {
+		t.Fatalf("codec: want g722, got %q", frame.Codec)
+	}
+	if frame.SampleRate != 16000 {
+		t.Fatalf("sample rate: want 16000, got %d", frame.SampleRate)
+	}
+}
+
 func TestParseJSONMediaEventPreservesTrackDirection(t *testing.T) {
 	a := &Adapter{callID: "call-123"}
 	pcmu := []byte{0xff, 0x7f, 0x00, 0x80}

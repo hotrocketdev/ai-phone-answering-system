@@ -9,10 +9,11 @@ import (
 // ─── Audio Pipeline ──────────────────────────────────────────────────────
 
 // Pipeline orchestrates the full audio processing chain.
-// Inbound:  u-law 8kHz 20ms → PCM16 8kHz → PCM16 24kHz → base64 → OpenAI
+// Inbound:  G.711 8kHz or G.722 16kHz → PCM16 24kHz → base64 → OpenAI
 // Outbound: base64 → PCM16 24kHz → PCM16 8kHz → u-law 8kHz 20ms → Twilio
 type Pipeline struct {
 	resampler *Resampler
+	g722Dec   *G722Decoder
 	outBuf    []byte // accumulates outbound PCM16 24kHz chunks until full frame
 }
 
@@ -36,6 +37,7 @@ var floatPool = sync.Pool{
 func NewPipeline() *Pipeline {
 	return &Pipeline{
 		resampler: NewResampler(),
+		g722Dec:   NewG722Decoder(),
 	}
 }
 
@@ -88,13 +90,28 @@ func (p *Pipeline) ProcessInboundBytes(mulaw []byte) []byte {
 	return p.ResamplePCM16_8kTo24k(pcm8k)
 }
 
-// ProcessInboundBytesForCodec converts a raw G.711 8kHz frame to PCM16 24kHz bytes.
+// ProcessInboundBytesForCodec converts inbound provider audio to PCM16 24kHz bytes.
 func (p *Pipeline) ProcessInboundBytesForCodec(codec string, payload []byte) ([]byte, error) {
+	if normalizeInboundCodec(codec) == "g722" {
+		pcm16k, err := p.G722ToPCM16(payload)
+		if err != nil {
+			return nil, err
+		}
+		return p.ResamplePCM16_16kTo24k(pcm16k), nil
+	}
 	pcm8k, err := G711ToPCM16(codec, payload)
 	if err != nil {
 		return nil, err
 	}
 	return p.ResamplePCM16_8kTo24k(pcm8k), nil
+}
+
+// G722ToPCM16 decodes raw G.722 payload bytes to PCM16 16kHz bytes.
+func (p *Pipeline) G722ToPCM16(payload []byte) ([]byte, error) {
+	if p.g722Dec == nil {
+		p.g722Dec = NewG722Decoder()
+	}
+	return p.g722Dec.Decode(payload)
 }
 
 // G711ToPCM16 decodes PCMU/u-law or PCMA/A-law payload bytes to PCM16 8kHz bytes.
@@ -128,6 +145,39 @@ func (p *Pipeline) ResamplePCM16_8kTo24k(pcm8k []byte) []byte {
 	return pcm24k
 }
 
+// ResamplePCM16_16kTo24k upsamples PCM16 16kHz bytes to PCM16 24kHz bytes.
+func (p *Pipeline) ResamplePCM16_16kTo24k(pcm16k []byte) []byte {
+	inSamples := len(pcm16k) / 2
+	if inSamples == 0 {
+		return nil
+	}
+	outSamples := inSamples * 3 / 2
+	pcm24k := make([]byte, outSamples*2)
+	for outIdx := 0; outIdx < outSamples; outIdx++ {
+		srcNum := outIdx * 2
+		srcIdx := srcNum / 3
+		frac := srcNum % 3
+		a := int16FromPCM16LE(pcm16k[srcIdx*2:])
+		if frac == 0 || srcIdx+1 >= inSamples {
+			putPCM16LE(pcm24k[outIdx*2:], a)
+			continue
+		}
+		b := int16FromPCM16LE(pcm16k[(srcIdx+1)*2:])
+		interp := (int(a)*(3-frac) + int(b)*frac) / 3
+		putPCM16LE(pcm24k[outIdx*2:], int16(interp))
+	}
+	return pcm24k
+}
+
+func normalizeInboundCodec(codec string) string {
+	switch codec {
+	case "G722", "g722", "G.722", "g.722":
+		return "g722"
+	default:
+		return normalizeG711Codec(codec)
+	}
+}
+
 func normalizeG711Codec(codec string) string {
 	switch codec {
 	case "PCMA", "pcma", "alaw", "a-law", "g711a", "G711A":
@@ -137,6 +187,15 @@ func normalizeG711Codec(codec string) string {
 	default:
 		return codec
 	}
+}
+
+func int16FromPCM16LE(b []byte) int16 {
+	return int16(b[0]) | int16(b[1])<<8
+}
+
+func putPCM16LE(b []byte, v int16) {
+	b[0] = byte(v)
+	b[1] = byte(v >> 8)
 }
 
 // ProcessOutboundBytes converts raw PCM16 24kHz bytes from OpenAI
