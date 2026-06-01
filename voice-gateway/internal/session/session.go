@@ -287,7 +287,12 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 				s.noteSuppressedInputFrame()
 				continue
 			}
-			pcm24k := s.audioP.ProcessInboundBytes(frame.Payload)
+			pcm24k, err := s.audioP.ProcessInboundBytesForCodec(frame.Codec, frame.Payload)
+			if err != nil {
+				log.Printf("[%s] dropping provider audio before OpenAI codec=%s payload_len=%d error=%v sent_to_openai=false",
+					s.ID, frame.Codec, len(frame.Payload), err)
+				continue
+			}
 			inboundCount := s.noteInboundFrame(frame, pcm24k)
 			b64 := base64.StdEncoding.EncodeToString(pcm24k)
 			s.inputSecs += 0.020

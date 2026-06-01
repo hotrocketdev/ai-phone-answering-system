@@ -85,8 +85,80 @@ func TestParseJSONMediaEvent(t *testing.T) {
 	if frame.Direction != "inbound" {
 		t.Fatalf("direction: want inbound, got %q", frame.Direction)
 	}
+	if frame.Codec != "pcmu" {
+		t.Fatalf("codec: want pcmu default, got %q", frame.Codec)
+	}
 	if string(frame.Payload) != string(pcmu) {
 		t.Fatalf("payload mismatch: want %v, got %v", pcmu, frame.Payload)
+	}
+}
+
+func TestParseStartPCMASelectsAlawCodec(t *testing.T) {
+	a := &Adapter{callID: "call-123"}
+	start, _ := json.Marshal(map[string]interface{}{
+		"event":     "start",
+		"stream_id": "stream-123",
+		"start": map[string]interface{}{
+			"media_format": map[string]interface{}{
+				"encoding":    "PCMA",
+				"sample_rate": 8000,
+				"channels":    1,
+			},
+		},
+	})
+	_, event := a.ParseMediaEvent(start)
+	if event == nil {
+		t.Fatal("event: want start event")
+	}
+
+	payload := []byte{0xd5, 0xd5, 0xd5, 0xd5}
+	media, _ := json.Marshal(map[string]interface{}{
+		"event":     "media",
+		"stream_id": "stream-123",
+		"media": map[string]string{
+			"track":   "inbound",
+			"payload": base64.StdEncoding.EncodeToString(payload),
+		},
+	})
+	frame, event := a.ParseMediaEvent(media)
+	if event != nil {
+		t.Fatalf("event: want nil, got %#v", event)
+	}
+	if frame == nil {
+		t.Fatal("frame: want non-nil")
+	}
+	if frame.Codec != "pcma" {
+		t.Fatalf("codec: want pcma, got %q", frame.Codec)
+	}
+}
+
+func TestParseStartPCMUSelectsMulawCodec(t *testing.T) {
+	a := &Adapter{callID: "call-123"}
+	start, _ := json.Marshal(map[string]interface{}{
+		"event": "start",
+		"start": map[string]interface{}{
+			"media_format": map[string]interface{}{
+				"encoding":    "PCMU",
+				"sample_rate": 8000,
+				"channels":    1,
+			},
+		},
+	})
+	a.ParseMediaEvent(start)
+
+	payload := []byte{0xff, 0xff, 0xff, 0xff}
+	media, _ := json.Marshal(map[string]interface{}{
+		"event": "media",
+		"media": map[string]string{
+			"payload": base64.StdEncoding.EncodeToString(payload),
+		},
+	})
+	frame, _ := a.ParseMediaEvent(media)
+	if frame == nil {
+		t.Fatal("frame: want non-nil")
+	}
+	if frame.Codec != "pcmu" {
+		t.Fatalf("codec: want pcmu, got %q", frame.Codec)
 	}
 }
 

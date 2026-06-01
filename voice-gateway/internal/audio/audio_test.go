@@ -107,6 +107,65 @@ func TestMulawToPCM16_BufferSizes(t *testing.T) {
 	// Silence u-law (0xFF) decodes to near-zero PCM
 }
 
+func TestAlawToPCM16_BufferSizes(t *testing.T) {
+	input := make([]byte, FrameSizeMulaw8k)
+	for i := range input {
+		input[i] = 0xD5 // silence in A-law
+	}
+	output := make([]byte, len(input)*2)
+	AlawToPCM16(input, output)
+
+	if len(output) != FrameSizePCM16_8k {
+		t.Fatalf("expected %d output bytes, got %d", FrameSizePCM16_8k, len(output))
+	}
+}
+
+func TestG711ToPCM16SelectsPCMU(t *testing.T) {
+	input := make([]byte, FrameSizeMulaw8k)
+	for i := range input {
+		input[i] = 0xFF
+	}
+
+	pcm, err := G711ToPCM16("PCMU", input)
+	if err != nil {
+		t.Fatalf("G711ToPCM16: %v", err)
+	}
+	if len(pcm) != FrameSizePCM16_8k {
+		t.Fatalf("expected %d PCM16 bytes, got %d", FrameSizePCM16_8k, len(pcm))
+	}
+}
+
+func TestG711ToPCM16SelectsPCMA(t *testing.T) {
+	input := make([]byte, FrameSizeMulaw8k)
+	for i := range input {
+		input[i] = 0xD5
+	}
+
+	pcm, err := G711ToPCM16("PCMA", input)
+	if err != nil {
+		t.Fatalf("G711ToPCM16: %v", err)
+	}
+	if len(pcm) != FrameSizePCM16_8k {
+		t.Fatalf("expected %d PCM16 bytes, got %d", FrameSizePCM16_8k, len(pcm))
+	}
+}
+
+func TestProcessInboundBytesForCodecFrameSizes(t *testing.T) {
+	p := NewPipeline()
+	input := make([]byte, FrameSizeMulaw8k)
+	for i := range input {
+		input[i] = 0xD5
+	}
+
+	pcm24k, err := p.ProcessInboundBytesForCodec("PCMA", input)
+	if err != nil {
+		t.Fatalf("ProcessInboundBytesForCodec: %v", err)
+	}
+	if len(pcm24k) != FrameSizePCM16_24k {
+		t.Fatalf("expected %d PCM16 24k bytes, got %d", FrameSizePCM16_24k, len(pcm24k))
+	}
+}
+
 func TestPCM16ToMulaw_BufferSizes(t *testing.T) {
 	input := make([]byte, FrameSizePCM16_8k) // zeroed = PCM silence
 	output := make([]byte, FrameSizeMulaw8k)

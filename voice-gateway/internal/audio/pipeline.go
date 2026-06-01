@@ -2,6 +2,7 @@ package audio
 
 import (
 	"encoding/base64"
+	"fmt"
 	"sync"
 )
 
@@ -111,6 +112,54 @@ func (p *Pipeline) ProcessInboundBytes(mulaw []byte) []byte {
 	Float64ToPCM16(floats24k, pcm24k)
 
 	return pcm24k
+}
+
+// ProcessInboundBytesForCodec converts a raw G.711 8kHz frame to PCM16 24kHz bytes.
+func (p *Pipeline) ProcessInboundBytesForCodec(codec string, payload []byte) ([]byte, error) {
+	pcm8k, err := G711ToPCM16(codec, payload)
+	if err != nil {
+		return nil, err
+	}
+	return p.ResamplePCM16_8kTo24k(pcm8k), nil
+}
+
+// G711ToPCM16 decodes PCMU/u-law or PCMA/A-law payload bytes to PCM16 8kHz bytes.
+func G711ToPCM16(codec string, payload []byte) ([]byte, error) {
+	pcm8k := make([]byte, len(payload)*2)
+	switch normalizeG711Codec(codec) {
+	case "pcma":
+		AlawToPCM16(payload, pcm8k)
+	case "pcmu":
+		MulawToPCM16(payload, pcm8k)
+	default:
+		return nil, fmt.Errorf("unsupported inbound G.711 codec %q", codec)
+	}
+	return pcm8k, nil
+}
+
+// ResamplePCM16_8kTo24k upsamples PCM16 8kHz bytes to PCM16 24kHz bytes.
+func (p *Pipeline) ResamplePCM16_8kTo24k(pcm8k []byte) []byte {
+	samples8k := len(pcm8k) / 2
+	floats8k := make([]float64, samples8k)
+	PCM16ToFloat64(pcm8k, floats8k)
+
+	floats24k := make([]float64, samples8k*3)
+	p.resampler.Upsample8to24(floats8k, floats24k)
+
+	pcm24k := make([]byte, len(floats24k)*2)
+	Float64ToPCM16(floats24k, pcm24k)
+	return pcm24k
+}
+
+func normalizeG711Codec(codec string) string {
+	switch codec {
+	case "PCMA", "pcma", "alaw", "a-law", "g711a", "G711A":
+		return "pcma"
+	case "PCMU", "pcmu", "ulaw", "u-law", "mulaw", "mu-law", "g711u", "G711U":
+		return "pcmu"
+	default:
+		return codec
+	}
 }
 
 // ProcessOutboundBytes converts raw PCM16 24kHz bytes from OpenAI

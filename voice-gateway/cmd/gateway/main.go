@@ -34,6 +34,7 @@ var upgrader = websocket.Upgrader{
 }
 
 var activeSessions sync.Map
+var buildCommit = "dev"
 
 func main() {
 	// Log to file for diagnostics
@@ -47,6 +48,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
+	log.Printf("gateway build commit: %s", buildCommit)
 
 	// Redis client (graceful if unavailable)
 	var redisClient *goredis.Client

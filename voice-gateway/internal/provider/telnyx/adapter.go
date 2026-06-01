@@ -9,8 +9,8 @@ package telnyx
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -39,20 +39,23 @@ type Adapter struct {
 	Frames chan provider.AudioFrame
 	Events chan provider.Event
 
-	outPacketCount int
-	trackMu        sync.Mutex
-	trackStats     map[string]*trackStats
-	trackCaptures  map[string]*trackCapture
+	outPacketCount  int
+	inboundCodec    string
+	inboundRate     int
+	inboundChannels int
+	trackMu         sync.Mutex
+	trackStats      map[string]*trackStats
+	trackCaptures   map[string]*trackCapture
 }
 
 // New creates a Telnyx adapter from a gorilla WebSocket connection.
 func New(conn *websocket.Conn, callID string, cfg provider.TelnyxConfig) *Adapter {
 	return &Adapter{
-		conn:   conn,
-		cfg:    cfg,
-		callID: callID,
-		Frames: make(chan provider.AudioFrame, 8),
-		Events: make(chan provider.Event, 16),
+		conn:          conn,
+		cfg:           cfg,
+		callID:        callID,
+		Frames:        make(chan provider.AudioFrame, 8),
+		Events:        make(chan provider.Event, 16),
 		trackStats:    make(map[string]*trackStats),
 		trackCaptures: make(map[string]*trackCapture),
 	}
@@ -99,7 +102,7 @@ func (a *Adapter) ReadLoop() {
 			}
 			select {
 			case a.Frames <- provider.AudioFrame{
-				Codec:      "pcmu",
+				Codec:      a.currentInboundCodec(),
 				SampleRate: 8000,
 				Payload:    raw,
 				Direction:  "inbound",
@@ -163,6 +166,9 @@ func (a *Adapter) ParseMediaEvent(raw []byte) (*provider.AudioFrame, *provider.E
 		return nil, &provider.Event{Type: provider.EventConnected}
 	case "start":
 		if msg.Start != nil && msg.Start.MediaFormat != nil {
+			a.inboundCodec = normalizeTelnyxCodec(msg.Start.MediaFormat.Encoding)
+			a.inboundRate = msg.Start.MediaFormat.SampleRate
+			a.inboundChannels = msg.Start.MediaFormat.Channels
 			log.Printf("[telnyx] inbound media format encoding=%s sample_rate=%d channels=%d",
 				msg.Start.MediaFormat.Encoding, msg.Start.MediaFormat.SampleRate, msg.Start.MediaFormat.Channels)
 		}
@@ -179,9 +185,10 @@ func (a *Adapter) ParseMediaEvent(raw []byte) (*provider.AudioFrame, *provider.E
 		if err != nil {
 			return nil, &provider.Event{Type: provider.EventError, Error: err}
 		}
-		a.noteTrackFrame(track, audio)
+		codec := a.currentInboundCodec()
+		a.noteTrackFrame(track, audio, codec)
 		return &provider.AudioFrame{
-			Codec:      "pcmu",
+			Codec:      codec,
 			SampleRate: 8000,
 			Payload:    audio,
 			Timestamp:  msg.Media.Timestamp,
@@ -242,6 +249,24 @@ func (a *Adapter) CallID() string       { return a.callID }
 func (a *Adapter) StreamID() string     { return a.streamID }
 func (a *Adapter) Close() error         { return a.conn.Close() }
 
+func (a *Adapter) currentInboundCodec() string {
+	if a.inboundCodec == "" {
+		return "pcmu"
+	}
+	return a.inboundCodec
+}
+
+func normalizeTelnyxCodec(codec string) string {
+	switch codec {
+	case "PCMA", "pcma", "alaw", "A-LAW":
+		return "pcma"
+	case "PCMU", "pcmu", "ulaw", "U-LAW":
+		return "pcmu"
+	default:
+		return codec
+	}
+}
+
 func encodeOutboundMedia(payload []byte) ([]byte, error) {
 	msg := map[string]interface{}{
 		"event": "media",
@@ -269,7 +294,7 @@ type trackCapture struct {
 
 const debugTrackCaptureFrames = 900
 
-func (a *Adapter) noteTrackFrame(track string, payload []byte) {
+func (a *Adapter) noteTrackFrame(track string, payload []byte, codec string) {
 	a.trackMu.Lock()
 	defer a.trackMu.Unlock()
 
@@ -292,8 +317,8 @@ func (a *Adapter) noteTrackFrame(track string, payload []byte) {
 	}
 
 	if stats.frames <= 5 || stats.frames%50 == 0 {
-		log.Printf("[telnyx] track metadata call_suffix=%s track=%s payload_len=%d first_bytes=%s direction_assigned=%s",
-			callIDSuffix(a.callID), track, len(payload), firstByteSummary(stats.first), track)
+		log.Printf("[telnyx] track metadata call_suffix=%s track=%s codec=%s payload_len=%d first_bytes=%s direction_assigned=%s",
+			callIDSuffix(a.callID), track, codec, len(payload), firstByteSummary(stats.first), track)
 	}
 
 	if os.Getenv("DEBUG_TELNYX_TRACK_CAPTURE") != "true" {
@@ -301,32 +326,35 @@ func (a *Adapter) noteTrackFrame(track string, payload []byte) {
 	}
 	capture := a.trackCaptures[track]
 	if capture == nil {
-		capture = newTrackCapture(a.callID, track)
+		capture = newTrackCapture(a.callID, track, codec)
 		a.trackCaptures[track] = capture
 	}
-	capture.add(payload, a.callID, track)
+	capture.add(payload, a.callID, track, codec)
 }
 
-func newTrackCapture(callID, track string) *trackCapture {
+func newTrackCapture(callID, track, codec string) *trackCapture {
 	safeID := safeFilename(callID)
 	safeTrack := safeFilename(track)
 	base := filepath.Join(os.TempDir(), "voxlane-"+safeTrack+"-track-"+safeID)
 	c := &trackCapture{
-		pcmuPath: base + ".pcmu",
+		pcmuPath: base + "." + codec,
 		wavPath:  base + ".wav",
 	}
-	log.Printf("[telnyx] track capture enabled call_suffix=%s track=%s pcmu=%s wav=%s max_frames=%d",
-		callIDSuffix(callID), track, c.pcmuPath, c.wavPath, debugTrackCaptureFrames)
+	log.Printf("[telnyx] track capture enabled call_suffix=%s track=%s codec=%s raw=%s wav=%s max_frames=%d",
+		callIDSuffix(callID), track, codec, c.pcmuPath, c.wavPath, debugTrackCaptureFrames)
 	return c
 }
 
-func (c *trackCapture) add(pcmu []byte, callID, track string) {
+func (c *trackCapture) add(pcmu []byte, callID, track, codec string) {
 	if c.closed || c.frames >= debugTrackCaptureFrames {
 		return
 	}
 	c.pcmu = append(c.pcmu, pcmu...)
-	pcm16 := make([]byte, len(pcmu)*2)
-	audio.MulawToPCM16(pcmu, pcm16)
+	pcm16, err := audio.G711ToPCM16(codec, pcmu)
+	if err != nil {
+		log.Printf("[telnyx] track capture decode failed call_suffix=%s track=%s codec=%s: %v", callIDSuffix(callID), track, codec, err)
+		return
+	}
 	c.pcm16 = append(c.pcm16, pcm16...)
 	c.frames++
 	if c.frames == debugTrackCaptureFrames {

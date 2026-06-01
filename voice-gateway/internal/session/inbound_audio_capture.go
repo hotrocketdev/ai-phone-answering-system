@@ -46,7 +46,7 @@ func (s *Session) noteInboundFrame(frame provider.AudioFrame, pcm24k []byte) int
 	if s.capture == nil {
 		s.capture = newInboundAudioCapture(s.ID)
 	}
-	s.capture.Add(frame.Payload, pcm24k, s.ID)
+	s.capture.Add(frame, pcm24k, s.ID)
 	return count
 }
 
@@ -66,7 +66,7 @@ func newInboundAudioCapture(callID string) *inboundAudioCapture {
 	return c
 }
 
-func (c *inboundAudioCapture) Add(pcmu []byte, pcm24k []byte, callID string) {
+func (c *inboundAudioCapture) Add(frame provider.AudioFrame, pcm24k []byte, callID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.enabled || c.closed || c.frames >= debugCaptureFrames {
@@ -77,9 +77,12 @@ func (c *inboundAudioCapture) Add(pcmu []byte, pcm24k []byte, callID string) {
 	if remaining <= 0 {
 		return
 	}
-	c.pcmu = append(c.pcmu, pcmu...)
-	pcm16 := make([]byte, len(pcmu)*2)
-	audio.MulawToPCM16(pcmu, pcm16)
+	c.pcmu = append(c.pcmu, frame.Payload...)
+	pcm16, err := audio.G711ToPCM16(frame.Codec, frame.Payload)
+	if err != nil {
+		log.Printf("[%s] inbound audio capture decode failed codec=%s: %v", callID, frame.Codec, err)
+		return
+	}
 	c.pcm16 = append(c.pcm16, pcm16...)
 	c.pcm24 = append(c.pcm24, pcm24k...)
 	c.frames++
