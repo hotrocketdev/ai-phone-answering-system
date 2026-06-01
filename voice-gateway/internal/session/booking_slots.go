@@ -110,6 +110,26 @@ func nextBookingQuestion(field string) string {
 	}
 }
 
+func clarificationBookingQuestion(field string, attempt int) string {
+	switch field {
+	case "name":
+		if attempt >= 2 {
+			return "Sorry, could you spell your name for me please?"
+		}
+		return "Sorry, could you say your name again please?"
+	case "phone":
+		return "Sorry, could you repeat the contact number please?"
+	case "guest_count":
+		return "Sorry, how many guests was that?"
+	case "time":
+		return "Sorry, could you repeat the time please?"
+	case "date":
+		return "Sorry, could you repeat the date please?"
+	default:
+		return "Sorry, could you repeat that please?"
+	}
+}
+
 func bookingSummary(b sm.BookingData) string {
 	return fmt.Sprintf("date=%s time=%s guest_count=%d name=%s phone_present=%t missing=%s",
 		blankIfEmpty(b.Date), blankIfEmpty(b.Time), b.PartySize, blankIfEmpty(b.Name), b.Phone != "", firstMissingBookingField(b))

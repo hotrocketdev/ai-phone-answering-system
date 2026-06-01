@@ -54,13 +54,15 @@ type Session struct {
 	ID     string // CallSid
 	Config *config.Config
 
-	mu           sync.RWMutex
-	metaState    MetaState
-	stateMachine *sm.Machine
-	booking      sm.BookingData
-	bookingLive  bool
-	bookingAsked string
-	capture      *inboundAudioCapture
+	mu                  sync.RWMutex
+	metaState           MetaState
+	stateMachine        *sm.Machine
+	booking             sm.BookingData
+	bookingLive         bool
+	bookingAsked        string
+	bookingClarifyField string
+	bookingClarifyCount int
+	capture             *inboundAudioCapture
 
 	// Components
 	provAdapter    provider.Adapter
@@ -900,6 +902,7 @@ func (s *Session) handleCallerTranscript(ctx context.Context, transcript string)
 
 	s.mu.Lock()
 	current := s.booking
+	wasLive := s.bookingLive
 	active := s.bookingLive || bookingIntent(transcript)
 	update := parseBookingSlots(transcript, current)
 	if !active && !update.hasAny() {
@@ -910,11 +913,30 @@ func (s *Session) handleCallerTranscript(ctx context.Context, transcript string)
 	s.booking = mergeBookingSlots(current, update, correctionIntent(transcript))
 	booking := s.booking
 	missing := firstMissingBookingField(booking)
+	asked := s.bookingAsked
+	clarifyCount := 0
+	needsClarification := wasLive && !update.hasAny() && missing != "" && missing == asked
+	if needsClarification {
+		if s.bookingClarifyField == missing {
+			s.bookingClarifyCount++
+		} else {
+			s.bookingClarifyField = missing
+			s.bookingClarifyCount = 1
+		}
+		clarifyCount = s.bookingClarifyCount
+	} else if update.hasAny() {
+		s.bookingClarifyField = ""
+		s.bookingClarifyCount = 0
+	}
 	s.mu.Unlock()
 
 	log.Printf("[%s] booking slots: %s", s.ID, bookingSummary(booking))
 	if missing == "" {
 		s.forceBookingQuestion(ctx, "One moment, I'll check that.")
+		return
+	}
+	if needsClarification {
+		s.forceBookingQuestion(ctx, clarificationBookingQuestion(missing, clarifyCount))
 		return
 	}
 	s.forceBookingQuestion(ctx, nextBookingQuestion(missing))
@@ -927,12 +949,16 @@ func (s *Session) noteAssistantBookingQuestion(raw json.RawMessage) {
 		return
 	}
 	s.mu.Lock()
+	summary := s.setBookingAskedLocked(field)
+	s.mu.Unlock()
+	log.Printf("[%s] booking assistant asked=%s slots=%s", s.ID, field, summary)
+}
+
+func (s *Session) setBookingAskedLocked(field string) string {
 	s.bookingLive = true
 	s.bookingAsked = field
 	s.booking = markSlotsImpliedByAssistantQuestion(s.booking, field)
-	summary := bookingSummary(s.booking)
-	s.mu.Unlock()
-	log.Printf("[%s] booking assistant asked=%s slots=%s", s.ID, field, summary)
+	return bookingSummary(s.booking)
 }
 
 func (s *Session) forceBookingQuestion(ctx context.Context, question string) {
@@ -946,6 +972,12 @@ func (s *Session) forceBookingQuestion(ctx context.Context, question string) {
 		}
 	}
 	s.suppressAssistantOutputFor(2 * time.Second)
+	if field := expectedBookingFieldFromAssistant(question); field != "" {
+		s.mu.Lock()
+		summary := s.setBookingAskedLocked(field)
+		s.mu.Unlock()
+		log.Printf("[%s] booking assistant asked=%s slots=%s", s.ID, field, summary)
+	}
 	log.Printf("[%s] booking next question: %q", s.ID, question)
 	if s.cartesiaRender != nil {
 		s.enqueueCartesiaText(question)

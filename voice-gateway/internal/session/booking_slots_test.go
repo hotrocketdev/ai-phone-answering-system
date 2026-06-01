@@ -99,3 +99,12 @@ func TestExpectedBookingFieldFromAssistant(t *testing.T) {
 		t.Fatalf("field = %q, want guest_count", got)
 	}
 }
+
+func TestClarificationBookingQuestionForName(t *testing.T) {
+	if got := clarificationBookingQuestion("name", 1); got != "Sorry, could you say your name again please?" {
+		t.Fatalf("first clarification = %q", got)
+	}
+	if got := clarificationBookingQuestion("name", 2); got != "Sorry, could you spell your name for me please?" {
+		t.Fatalf("second clarification = %q", got)
+	}
+}
