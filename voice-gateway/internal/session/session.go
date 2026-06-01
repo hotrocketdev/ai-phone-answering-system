@@ -104,6 +104,7 @@ type Session struct {
 	manualTurnSilent      int
 	manualTurnServerSeen  bool
 	manualTurnLastCommit  time.Time
+	serverVADLastSeen     time.Time
 }
 
 // ─── Creation ────────────────────────────────────────────────────────────
@@ -548,6 +549,7 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 func (s *Session) noteServerVADSpeech() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.serverVADLastSeen = time.Now()
 	if s.manualTurnActive {
 		s.manualTurnServerSeen = true
 	}
@@ -582,6 +584,7 @@ func (s *Session) observeManualVAD(mulaw []byte) {
 	}
 	shouldCommit := s.manualTurnVoiced >= manualVADStartFrames &&
 		!s.manualTurnServerSeen &&
+		time.Since(s.serverVADLastSeen) > 3*time.Second &&
 		time.Since(s.manualTurnLastCommit) > time.Second
 	if shouldCommit {
 		s.manualTurnLastCommit = time.Now()
@@ -603,14 +606,7 @@ func (s *Session) observeManualVAD(mulaw []byte) {
 	if s.openaiS == nil || s.openaiS.IsClosed() {
 		return
 	}
-	log.Printf("[%s] manual vad fallback: committing caller turn voiced_frames=%d", s.ID, voiced)
-	if err := s.openaiS.CommitAudio(); err != nil {
-		log.Printf("[%s] manual vad CommitAudio skipped: %v", s.ID, err)
-		return
-	}
-	if err := s.openaiS.CreateResponse(); err != nil {
-		log.Printf("[%s] manual vad CreateResponse skipped: %v", s.ID, err)
-	}
+	log.Printf("[%s] manual vad fallback observed unhandled speech voiced_frames=%d", s.ID, voiced)
 }
 
 func averageAbsMulaw(mulaw []byte) int {
@@ -852,6 +848,9 @@ func (s *Session) setOpenAIResponseActive(active bool) {
 }
 
 func (s *Session) suppressInputFor(d time.Duration) {
+	if s.provAdapter != nil && s.provAdapter.Type() == provider.TypeTelnyx {
+		return
+	}
 	s.mu.Lock()
 	until := time.Now().Add(d)
 	if until.After(s.suppressInputUntil) {
