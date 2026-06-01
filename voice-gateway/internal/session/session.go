@@ -90,6 +90,7 @@ type Session struct {
 	openAIAudioDropLogged  bool
 	openAIAudioDropCount   int
 	openAIResponseActive   bool
+	cartesiaResponseActive bool
 	assistantSuppressUntil time.Time
 	cartesiaRenderQueue    chan string
 	suppressInputUntil     time.Time
@@ -105,6 +106,10 @@ type Session struct {
 	manualTurnServerSeen  bool
 	manualTurnLastCommit  time.Time
 	serverVADLastSeen     time.Time
+	pendingInputFrames    int
+	pendingInputBytes     int
+	turnAppendFrames      int
+	turnAppendBytes       int
 }
 
 // ─── Creation ────────────────────────────────────────────────────────────
@@ -269,6 +274,8 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 			if s.openaiS != nil {
 				if err := s.openaiS.SendAudio(b64); err != nil {
 					log.Printf("[%s] OpenAI SendAudio skipped: %v", s.ID, err)
+				} else {
+					s.noteOpenAIAppend(len(b64))
 				}
 			}
 			s.observeManualVAD(frame.Payload)
@@ -467,6 +474,9 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 		s.clearBargeIn()
 		log.Printf("[%s] speech_stopped received; letting OpenAI Realtime create the response", s.ID)
 
+	case "input_audio_buffer.committed":
+		s.noteOpenAIInputCommitted()
+
 	case "conversation.item.input_audio_transcription.completed":
 		transcript := logCallerTranscript(s.ID, evt.Data)
 		s.handleCallerTranscript(ctx, transcript)
@@ -555,6 +565,31 @@ func (s *Session) noteServerVADSpeech() {
 	}
 }
 
+func (s *Session) noteOpenAIAppend(encodedBytes int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pendingInputFrames++
+	s.pendingInputBytes += encodedBytes
+	s.turnAppendFrames++
+	s.turnAppendBytes += encodedBytes
+	if s.turnAppendFrames == 1 || s.turnAppendFrames%100 == 0 {
+		log.Printf("[%s] openai append stats turn_frames=%d turn_encoded_bytes=%d pending_frames=%d pending_encoded_bytes=%d response_active=%t cartesia_active=%t",
+			s.ID, s.turnAppendFrames, s.turnAppendBytes, s.pendingInputFrames, s.pendingInputBytes, s.openAIResponseActive, s.cartesiaResponseActive)
+	}
+}
+
+func (s *Session) noteOpenAIInputCommitted() {
+	s.mu.Lock()
+	frames := s.pendingInputFrames
+	bytes := s.pendingInputBytes
+	s.pendingInputFrames = 0
+	s.pendingInputBytes = 0
+	s.turnAppendFrames = 0
+	s.turnAppendBytes = 0
+	s.mu.Unlock()
+	log.Printf("[%s] openai input committed pending_frames=%d pending_encoded_bytes=%d", s.ID, frames, bytes)
+}
+
 func (s *Session) observeManualVAD(mulaw []byte) {
 	avg := averageAbsMulaw(mulaw)
 
@@ -585,12 +620,19 @@ func (s *Session) observeManualVAD(mulaw []byte) {
 	shouldCommit := s.manualTurnVoiced >= manualVADStartFrames &&
 		!s.manualTurnServerSeen &&
 		time.Since(s.serverVADLastSeen) > 3*time.Second &&
-		time.Since(s.manualTurnLastCommit) > time.Second
+		time.Since(s.manualTurnLastCommit) > time.Second &&
+		s.pendingInputFrames >= 5 &&
+		!s.openAIResponseActive &&
+		!s.cartesiaResponseActive
 	if shouldCommit {
 		s.manualTurnLastCommit = time.Now()
 	}
 	serverSeen := s.manualTurnServerSeen
 	voiced := s.manualTurnVoiced
+	pendingFrames := s.pendingInputFrames
+	pendingBytes := s.pendingInputBytes
+	responseActive := s.openAIResponseActive
+	cartesiaActive := s.cartesiaResponseActive
 	s.manualTurnActive = false
 	s.manualTurnVoiced = 0
 	s.manualTurnSilent = 0
@@ -600,13 +642,24 @@ func (s *Session) observeManualVAD(mulaw []byte) {
 	if !shouldCommit {
 		if serverSeen {
 			log.Printf("[%s] manual vad observed turn; OpenAI server VAD handled it", s.ID)
+		} else if voiced >= manualVADStartFrames {
+			log.Printf("[%s] manual vad did not commit: voiced_frames=%d pending_frames=%d response_active=%t cartesia_active=%t",
+				s.ID, voiced, pendingFrames, responseActive, cartesiaActive)
 		}
 		return
 	}
 	if s.openaiS == nil || s.openaiS.IsClosed() {
 		return
 	}
-	log.Printf("[%s] manual vad fallback observed unhandled speech voiced_frames=%d", s.ID, voiced)
+	log.Printf("[%s] manual vad fallback firing: voiced_frames=%d pending_frames=%d pending_encoded_bytes=%d",
+		s.ID, voiced, pendingFrames, pendingBytes)
+	if err := s.openaiS.CommitAudio(); err != nil {
+		log.Printf("[%s] manual vad CommitAudio skipped: %v", s.ID, err)
+		return
+	}
+	if err := s.openaiS.CreateResponse(); err != nil {
+		log.Printf("[%s] manual vad CreateResponse skipped: %v", s.ID, err)
+	}
 }
 
 func averageAbsMulaw(mulaw []byte) int {
@@ -844,6 +897,12 @@ func (s *Session) handleBargeIn() {
 func (s *Session) setOpenAIResponseActive(active bool) {
 	s.mu.Lock()
 	s.openAIResponseActive = active
+	s.mu.Unlock()
+}
+
+func (s *Session) setCartesiaResponseActive(active bool) {
+	s.mu.Lock()
+	s.cartesiaResponseActive = active
 	s.mu.Unlock()
 }
 
@@ -1114,6 +1173,8 @@ func (s *Session) renderWithCartesia(ctx context.Context, text string) {
 		return
 	}
 	log.Printf("[%s] cartesia: sending text (%d chars)", s.ID, len(text))
+	s.setCartesiaResponseActive(true)
+	defer s.setCartesiaResponseActive(false)
 	s.suppressInputFor(750 * time.Millisecond)
 
 	audioCh, err := s.cartesiaRender.RenderStream(ctx, text)
