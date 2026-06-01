@@ -113,8 +113,11 @@ func TestSessionUpdateEnablesInputTranscription(t *testing.T) {
 		t.Fatalf("json.Marshal: %v", err)
 	}
 	text := string(raw)
-	if !strings.Contains(text, `"transcription":{"model":"gpt-4o-mini-transcribe"}`) {
+	if !strings.Contains(text, `"transcription":{"language":"en","model":"gpt-4o-mini-transcribe"}`) {
 		t.Fatalf("session.update missing input transcription config: %s", text)
+	}
+	if !strings.Contains(text, `"turn_detection":{"create_response":true,"interrupt_response":true,"prefix_padding_ms":500,"silence_duration_ms":500,"threshold":0.35,"type":"server_vad"}`) {
+		t.Fatalf("session.update missing turn detection config: %s", text)
 	}
 }
 

@@ -314,6 +314,15 @@ func (s *Session) sessionUpdateMessage() map[string]interface{} {
 			"input": map[string]interface{}{
 				"transcription": map[string]interface{}{
 					"model": "gpt-4o-mini-transcribe",
+					"language": "en",
+				},
+				"turn_detection": map[string]interface{}{
+					"type":                "server_vad",
+					"threshold":           0.35,
+					"prefix_padding_ms":   500,
+					"silence_duration_ms": 500,
+					"create_response":     true,
+					"interrupt_response":  true,
 				},
 			},
 		},
