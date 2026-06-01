@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -38,6 +39,12 @@ const (
 	MetaReconnecting MetaState = "RECONNECTING"
 	MetaEnding       MetaState = "ENDING"
 	MetaCleaningUp   MetaState = "CLEANUP"
+)
+
+const (
+	manualVADSpeechThreshold = 1500
+	manualVADStartFrames     = 3
+	manualVADStopFrames      = 35
 )
 
 // ─── Session ─────────────────────────────────────────────────────────────
@@ -92,6 +99,11 @@ type Session struct {
 	lastAudioTime         time.Time
 	inboundFrames         int
 	droppedProviderFrames int
+	manualTurnActive      bool
+	manualTurnVoiced      int
+	manualTurnSilent      int
+	manualTurnServerSeen  bool
+	manualTurnLastCommit  time.Time
 }
 
 // ─── Creation ────────────────────────────────────────────────────────────
@@ -258,6 +270,7 @@ func (s *Session) runProviderChannels(ctx context.Context) {
 					log.Printf("[%s] OpenAI SendAudio skipped: %v", s.ID, err)
 				}
 			}
+			s.observeManualVAD(frame.Payload)
 			if inboundCount <= 5 || inboundCount%50 == 0 {
 				log.Printf("[%s] provider audio sent to OpenAI track=%s payload_len=%d sent_to_openai=true",
 					s.ID, frame.Direction, len(frame.Payload))
@@ -446,6 +459,7 @@ func (s *Session) injectSilencePrompt() {
 func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 	switch evt.Type {
 	case "speech_started":
+		s.noteServerVADSpeech()
 		s.handleBargeIn()
 
 	case "speech_stopped":
@@ -529,6 +543,91 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 	case "error":
 		log.Printf("[%s] OpenAI error: %s", s.ID, string(evt.Data))
 	}
+}
+
+func (s *Session) noteServerVADSpeech() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.manualTurnActive {
+		s.manualTurnServerSeen = true
+	}
+}
+
+func (s *Session) observeManualVAD(mulaw []byte) {
+	avg := averageAbsMulaw(mulaw)
+
+	s.mu.Lock()
+	if avg > manualVADSpeechThreshold {
+		if !s.manualTurnActive {
+			s.manualTurnActive = true
+			s.manualTurnVoiced = 0
+			s.manualTurnSilent = 0
+			s.manualTurnServerSeen = false
+		}
+		s.manualTurnVoiced++
+		s.manualTurnSilent = 0
+		s.mu.Unlock()
+		return
+	}
+
+	if !s.manualTurnActive {
+		s.mu.Unlock()
+		return
+	}
+
+	s.manualTurnSilent++
+	if s.manualTurnSilent < manualVADStopFrames {
+		s.mu.Unlock()
+		return
+	}
+	shouldCommit := s.manualTurnVoiced >= manualVADStartFrames &&
+		!s.manualTurnServerSeen &&
+		time.Since(s.manualTurnLastCommit) > time.Second
+	if shouldCommit {
+		s.manualTurnLastCommit = time.Now()
+	}
+	serverSeen := s.manualTurnServerSeen
+	voiced := s.manualTurnVoiced
+	s.manualTurnActive = false
+	s.manualTurnVoiced = 0
+	s.manualTurnSilent = 0
+	s.manualTurnServerSeen = false
+	s.mu.Unlock()
+
+	if !shouldCommit {
+		if serverSeen {
+			log.Printf("[%s] manual vad observed turn; OpenAI server VAD handled it", s.ID)
+		}
+		return
+	}
+	if s.openaiS == nil || s.openaiS.IsClosed() {
+		return
+	}
+	log.Printf("[%s] manual vad fallback: committing caller turn voiced_frames=%d", s.ID, voiced)
+	if err := s.openaiS.CommitAudio(); err != nil {
+		log.Printf("[%s] manual vad CommitAudio skipped: %v", s.ID, err)
+		return
+	}
+	if err := s.openaiS.CreateResponse(); err != nil {
+		log.Printf("[%s] manual vad CreateResponse skipped: %v", s.ID, err)
+	}
+}
+
+func averageAbsMulaw(mulaw []byte) int {
+	if len(mulaw) == 0 {
+		return 0
+	}
+	pcm := make([]byte, len(mulaw)*2)
+	audio.MulawToPCM16(mulaw, pcm)
+	total := 0
+	for i := 0; i < len(pcm); i += 2 {
+		v := int(int16(binary.LittleEndian.Uint16(pcm[i:])))
+		if v < 0 {
+			v = -v
+		}
+		total += v
+	}
+	return total / len(mulaw)
 }
 
 func logCallerTranscript(sessionID string, raw json.RawMessage) string {
