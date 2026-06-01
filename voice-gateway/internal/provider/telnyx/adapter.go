@@ -214,15 +214,15 @@ func (a *Adapter) ParseMediaEvent(raw []byte) (*provider.AudioFrame, *provider.E
 	return nil, nil
 }
 
-// EncodeAudio returns raw PCMU RTP payload bytes. Telnyx wraps these bytes in
+// EncodeAudio returns raw codec RTP payload bytes. Telnyx wraps these bytes in
 // a JSON media envelope in WriteRaw; no 12-byte RTP header is sent.
 func (a *Adapter) EncodeAudio(frame provider.AudioFrame) ([]byte, error) {
-	pcmu := frame.Payload
+	payload := frame.Payload
 	a.outPacketCount++
 	if a.outPacketCount <= 5 {
-		log.Printf("[telnyx] RTP payload out packet=%d payload_len=%d", a.outPacketCount, len(pcmu))
+		log.Printf("[telnyx] RTP payload out packet=%d codec=%s payload_len=%d", a.outPacketCount, frame.Codec, len(payload))
 	}
-	return pcmu, nil
+	return payload, nil
 }
 
 func (a *Adapter) EncodeMark(label string) ([]byte, error) {

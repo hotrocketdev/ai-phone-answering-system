@@ -83,19 +83,27 @@ export class VoiceController {
     const streamUrl = `${wsUrl}/${callControlId}`;
     const streamTrack = process.env.TELNYX_STREAM_TRACK || 'both_tracks';
     const targetLegs = process.env.TELNYX_STREAM_BIDIRECTIONAL_TARGET_LEGS || 'opposite';
+    const bidirectionalCodec =
+      process.env.TELNYX_STREAM_BIDIRECTIONAL_CODEC ||
+      process.env.TELNYX_BIDIRECTIONAL_CODEC ||
+      'PCMU';
+    const bidirectionalSamplingRate = process.env.TELNYX_STREAM_BIDIRECTIONAL_SAMPLING_RATE;
 
     // 1. Answer the call
     callTelnyx(callControlId, 'answer', {}, apiKey);
 
     // 2. Start streaming after a short delay for answer to process
     setTimeout(() => {
-      const streamBody = {
+      const streamBody: Record<string, string | number> = {
         stream_url: streamUrl,
         stream_track: streamTrack,
         stream_bidirectional_mode: 'rtp',
-        stream_bidirectional_codec: 'PCMU',
+        stream_bidirectional_codec: bidirectionalCodec,
         stream_bidirectional_target_legs: targetLegs,
       };
+      if (bidirectionalSamplingRate) {
+        streamBody['stream_bidirectional_sampling_rate'] = Number(bidirectionalSamplingRate);
+      }
       console.log(`[${callControlId}] Telnyx streaming_start body: ${JSON.stringify(streamBody)}`);
       callTelnyx(callControlId, 'streaming_start', streamBody, apiKey);
     }, 2000);

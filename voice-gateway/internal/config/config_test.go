@@ -31,6 +31,11 @@ func TestLoad_ValidConfig(t *testing.T) {
 	os.Unsetenv("OPENAI_MANUAL_TURN_FALLBACK")
 	os.Unsetenv("FAST_STATIC_GREETING")
 	os.Unsetenv("TELNYX_ECHO_SUPPRESSION_TAIL_MS")
+	os.Unsetenv("TELNYX_STREAM_BIDIRECTIONAL_CODEC")
+	os.Unsetenv("TELNYX_BIDIRECTIONAL_CODEC")
+	os.Unsetenv("CARTESIA_OUTPUT_ENCODING")
+	os.Unsetenv("CARTESIA_OUTPUT_SAMPLE_RATE")
+	os.Unsetenv("AUDIO_TRANSCODE_OUTBOUND_TO")
 
 	cfg, err := Load()
 	if err != nil {
@@ -47,6 +52,18 @@ func TestLoad_ValidConfig(t *testing.T) {
 	}
 	if cfg.FastStaticGreeting {
 		t.Errorf("expected fast static greeting disabled by default")
+	}
+	if cfg.TelnyxBidirectionalCodec != "PCMU" {
+		t.Errorf("expected default bidirectional codec PCMU, got %s", cfg.TelnyxBidirectionalCodec)
+	}
+	if cfg.CartesiaOutputEncoding != "pcm_mulaw" {
+		t.Errorf("expected default Cartesia output pcm_mulaw, got %s", cfg.CartesiaOutputEncoding)
+	}
+	if cfg.CartesiaOutputSampleRate != 8000 {
+		t.Errorf("expected default Cartesia sample rate 8000, got %d", cfg.CartesiaOutputSampleRate)
+	}
+	if cfg.AudioTranscodeOutboundTo != "none" {
+		t.Errorf("expected default outbound transcode none, got %s", cfg.AudioTranscodeOutboundTo)
 	}
 }
 
@@ -89,6 +106,36 @@ func TestLoad_TelnyxEchoSuppressionTailOverride(t *testing.T) {
 	}
 	if cfg.TelnyxEchoSuppressionTailMs != 150 {
 		t.Errorf("expected telnyx echo suppression tail 150ms, got %d", cfg.TelnyxEchoSuppressionTailMs)
+	}
+}
+
+func TestLoad_G722OutboundConfig(t *testing.T) {
+	os.Setenv("OPENAI_API_KEY", "sk-test")
+	os.Setenv("HMAC_SECRET", "test-secret")
+	os.Setenv("TELNYX_STREAM_BIDIRECTIONAL_CODEC", "G722")
+	os.Setenv("CARTESIA_OUTPUT_ENCODING", "pcm_s16le")
+	os.Setenv("CARTESIA_OUTPUT_SAMPLE_RATE", "16000")
+	os.Setenv("AUDIO_TRANSCODE_OUTBOUND_TO", "g722")
+	defer os.Unsetenv("TELNYX_STREAM_BIDIRECTIONAL_CODEC")
+	defer os.Unsetenv("CARTESIA_OUTPUT_ENCODING")
+	defer os.Unsetenv("CARTESIA_OUTPUT_SAMPLE_RATE")
+	defer os.Unsetenv("AUDIO_TRANSCODE_OUTBOUND_TO")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.TelnyxBidirectionalCodec != "G722" {
+		t.Fatalf("bidirectional codec = %s, want G722", cfg.TelnyxBidirectionalCodec)
+	}
+	if cfg.CartesiaOutputEncoding != "pcm_s16le" {
+		t.Fatalf("cartesia output = %s, want pcm_s16le", cfg.CartesiaOutputEncoding)
+	}
+	if cfg.CartesiaOutputSampleRate != 16000 {
+		t.Fatalf("cartesia sample rate = %d, want 16000", cfg.CartesiaOutputSampleRate)
+	}
+	if cfg.AudioTranscodeOutboundTo != "g722" {
+		t.Fatalf("transcode target = %s, want g722", cfg.AudioTranscodeOutboundTo)
 	}
 }
 

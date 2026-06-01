@@ -31,7 +31,7 @@ type Config struct {
 	TelnyxConnectionID          string
 	TelnyxPublicKey             string
 	TelnyxStreamCodec           string // "PCMU" (default) or "L16"
-	TelnyxBidirectionalCodec    string // "PCMU" (default) or "L16"
+	TelnyxBidirectionalCodec    string // "PCMU" (default) or "G722"
 	TelnyxEchoSuppressionTailMs int
 	SignalWireProjectID         string
 	SignalWireToken             string
@@ -51,16 +51,21 @@ type Config struct {
 	LLMProvider string // "openai" | "grok"
 
 	// Voice Renderer
-	VoiceRenderer      string // "openai" | "cartesia" | "elevenlabs"
-	FastStaticGreeting bool
-	CartesiaAPIKey     string
-	CartesiaVoiceID    string
-	CartesiaModel      string
-	CartesiaLanguage   string
-	CartesiaSpeed      float64
-	CartesiaVolume     float64
-	CartesiaEmotion    string
-	ElevenLabsAPIKey   string
+	VoiceRenderer            string // "openai" | "cartesia" | "elevenlabs"
+	FastStaticGreeting       bool
+	CartesiaAPIKey           string
+	CartesiaVoiceID          string
+	CartesiaModel            string
+	CartesiaLanguage         string
+	CartesiaOutputEncoding   string
+	CartesiaOutputSampleRate int
+	CartesiaSpeed            float64
+	CartesiaVolume           float64
+	CartesiaEmotion          string
+	ElevenLabsAPIKey         string
+
+	// Audio Transcoding
+	AudioTranscodeOutboundTo string // "none" | "g722"
 
 	// Voice Runtime
 	VoiceRuntime          string // "custom" | "deepgram_agent"
@@ -95,7 +100,7 @@ func Load() (*Config, error) {
 		TelnyxConnectionID:          os.Getenv("TELNYX_CONNECTION_ID"),
 		TelnyxPublicKey:             os.Getenv("TELNYX_PUBLIC_KEY"),
 		TelnyxStreamCodec:           getEnv("TELNYX_STREAM_CODEC", "PCMU"),
-		TelnyxBidirectionalCodec:    getEnv("TELNYX_BIDIRECTIONAL_CODEC", "PCMU"),
+		TelnyxBidirectionalCodec:    getEnv("TELNYX_STREAM_BIDIRECTIONAL_CODEC", getEnv("TELNYX_BIDIRECTIONAL_CODEC", "PCMU")),
 		TelnyxEchoSuppressionTailMs: getEnvInt("TELNYX_ECHO_SUPPRESSION_TAIL_MS", 300),
 		SignalWireProjectID:         os.Getenv("SIGNALWIRE_PROJECT_ID"),
 		SignalWireToken:             os.Getenv("SIGNALWIRE_TOKEN"),
@@ -111,10 +116,13 @@ func Load() (*Config, error) {
 		CartesiaVoiceID:             os.Getenv("CARTESIA_VOICE_ID"),
 		CartesiaModel:               getEnv("CARTESIA_MODEL", "sonic-2"),
 		CartesiaLanguage:            getEnv("CARTESIA_LANGUAGE", "en"),
+		CartesiaOutputEncoding:      getEnv("CARTESIA_OUTPUT_ENCODING", "pcm_mulaw"),
+		CartesiaOutputSampleRate:    getEnvInt("CARTESIA_OUTPUT_SAMPLE_RATE", 8000),
 		CartesiaSpeed:               getEnvFloat("CARTESIA_SPEED", 0.95),
 		CartesiaVolume:              getEnvFloat("CARTESIA_VOLUME", 0.9),
 		CartesiaEmotion:             getEnv("CARTESIA_EMOTION", "content"),
 		ElevenLabsAPIKey:            os.Getenv("ELEVENLABS_API_KEY"),
+		AudioTranscodeOutboundTo:    getEnv("AUDIO_TRANSCODE_OUTBOUND_TO", "none"),
 		VoiceRuntime:                getEnv("VOICE_RUNTIME", "custom"),
 		DeepgramAPIKey:              os.Getenv("DEEPGRAM_API_KEY"),
 		DeepgramListenModel:         getEnv("DEEPGRAM_LISTEN_MODEL", "flux-general-en"),

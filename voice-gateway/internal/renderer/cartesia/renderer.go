@@ -24,13 +24,15 @@ import (
 // ─── Config ──────────────────────────────────────────────────────────────
 
 type Config struct {
-	APIKey   string
-	VoiceID  string // Cartesia voice ID for British female
-	ModelID  string // "sonic-2" for streaming
-	Language string // "en"
-	Speed    float64
-	Volume   float64
-	Emotion  string
+	APIKey           string
+	VoiceID          string // Cartesia voice ID for British female
+	ModelID          string // "sonic-2" for streaming
+	Language         string // "en"
+	OutputEncoding   string
+	OutputSampleRate int
+	Speed            float64
+	Volume           float64
+	Emotion          string
 }
 
 // ─── Renderer ────────────────────────────────────────────────────────────
@@ -81,17 +83,32 @@ func (r *Renderer) RenderStream(ctx context.Context, text string) (<-chan []byte
 	}
 	r.conn = conn
 
-	// Send streaming synthesis request
-	req := map[string]interface{}{
+	req := r.requestPayload(text, fmt.Sprintf("voxlane-%d", time.Now().UnixNano()))
+
+	if err := conn.WriteJSON(req); err != nil {
+		conn.Close()
+		r.cancel()
+		return nil, fmt.Errorf("cartesia write: %w", err)
+	}
+
+	log.Printf("[cartesia] streaming: voice=%s model=%s output=%s/%d", r.cfg.VoiceID, r.cfg.ModelID, r.outputEncoding(), r.outputSampleRate())
+
+	ch := make(chan []byte, 8)
+	go r.readLoop(ch)
+	return ch, nil
+}
+
+func (r *Renderer) requestPayload(text, contextID string) map[string]interface{} {
+	return map[string]interface{}{
 		"model_id":   r.cfg.ModelID,
 		"transcript": text,
-		"context_id": fmt.Sprintf("voxlane-%d", time.Now().UnixNano()),
+		"context_id": contextID,
 		"continue":   false,
 		"voice":      map[string]interface{}{"mode": "id", "id": r.cfg.VoiceID},
 		"output_format": map[string]interface{}{
 			"container":   "raw",
-			"encoding":    "pcm_mulaw",
-			"sample_rate": 8000,
+			"encoding":    r.outputEncoding(),
+			"sample_rate": r.outputSampleRate(),
 		},
 		"language": r.cfg.Language,
 		"generation_config": map[string]interface{}{
@@ -100,25 +117,29 @@ func (r *Renderer) RenderStream(ctx context.Context, text string) (<-chan []byte
 			"emotion": r.cfg.Emotion,
 		},
 	}
+}
 
-	if err := conn.WriteJSON(req); err != nil {
-		conn.Close()
-		r.cancel()
-		return nil, fmt.Errorf("cartesia write: %w", err)
+func (r *Renderer) outputEncoding() string {
+	if r.cfg.OutputEncoding != "" {
+		return r.cfg.OutputEncoding
 	}
+	return "pcm_mulaw"
+}
 
-	log.Printf("[cartesia] streaming: voice=%s model=%s", r.cfg.VoiceID, r.cfg.ModelID)
-
-	ch := make(chan []byte, 8)
-	go r.readLoop(ch)
-	return ch, nil
+func (r *Renderer) outputSampleRate() int {
+	if r.cfg.OutputSampleRate > 0 {
+		return r.cfg.OutputSampleRate
+	}
+	return 8000
 }
 
 // readLoop reads JSON text chunks from Cartesia WebSocket.
 // Cartesia sends: {"type":"chunk","data":"<base64>"} or {"type":"done"}.
 func (r *Renderer) readLoop(ch chan<- []byte) {
 	defer func() {
-		if r.conn != nil { r.conn.Close() }
+		if r.conn != nil {
+			r.conn.Close()
+		}
 		close(ch)
 	}()
 
@@ -168,8 +189,12 @@ func (r *Renderer) readLoop(ch chan<- []byte) {
 func (r *Renderer) Cancel() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.cancel != nil { r.cancel() }
-	if r.conn != nil { r.conn.Close() }
+	if r.cancel != nil {
+		r.cancel()
+	}
+	if r.conn != nil {
+		r.conn.Close()
+	}
 }
 
 func (r *Renderer) Close() error {
@@ -199,15 +224,23 @@ func init() {
 
 func encodeUlau(sample int16) byte {
 	sign := byte(0)
-	if sample < 0 { sign = 0x80; sample = -sample }
+	if sample < 0 {
+		sign = 0x80
+		sample = -sample
+	}
 	mag := int(sample) + 132
 	exp := 7
 	for e := 0; e < 8; e++ {
-		if mag < (256 << e) { exp = e; break }
+		if mag < (256 << e) {
+			exp = e
+			break
+		}
 	}
 	mantissa := byte((mag >> (exp + 3)) & 0x0F)
 	ulaw := ^byte((byte(exp) << 4) | mantissa)
-	if sign != 0 { ulaw &^= 0x80 }
+	if sign != 0 {
+		ulaw &^= 0x80
+	}
 	return ulaw
 }
 

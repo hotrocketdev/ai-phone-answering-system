@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/gorilla/websocket v1.5.3
+	github.com/gotranspile/g722 v0.0.0-20240123003956-384a1bb16a19
 	github.com/prometheus/client_golang v1.22.0
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rs/zerolog v1.34.0

@@ -89,6 +89,7 @@ type Session struct {
 	cartesiaMu                     sync.Mutex
 	cartesiaText                   strings.Builder
 	cartesiaRemain                 []byte // accumulates partial u-law frames
+	cartesiaG722                   *audio.G722Encoder
 	cartesiaTranscriptSeen         bool
 	openAIAudioDropLogged          bool
 	openAIAudioDropCount           int
@@ -171,14 +172,19 @@ func (s *Session) Run(ctx context.Context) error {
 			return fmt.Errorf("VOICE_RENDERER=cartesia requires CARTESIA_API_KEY")
 		}
 		s.cartesiaRender = cartesiarend.New(cartesiarend.Config{
-			APIKey:   s.Config.CartesiaAPIKey,
-			VoiceID:  s.Config.CartesiaVoiceID,
-			ModelID:  s.Config.CartesiaModel,
-			Language: s.Config.CartesiaLanguage,
-			Speed:    s.Config.CartesiaSpeed,
-			Volume:   s.Config.CartesiaVolume,
-			Emotion:  s.Config.CartesiaEmotion,
+			APIKey:           s.Config.CartesiaAPIKey,
+			VoiceID:          s.Config.CartesiaVoiceID,
+			ModelID:          s.Config.CartesiaModel,
+			Language:         s.Config.CartesiaLanguage,
+			OutputEncoding:   s.Config.CartesiaOutputEncoding,
+			OutputSampleRate: s.Config.CartesiaOutputSampleRate,
+			Speed:            s.Config.CartesiaSpeed,
+			Volume:           s.Config.CartesiaVolume,
+			Emotion:          s.Config.CartesiaEmotion,
 		})
+		if strings.EqualFold(s.Config.AudioTranscodeOutboundTo, "g722") {
+			s.cartesiaG722 = audio.NewG722Encoder()
+		}
 		log.Printf("[%s] voice renderer: cartesia", s.ID)
 	}
 
@@ -1104,6 +1110,34 @@ func (s *Session) sendMulawToTwilio(mulaw []byte) int {
 	return frameCount
 }
 
+func (s *Session) sendCartesiaAudio(chunk []byte) int {
+	if strings.EqualFold(s.Config.AudioTranscodeOutboundTo, "g722") {
+		return s.sendPCM16ToTelnyxG722(chunk)
+	}
+	return s.sendMulawToTwilio(chunk)
+}
+
+func (s *Session) sendPCM16ToTelnyxG722(pcm16 []byte) int {
+	if s.cartesiaG722 == nil {
+		s.cartesiaG722 = audio.NewG722Encoder()
+	}
+	frames, err := s.cartesiaG722.ProcessPCM16Bytes(pcm16)
+	if err != nil {
+		log.Printf("[%s] cartesia g722 encode failed: %v", s.ID, err)
+		return 0
+	}
+	frameCount := 0
+	for _, frame := range frames {
+		if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
+			Codec: "g722", SampleRate: 16000, Payload: frame, Direction: "outbound",
+		}); err == nil && msg != nil {
+			s.sendProviderMessage(msg, "cartesia")
+			frameCount++
+		}
+	}
+	return frameCount
+}
+
 func (s *Session) handleBargeIn() {
 	s.mu.Lock()
 	s.bargeIns++
@@ -1501,9 +1535,25 @@ func (s *Session) renderWithCartesia(ctx context.Context, text string) {
 	for chunk := range audioCh {
 		chunkCount++
 		s.suppressInputFor(250 * time.Millisecond)
-		// Cartesia outputs pcm_mulaw 8kHz natively — send directly
-		s.outputSecs += float64(len(chunk)) / 8000.0
-		s.sendMulawToTwilio(chunk)
+		if strings.EqualFold(s.Config.AudioTranscodeOutboundTo, "g722") {
+			s.outputSecs += float64(len(chunk)) / (16000.0 * 2.0)
+		} else {
+			s.outputSecs += float64(len(chunk)) / 8000.0
+		}
+		s.sendCartesiaAudio(chunk)
+	}
+	if strings.EqualFold(s.Config.AudioTranscodeOutboundTo, "g722") && s.cartesiaG722 != nil {
+		frames, err := s.cartesiaG722.Flush()
+		if err != nil {
+			log.Printf("[%s] cartesia g722 flush failed: %v", s.ID, err)
+		}
+		for _, frame := range frames {
+			if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
+				Codec: "g722", SampleRate: 16000, Payload: frame, Direction: "outbound",
+			}); err == nil && msg != nil {
+				s.sendProviderMessage(msg, "cartesia")
+			}
+		}
 	}
 	s.suppressInputFor(250 * time.Millisecond)
 	log.Printf("[%s] cartesia: %d chunks sent to Twilio", s.ID, chunkCount)

@@ -381,6 +381,51 @@ func TestPipeline_ProcessOutboundBytes_FullFrame(t *testing.T) {
 	}
 }
 
+func TestG722EncoderAcceptsPCM16_16kFrame(t *testing.T) {
+	enc := NewG722Encoder()
+	frame := make([]byte, FrameSizePCM16_16k)
+	for i := 0; i < len(frame); i += 2 {
+		sample := int16(math.Sin(2.0*math.Pi*440.0*float64(i/2)/16000.0) * 12000)
+		binary.LittleEndian.PutUint16(frame[i:], uint16(sample))
+	}
+	out, err := enc.EncodePCM16Frame(frame)
+	if err != nil {
+		t.Fatalf("EncodePCM16Frame: %v", err)
+	}
+	if len(out) != FrameSizeG722_16k {
+		t.Fatalf("G722 frame length = %d, want %d", len(out), FrameSizeG722_16k)
+	}
+	allZero := true
+	for _, b := range out {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		t.Fatal("G722 output is all zero")
+	}
+}
+
+func TestG722EncoderBuffersPartialPCM16Frames(t *testing.T) {
+	enc := NewG722Encoder()
+	frame := make([]byte, FrameSizePCM16_16k)
+	frames, err := enc.ProcessPCM16Bytes(frame[:320])
+	if err != nil {
+		t.Fatalf("partial ProcessPCM16Bytes: %v", err)
+	}
+	if len(frames) != 0 {
+		t.Fatalf("partial frames = %d, want 0", len(frames))
+	}
+	frames, err = enc.ProcessPCM16Bytes(frame[320:])
+	if err != nil {
+		t.Fatalf("complete ProcessPCM16Bytes: %v", err)
+	}
+	if len(frames) != 1 || len(frames[0]) != FrameSizeG722_16k {
+		t.Fatalf("frames = %d len=%d, want one %d-byte G722 frame", len(frames), len(frames[0]), FrameSizeG722_16k)
+	}
+}
+
 func TestPipeline_BufferedFrames(t *testing.T) {
 	p := NewPipeline()
 

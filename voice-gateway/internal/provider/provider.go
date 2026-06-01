@@ -32,14 +32,14 @@ func (t Type) Valid() bool {
 // AudioFrame represents a single media frame from any provider.
 // It is the provider-neutral format used throughout the audio pipeline.
 type AudioFrame struct {
-	Codec      string    // "ulaw" (G.711), "pcm16", or "pcmu"
-	SampleRate int       // 8000 or 16000
-	Payload    []byte    // raw audio bytes
-	Timestamp  string    // provider timestamp
-	Direction  string    // "inbound" (caller) or "outbound" (AI)
-	SeqNumber  int       // sequence number if available
-	CallID     string    // provider call SID/ID
-	StreamID   string    // provider stream SID/ID
+	Codec      string // "ulaw" (G.711), "pcm16", or "pcmu"
+	SampleRate int    // 8000 or 16000
+	Payload    []byte // raw audio bytes
+	Timestamp  string // provider timestamp
+	Direction  string // "inbound" (caller) or "outbound" (AI)
+	SeqNumber  int    // sequence number if available
+	CallID     string // provider call SID/ID
+	StreamID   string // provider stream SID/ID
 }
 
 // ─── Events ──────────────────────────────────────────────────────────────
@@ -134,8 +134,8 @@ type TelnyxConfig struct {
 	APIKey             string
 	ConnectionID       string
 	PublicKey          string
-	StreamCodec        string // "PCMU" or "L16"
-	BidirectionalCodec string // "PCMU" or "L16"
+	StreamCodec        string // "PCMU", "PCMA", "G722", "OPUS", "AMR-WB", or "L16"
+	BidirectionalCodec string // "PCMU", "PCMA", "G722", "OPUS", "AMR-WB", or "L16"
 }
 
 // SignalWireConfig holds SignalWire-specific credentials.

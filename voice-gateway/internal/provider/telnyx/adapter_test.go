@@ -29,6 +29,22 @@ func TestEncodeAudioPreservesRawPCMU(t *testing.T) {
 	}
 }
 
+func TestEncodeAudioPreservesRawG722(t *testing.T) {
+	a := &Adapter{callID: "test-call"}
+	g722 := make([]byte, 160)
+	for i := range g722 {
+		g722[i] = byte(255 - (i & 0xFF))
+	}
+
+	encoded, err := a.EncodeAudio(provider.AudioFrame{Codec: "g722", SampleRate: 16000, Payload: g722})
+	if err != nil {
+		t.Fatalf("EncodeAudio: %v", err)
+	}
+	if string(encoded) != string(g722) {
+		t.Fatalf("payload mismatch: want %v, got %v", g722, encoded)
+	}
+}
+
 func TestEncodeOutboundMediaMessage(t *testing.T) {
 	pcmu := []byte{0xff, 0xfe, 0xfd, 0xfc}
 

@@ -260,6 +260,8 @@ func main() {
 	log.Printf("    CARTESIA_VOICE_ID present=%t", cfg.CartesiaVoiceID != "")
 	log.Printf("    CARTESIA_MODEL=%s", cfg.CartesiaModel)
 	log.Printf("    CARTESIA_LANGUAGE=%s", cfg.CartesiaLanguage)
+	log.Printf("    CARTESIA_OUTPUT_ENCODING=%s", cfg.CartesiaOutputEncoding)
+	log.Printf("    CARTESIA_OUTPUT_SAMPLE_RATE=%d", cfg.CartesiaOutputSampleRate)
 	log.Printf("    CARTESIA_SPEED=%.2f", cfg.CartesiaSpeed)
 	log.Printf("    CARTESIA_VOLUME=%.2f", cfg.CartesiaVolume)
 	log.Printf("    CARTESIA_EMOTION=%s", cfg.CartesiaEmotion)
@@ -268,6 +270,9 @@ func main() {
 		log.Printf("    OPENAI_API_KEY suffix=%s", cfg.OpenAIAPIKey[len(cfg.OpenAIAPIKey)-4:])
 	}
 	log.Printf("    BUSINESS_NAME=%s", cfg.BusinessName)
+	log.Printf("    TELNYX_STREAM_CODEC=%s", cfg.TelnyxStreamCodec)
+	log.Printf("    TELNYX_STREAM_BIDIRECTIONAL_CODEC=%s", cfg.TelnyxBidirectionalCodec)
+	log.Printf("    AUDIO_TRANSCODE_OUTBOUND_TO=%s", cfg.AudioTranscodeOutboundTo)
 	if os.Getenv("BUSINESS_NAME") != "" {
 		log.Printf("    BUSINESS_NAME source=env")
 	} else {
@@ -358,13 +363,15 @@ func runDeepgramRelay(ctx context.Context, callSid string, tw *providertwilio.Ad
 // runCartesiaDirectGreeting bypasses OpenAI and sends a fixed greeting directly to Cartesia.
 func runCartesiaDirectGreeting(ctx context.Context, callSid string, tw *providertwilio.Adapter, cfg *config.Config) {
 	r := cartesiarend.New(cartesiarend.Config{
-		APIKey:   cfg.CartesiaAPIKey,
-		VoiceID:  cfg.CartesiaVoiceID,
-		ModelID:  cfg.CartesiaModel,
-		Language: cfg.CartesiaLanguage,
-		Speed:    cfg.CartesiaSpeed,
-		Volume:   cfg.CartesiaVolume,
-		Emotion:  cfg.CartesiaEmotion,
+		APIKey:           cfg.CartesiaAPIKey,
+		VoiceID:          cfg.CartesiaVoiceID,
+		ModelID:          cfg.CartesiaModel,
+		Language:         cfg.CartesiaLanguage,
+		OutputEncoding:   cfg.CartesiaOutputEncoding,
+		OutputSampleRate: cfg.CartesiaOutputSampleRate,
+		Speed:            cfg.CartesiaSpeed,
+		Volume:           cfg.CartesiaVolume,
+		Emotion:          cfg.CartesiaEmotion,
 	})
 	defer r.Close()
 
