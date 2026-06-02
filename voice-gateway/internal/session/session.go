@@ -647,6 +647,15 @@ func (s *Session) handleOpenAIEvent(ctx context.Context, evt openai.Event) {
 			return
 		}
 
+		// Pre-emptive skip: if the deterministic booking layer is going
+		// to ask for the same slot the assistant just answered, drop the
+		// OpenAI natural question so the caller hears exactly one
+		// question per booking slot turn.
+		if skip, slot := s.shouldSkipOpenAICartesiaEnqueue(evt.Data); skip {
+			s.logOpenAICartesiaSkip(slot)
+			return
+		}
+
 		// Route text to Cartesia for British voice rendering
 		if s.cartesiaRender != nil {
 			if !s.flushCartesiaTranscript(ctx) {
@@ -946,10 +955,6 @@ func (s *Session) handleCallerTranscript(ctx context.Context, transcript string)
 		s.forceBookingQuestion(ctx, clarificationBookingQuestion(missing, clarifyCount))
 		return
 	}
-	if missing == asked {
-		return
-	}
-	s.forceBookingQuestion(ctx, naturalBookingQuestion(missing, update, booking))
 }
 
 func (s *Session) noteAssistantBookingQuestion(raw json.RawMessage) {

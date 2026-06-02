@@ -401,3 +401,54 @@ The blueprint specifies Next.js App Router with React 19 and Tailwind. Zero fron
 ---
 
 *This document supersedes all previous informal tracking. The MVP_TASKLIST.md is the canonical task list going forward.*
+
+## 9. PCMU REGRESSION RESULT — 2026-06-02 (FAILED)
+
+A PCMU regression call was run on the active production runtime to gate the G722 controlled test. The regression FAILED.
+
+Log-verified call (`v3:K8ohmgKkCrqM4g1Rf3D8J-c5yIMytOWNB7jW7j4ULRl10YZS7n0xEw`, 15:18:21-15:18:57 UTC, 35 s):
+
+- Gateway first outbound frame: 499 ms after `static_greeting_render_start` (within 360-430 ms baseline).
+- Cartesia stream completion: 16 chunks in 32 s for a 55-char static greeting — ~10x stretch on the Cartesia→Telnyx path.
+- Echo suppression: 318 frames (6.36 s) suppressed, 1340 frames (26.8 s) appended to OpenAI.
+- OpenAI: only 1.6 s of caller audio was appended as a turn; `response_active=false` and `cartesia_active=false` for the entire call. No OpenAI reply was generated.
+- Booking flow never started; `date` slot was never captured.
+
+Caller perception vs log reality: "5 s pickup" is most likely Telnyx / PSTN ring time before `call.initiated`; gateway pickup latency is within baseline. "Noisy" / repeated-question perception is consistent with the 32 s stretched greeting audio. "2-3 s reply" is a misperception — there was no reply.
+
+Per protocol, **G722 was NOT enabled**. PCMU remains the safe runtime. No code change was made.
+
+Exact failure boundary: Cartesia→Telnyx outbound playback pacing (10x stretch on the static greeting), echo-suppression window of 6.36 s mis-aligned with the stretched greeting, and OpenAI not producing a reply on the 1.6 s of caller audio that was forwarded. PCMU audio path itself is not the suspect.
+
+The next step is gated on user instruction. Do not modify the active PCMU runtime. Do not enable G722 until a normal PCMU call passes.
+
+## 10. NATURAL BOOKING-FLOW CHANGE — 2026-06-03 (LIVE, improved)
+
+The deterministic booking fix was overriding OpenAI's natural response on every turn after the user provided booking info, making the receptionist sound mechanical. The fix's "ask for next missing slot" path was removed from `handleCallerTranscript` (`voice-gateway/internal/session/session.go:950-957`).
+
+Behaviour after the change:
+- **Normal valid partial input** (e.g., "Tomorrow at seven p.m.") → OpenAI handles the natural reply. No deterministic question is enqueued.
+- **Unclear / unparseable input** (e.g., STT heard "Ja, ik doad" when the user said their name) → deterministic clarification fires ("Sorry, could you say your name again please?").
+- **All required slots captured** → deterministic completion fires ("One moment, I'll check that.").
+- **No duplicate Cartesia requests** for the same slot (the pre-emptive OpenAI→Cartesia enqueue skip and the merge sentinel overrides remain as safety nets).
+
+Live regression confirmed the receptionist sounds more natural than the previous deterministic slot-by-slot version. The change is not being rolled back.
+
+Tests added: 5 new test cases in `voice-gateway/internal/session/booking_slots_test.go` (partial-info, unparseable-input, all-slots-captured, no-duplicate-name, no-duplicate-phone). Full session test suite passes (`go test -count=1 -timeout 60s ./internal/session/` → ok 1.5s).
+
+Deployed binary: `/opt/ai-voice-receptionist/voice-gateway/gateway`, SHA256 `24052C82492EE36A07D43554BB1B85FD207B3089E88988A0A355E93EC90CBAFE`, 13,557,922 bytes. Backup: `gateway.bak-pre-naturalflow-2026-06-03-0034`.
+
+PCMU runtime confirmed unchanged. G722 is **not enabled** and must remain disabled.
+
+## 11. OPEN ISSUE — PCMU line still has interference / noise (2026-06-03)
+
+After the natural-flow regression call, the caller still reported some sound interference / noise on the line. This is an **audio-quality issue on the PCMU path**, not a natural-flow or booking-state issue.
+
+Status: **Open, not yet investigated at frame level for the natural-flow regression call.**
+
+Scope:
+- PCMU outbound (Cartesia → Telnyx) and / or PCMU inbound (Telnyx → OpenAI) still has audible interference.
+- Separate from the 2026-06-02 10x playback-stretch failure (that was a different call, on the static greeting, and was a pacing failure).
+- The outbound capture module (`DEBUG_OUTBOUND_TTS_CAPTURE=true`) is available for the next live call to provide frame-level evidence.
+
+Next step (gated on user instruction): capture the next natural-flow regression call's outbound + inbound audio, run frame-level analysis (RMS, silence runs, amplitude jumps, PCMU decode) on both directions, and classify the noise source. Do not modify the active PCMU runtime. Do not enable G722.

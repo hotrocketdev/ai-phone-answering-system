@@ -38,16 +38,16 @@ func parseBookingSlots(text string, current sm.BookingData) bookingSlotUpdate {
 }
 
 func mergeBookingSlots(current sm.BookingData, update bookingSlotUpdate, allowOverwrite bool) sm.BookingData {
-	if update.Date != "" && (allowOverwrite || current.Date == "") {
+	if update.Date != "" && (allowOverwrite || current.Date == "" || current.Date == "provided") {
 		current.Date = update.Date
 	}
-	if update.Time != "" && (allowOverwrite || current.Time == "") {
+	if update.Time != "" && (allowOverwrite || current.Time == "" || current.Time == "provided") {
 		current.Time = update.Time
 	}
-	if update.PartySize > 0 && (allowOverwrite || current.PartySize == 0) {
+	if update.PartySize > 0 && (allowOverwrite || current.PartySize <= 0) {
 		current.PartySize = update.PartySize
 	}
-	if update.Name != "" && (allowOverwrite || current.Name == "") {
+	if update.Name != "" && (allowOverwrite || current.Name == "" || current.Name == "provided") {
 		current.Name = update.Name
 	}
 	if update.Phone != "" && (allowOverwrite || current.Phone == "") {
@@ -214,6 +214,25 @@ func parseTime(lower string, current sm.BookingData) string {
 		}
 	}
 
+	reOClock := regexp.MustCompile(`\b(\d{1,2})\s*o['']?clock\b`)
+	if m := reOClock.FindStringSubmatch(lower); len(m) > 0 {
+		hour, _ := strconv.Atoi(m[1])
+		if hour >= 1 && hour <= 23 {
+			if hour <= 11 && !strings.Contains(lower, "morning") {
+				hour += 12
+			}
+			return fmt.Sprintf("%02d:00", hour)
+		}
+	}
+	for word, hour := range wordTime {
+		if regexp.MustCompile(`\b` + word + `\s*o['']?clock\b`).MatchString(lower) {
+			if hour <= 11 && !strings.Contains(lower, "morning") {
+				hour += 12
+			}
+			return fmt.Sprintf("%02d:00", hour)
+		}
+	}
+
 	re24 := regexp.MustCompile(`\b([01]?\d|2[0-3]):([0-5]\d)\b`)
 	if m := re24.FindStringSubmatch(lower); len(m) > 0 {
 		hour, _ := strconv.Atoi(m[1])
@@ -323,9 +342,6 @@ func parsePartySize(lower string) int {
 }
 
 func parseName(original, lower string, current sm.BookingData, update bookingSlotUpdate) string {
-	if current.Name != "" || update.Phone != "" || update.PartySize > 0 || update.Time != "" || update.Date != "" {
-		return ""
-	}
 	patterns := []*regexp.Regexp{
 		regexp.MustCompile(`(?i)\bmy name is\s+([a-z][a-z'\-]+)\b`),
 		regexp.MustCompile(`(?i)\bit'?s\s+([a-z][a-z'\-]+)\b`),
@@ -335,6 +351,9 @@ func parseName(original, lower string, current sm.BookingData, update bookingSlo
 			return titleName(m[1])
 		}
 	}
+	if current.Name != "" || update.Phone != "" || update.PartySize > 0 || update.Time != "" || update.Date != "" {
+		return ""
+	}
 	trimmed := strings.Trim(lower, " .!?")
 	if current.Date != "" && current.Time != "" && current.PartySize > 0 && regexp.MustCompile(`^[a-z][a-z'\-]+$`).MatchString(trimmed) {
 		return titleName(trimmed)
@@ -343,11 +362,18 @@ func parseName(original, lower string, current sm.BookingData, update bookingSlo
 }
 
 func parsePhone(original string) string {
-	digits := regexp.MustCompile(`\D`).ReplaceAllString(original, "")
-	if len(digits) >= 10 && len(digits) <= 13 {
-		return digits
+	re := regexp.MustCompile(`\b(\d[\d\s\-]{8,15}\d)\b`)
+	candidates := re.FindAllString(original, -1)
+	best := ""
+	for _, c := range candidates {
+		digits := regexp.MustCompile(`\D`).ReplaceAllString(c, "")
+		if len(digits) >= 10 && len(digits) <= 13 {
+			if len(digits) > len(best) {
+				best = digits
+			}
+		}
 	}
-	return ""
+	return best
 }
 
 func looksLikePartySize(lower string) bool {
