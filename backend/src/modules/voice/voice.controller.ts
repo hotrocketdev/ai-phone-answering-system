@@ -83,6 +83,7 @@ export class VoiceController {
     const streamUrl = `${wsUrl}/${callControlId}`;
     const streamTrack = process.env.TELNYX_STREAM_TRACK || 'both_tracks';
     const targetLegs = process.env.TELNYX_STREAM_BIDIRECTIONAL_TARGET_LEGS || 'opposite';
+    const streamStartDelayMs = Number(process.env.TELNYX_STREAM_START_DELAY_MS || '500');
     const bidirectionalCodec =
       process.env.TELNYX_STREAM_BIDIRECTIONAL_CODEC ||
       process.env.TELNYX_BIDIRECTIONAL_CODEC ||
@@ -106,7 +107,7 @@ export class VoiceController {
       }
       console.log(`[${callControlId}] Telnyx streaming_start body: ${JSON.stringify(streamBody)}`);
       callTelnyx(callControlId, 'streaming_start', streamBody, apiKey);
-    }, 2000);
+    }, streamStartDelayMs);
   }
 
   @Post('webhook/signalwire')
