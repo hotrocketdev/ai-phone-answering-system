@@ -258,7 +258,34 @@ AUDIO_TRANSCODE_OUTBOUND_TO=none
 
 Conclusion:
 
-G722 outbound code is implemented behind flags, but G722 cannot become a candidate default until the inbound G722 decode path is implemented and validated. The next codec task should be either:
+G722 outbound code is implemented behind flags, but the first live test was not a fair quality test because inbound G722 was not decoded before OpenAI.
 
-1. implement inbound G722 decode to PCM16 24 kHz for OpenAI, then retry G722 end-to-end, or
-2. test L16 as a separate controlled path if Telnyx can provide inbound/outbound linear PCM without G722 ADPCM decode complexity.
+## G722 Inbound Decode Implementation — 2026-06-02
+
+Implementation commit:
+
+```text
+2d871096fb1317a9847eed4c894ae513ce1034b8
+```
+
+Implemented:
+
+- Telnyx `start.media_format.encoding=G722` is normalised to `g722`.
+- inbound G722 payloads are decoded with the existing `github.com/gotranspile/g722` dependency.
+- decoded PCM16 16 kHz audio is resampled to PCM16 24 kHz for OpenAI Realtime input.
+- PCMA and PCMU inbound paths remain unchanged.
+- Telnyx track capture can decode G722 captures to 16 kHz WAV for diagnostics.
+- deployed VPS gateway binary and checkout are aligned to commit `2d871096fb1317a9847eed4c894ae513ce1034b8`.
+
+Current VPS runtime remains PCMU fallback:
+
+```text
+TELNYX_STREAM_BIDIRECTIONAL_CODEC=PCMU
+CARTESIA_OUTPUT_ENCODING=pcm_mulaw
+CARTESIA_OUTPUT_SAMPLE_RATE=8000
+AUDIO_TRANSCODE_OUTBOUND_TO=none
+```
+
+Checkpoint before next codec test:
+
+Run one normal PCMU regression call. Only if PCMU still works, enable G722 for one controlled end-to-end call.

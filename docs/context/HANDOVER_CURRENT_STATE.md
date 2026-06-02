@@ -131,7 +131,19 @@ Alex may interrupt before the number is complete and ask for the number again. D
 
 ### G722 Codec Test Result
 
-G722 outbound support exists behind env flags, but the first live G722 test failed because Telnyx also sent inbound media as `G722`, and the gateway currently only decodes inbound `PCMA`/`PCMU` before OpenAI.
+G722 outbound support exists behind env flags, but the first live G722 test failed because Telnyx also sent inbound media as `G722`, and the gateway did not yet decode inbound G722 before OpenAI.
+
+Inbound G722 decode has now been implemented and deployed in:
+
+```text
+2d871096fb1317a9847eed4c894ae513ce1034b8
+```
+
+The gateway now supports:
+
+- Telnyx G722 inbound payload -> PCM16 16 kHz
+- PCM16 16 kHz -> PCM16 24 kHz for OpenAI Realtime
+- existing PCMA/PCMU inbound paths unchanged
 
 The VPS was reverted to the PCMU baseline:
 
@@ -144,21 +156,10 @@ AUDIO_TRANSCODE_OUTBOUND_TO=none
 
 Next tests:
 
-1. Change only `stream_bidirectional_target_legs=self`
-2. Test call
-3. Change only `stream_bidirectional_target_legs=both`
-4. Test call
-5. Then test stream_track variants one at a time
-
-Success:
-
-Caller hears PCMU test tone.
-
-Only after success:
-
-- test Cartesia over Telnyx
-- then test G722/L16
-- then consider Opus/LiveKit
+1. Run a normal PCMU regression call with the current runtime.
+2. If PCMU works, enable G722 for exactly one end-to-end test.
+3. If G722 is noisy, silent, or breaks caller transcription, revert immediately to the PCMU baseline above.
+4. If G722 still fails after inbound decode, document the exact boundary before considering L16.
 
 ## Prompt To Continue
 

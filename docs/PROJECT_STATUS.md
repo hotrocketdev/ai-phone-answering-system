@@ -30,7 +30,9 @@ Codec-quality update:
 
 - Optional G722 outbound support was implemented behind env flags.
 - One live G722 test was run and then reverted.
-- G722 did not pass live validation because Telnyx sent inbound media as G722 and the gateway currently only decodes PCMA/PCMU inbound before OpenAI.
+- G722 did not pass live validation because Telnyx sent inbound media as G722 and the gateway did not decode inbound G722 before OpenAI.
+- Inbound G722 decode is now implemented and deployed in commit `2d871096fb1317a9847eed4c894ae513ce1034b8`.
+- The next required checkpoint is a normal PCMU regression call before enabling G722 again.
 - Production/runtime baseline remains PCMU with Cartesia `pcm_mulaw` at 8000 Hz.
 
 Known follow-up:
