@@ -63,6 +63,7 @@ type Session struct {
 	bookingClarifyField string
 	bookingClarifyCount int
 	capture             *inboundAudioCapture
+	outboundTTS         *outboundTTSCapture
 
 	// Components
 	provAdapter    provider.Adapter
@@ -945,6 +946,9 @@ func (s *Session) handleCallerTranscript(ctx context.Context, transcript string)
 		s.forceBookingQuestion(ctx, clarificationBookingQuestion(missing, clarifyCount))
 		return
 	}
+	if missing == asked {
+		return
+	}
 	s.forceBookingQuestion(ctx, naturalBookingQuestion(missing, update, booking))
 }
 
@@ -961,7 +965,6 @@ func (s *Session) noteAssistantBookingQuestion(raw json.RawMessage) {
 }
 
 func (s *Session) setBookingAskedLocked(field string) string {
-	s.bookingLive = true
 	s.bookingAsked = field
 	s.booking = markSlotsImpliedByAssistantQuestion(s.booking, field)
 	return bookingSummary(s.booking)
@@ -1100,12 +1103,18 @@ func (s *Session) sendMulawToTwilio(mulaw []byte) int {
 		frame := s.cartesiaRemain[:160]
 		s.cartesiaRemain = s.cartesiaRemain[160:]
 
+		s.noteOutboundPCMUFrame(frame)
+
 		if msg, err := s.provAdapter.EncodeAudio(provider.AudioFrame{
 			Codec: "ulaw", SampleRate: 8000, Payload: frame, Direction: "outbound",
 		}); err == nil && msg != nil {
 			s.sendProviderMessage(msg, "cartesia")
 			frameCount++
 		}
+		// Pace PCMU at 50fps: 160 bytes @ 8kHz u-law = 20ms of audio.
+		// Without this, the gateway bursts the entire Cartesia chunk in
+		// microseconds, which causes Telnyx buffer jitter.
+		time.Sleep(20 * time.Millisecond)
 	}
 	return frameCount
 }
@@ -1392,6 +1401,10 @@ func (s *Session) handleProviderDisconnect(ctx context.Context) {
 		s.capture.Close(s.ID)
 		s.capture = nil
 	}
+	if s.outboundTTS != nil {
+		s.outboundTTS.Close(s.ID)
+		s.outboundTTS = nil
+	}
 
 	// Close OpenAI connection
 	if s.openaiS != nil {
@@ -1413,6 +1426,10 @@ func (s *Session) cleanup() {
 	if s.capture != nil {
 		s.capture.Close(s.ID)
 		s.capture = nil
+	}
+	if s.outboundTTS != nil {
+		s.outboundTTS.Close(s.ID)
+		s.outboundTTS = nil
 	}
 	if s.provAdapter != nil {
 		s.provAdapter.Close()
@@ -1560,6 +1577,7 @@ func (s *Session) renderWithCartesia(ctx context.Context, text string) {
 	if isStaticGreeting {
 		log.Printf("[%s] static_greeting_playback_completed=true chunks=%d", s.ID, chunkCount)
 	}
+	log.Printf("[%s] cartesia: outputSecs=%.3f", s.ID, s.outputSecs)
 	log.Printf("[%s] cartesia: audio complete", s.ID)
 }
 
