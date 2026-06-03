@@ -487,3 +487,23 @@ Outbound capture both tests: clean (silence floor −77 to −78 dB, normal G.71
 **Classification**: Noise is **identical at both locations** → caller's local environment ruled out. Constant exact level (−34.6 dB across all frames) suggests a **generated signal**, most likely **Telnyx comfort noise generation (CNG)** on the inbound leg. This is a Telnyx-side behavior, not a VoxLane bug.
 
 **Recommended action**: Document as expected Telnyx comfort noise. No code change. If objectionable, contact Telnyx support to ask if CNG can be disabled. Do not add a comfort noise gate in the gateway (would break VAD).
+
+## 15. RUNTIME CLEANUP AND BASELINE LOCK — 2026-06-03 (COMPLETE)
+
+**PCMU is the locked production runtime.** Audio investigation is complete. Debug capture is disabled in production.
+
+Runtime state (locked):
+- `TELNYX_STREAM_BIDIRECTIONAL_CODEC=PCMU`
+- `CARTESIA_OUTPUT_ENCODING=pcm_mulaw`
+- `CARTESIA_OUTPUT_SAMPLE_RATE=8000`
+- `AUDIO_TRANSCODE_OUTBOUND_TO=none`
+- `TELNYX_STREAM_TRACK=inbound_track`, `TELNYX_STREAM_BIDIRECTIONAL_TARGET_LEGS=self`
+- `FAST_STATIC_GREETING=true`, `VOICE_RUNTIME=custom`, `VOICE_RENDERER=cartesia`, `CARTESIA_SPEED=1`, `TELEPHONY_PROVIDER=telnyx`
+
+Debug capture flags: all disabled (`DEBUG_OUTBOUND_TTS_CAPTURE=false`, `DEBUG_TELNYX_TRACK_CAPTURE=false`, `DEBUG_TELNYX_CAPTURE_AUDIO=false`, `DEBUG_TELNYX_TEST_TONE=false`).
+
+Services: gateway active, backend active, `/healthz` 200, Telnyx webhook 200, no codec errors.
+
+Debug artifacts cleaned: 239 capture files + 2 directories removed from `/tmp` (66 MB). No source code or logs removed. `.env.bak-pre-cleanup-2026-06-03` and `.env.bak-pre-g722test-2026-06-03` preserved on VPS as rollback safety nets.
+
+G722 is available behind env flags only (not default). Telnyx comfort noise is documented as an expected/current limitation. No further codec experiments are planned.

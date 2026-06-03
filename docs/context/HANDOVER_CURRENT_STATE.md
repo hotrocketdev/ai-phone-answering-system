@@ -306,4 +306,30 @@ Unlikely:
 - G — Normal phone background noise (natural noise varies)
 
 **Recommended action**: Document as expected Telnyx comfort noise. No code change needed — the gateway is correctly receiving and forwarding what Telnyx sends. If the comfort noise is objectionable, contact Telnyx support to ask if CNG can be disabled on the media stream. Do not add a comfort noise gate in the gateway — it would break VAD and OpenAI's ability to detect when the caller starts speaking.
+
+## 2026-06-03 Runtime Cleanup And Baseline Lock — COMPLETE
+
+**Audio investigation is complete. Baseline runtime is locked.**
+
+Runtime state (confirmed on VPS):
+- `TELNYX_STREAM_BIDIRECTIONAL_CODEC=PCMU`
+- `CARTESIA_OUTPUT_ENCODING=pcm_mulaw`
+- `CARTESIA_OUTPUT_SAMPLE_RATE=8000`
+- `AUDIO_TRANSCODE_OUTBOUND_TO=none`
+- `TELNYX_STREAM_TRACK=inbound_track`
+- `TELNYX_STREAM_BIDIRECTIONAL_TARGET_LEGS=self`
+- `FAST_STATIC_GREETING=true`
+- `VOICE_RUNTIME=custom`, `VOICE_RENDERER=cartesia`, `CARTESIA_SPEED=1`, `TELEPHONY_PROVIDER=telnyx`
+
+Debug capture flags: **all disabled** in production:
+- `DEBUG_OUTBOUND_TTS_CAPTURE=false`
+- `DEBUG_TELNYX_TRACK_CAPTURE=false`
+- `DEBUG_TELNYX_CAPTURE_AUDIO=false`
+- `DEBUG_TELNYX_TEST_TONE=false`
+
+Services: gateway active, backend active, `/healthz` 200, Telnyx webhook (`/api/public/voice/webhook/telnyx`) 200, no codec errors.
+
+Debug artifacts cleaned: 239 capture files + 2 directories (`voxlane-outbound-latest`, `voxlane-segments`) removed from `/tmp` (66 MB). No source code or logs removed. `.env.bak-pre-cleanup-2026-06-03` and `.env.bak-pre-g722test-2026-06-03` preserved on VPS as rollback safety nets.
+
+**PCMU is the locked production runtime.** G722 is available behind env flags only (change `TELNYX_STREAM_BIDIRECTIONAL_CODEC`, `CARTESIA_OUTPUT_ENCODING`, `CARTESIA_OUTPUT_SAMPLE_RATE`, `AUDIO_TRANSCODE_OUTBOUND_TO` and restart) but is not the default. Telnyx comfort noise is documented as an expected/current limitation. No further codec experiments are planned.
 ```
