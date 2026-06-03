@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>VoxLane LiveKit HD Spike — Web Client (Scaffold)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; }
+    .status { padding: 10px; border-radius: 4px; margin: 10px 0; }
+    .status.connected { background: #d4edda; color: #155724; }
+    .status.disconnected { background: #f8d7da; color: #721c24; }
+    .status.pending { background: #fff3cd; color: #856404; }
+    input, button { padding: 8px; margin: 4px 0; width: 100%; box-sizing: border-box; }
+    button { cursor: pointer; }
+    pre { background: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>VoxLane LiveKit HD Spike</h1>
+  <p><strong>Status:</strong> Scaffold only. Actual LiveKit integration not yet implemented.</p>
+
+  <h2>Setup</h2>
+  <ol>
+    <li>Run the Go publisher (<code>experimental/livekit/publisher/</code>)</li>
+    <li>Generate a LiveKit access token (via LiveKit Cloud dashboard or token server)</li>
+    <li>Enter the LiveKit URL and token below</li>
+    <li>Click "Connect"</li>
+  </ol>
+
+  <h2>Connect</h2>
+  <input type="text" id="livekit-url" placeholder="wss://your-project.livekit.cloud" />
+  <input type="text" id="token" placeholder="LiveKit access token (short-lived, room-scoped)" />
+  <button id="connect-btn" disabled>Connect (not yet implemented)</button>
+
+  <div id="status" class="status pending">Not connected</div>
+
+  <h2>Audio</h2>
+  <audio id="remote-audio" autoplay></audio>
+
+  <h2>Log</h2>
+  <pre id="log"></pre>
+
+  <script>
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('status');
+    const connectBtn = document.getElementById('connect-btn');
+
+    function log(msg) {
+      logEl.textContent += new Date().toISOString() + ' ' + msg + '\n';
+    }
+
+    log('Web client scaffold loaded. LiveKit integration not yet implemented.');
+    log('See experimental/livekit/web-client/README.md for planned steps.');
+  </script>
+</body>
+</html>

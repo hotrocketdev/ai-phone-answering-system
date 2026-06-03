@@ -1,70 +1,118 @@
 # LiveKit HD Audio — Experimental Workspace
 
-**Created**: 2026-05-28  
-**Status**: Research only — no production code
+**Created:** 2026-05-28
+**Updated:** 2026-06-03 (minimal spike scaffold)
+**Status:** Proof-of-concept spike — no production code
+**Branch:** `feat/livekit-hd-spike`
 
 ---
 
 ## Purpose
 
-This workspace holds research, config samples, and spike notes for the LiveKit + SIP + Cartesia HD audio path. Nothing here is wired into the production runtime.
+This workspace holds the **LiveKit HD audio spike** — a proof-of-concept that VoxLane can deliver near-human voice quality through a non-PSTN media path (LiveKit + Opus at 48 kHz) without disturbing the current PCMU production runtime.
+
+This is a **proof-of-concept spike**, not a production migration. Nothing here is wired into the production runtime.
+
+---
+
+## Spike Plan
+
+See [`docs/context/LIVEKIT_HD_SPIKE_PLAN.md`](../../docs/context/LIVEKIT_HD_SPIKE_PLAN.md) for the full design.
+
+**TL;DR:** Cartesia HD PCM (24 kHz) → Go publisher → LiveKit room → browser client hears HD voice. No SIP, no OpenAI, no booking, no Telnyx.
+
+---
 
 ## Reference Docs
 
-- `docs/ADR-001-voice-transport-strategy.md` — Decision to move to HD transport
-- `docs/NEXTGEN-LIVEKIT-HD-AUDIO-PLAN.md` — Full next-gen plan
-- `docs/VOICE-STACK-DECISION-MATRIX.md` — Provider comparison
-- `docs/PRODUCTION-ROADMAP-VOICE-QUALITY-FIRST.md` — Staged roadmap
-- `docs/AGENT_RUNTIME_EVALUATION.md` — Go vs LiveKit Agents
-- `docs/PRODUCTION_RUNTIME_BOUNDARIES.md` — What's reusable
+- `docs/context/LIVEKIT_HD_SPIKE_PLAN.md` — Full spike design (2026-06-03)
+- `docs/context/VOICE_QUALITY_STACK_STRATEGY.md` — Why LiveKit is the recommended path
+- `docs/NEXTGEN-LIVEKIT-HD-AUDIO-PLAN.md` — Original next-gen plan (2026-05-28, partially superseded)
+- LiveKit docs: https://docs.livekit.io
+- LiveKit Go SDK: https://pkg.go.dev/github.com/livekit/server-sdk-go
 
-## Architecture Target
+---
+
+## Architecture Target (Phase 1 — this spike)
 
 ```
-UK SIP Number (Telnyx/Simwood)
-  → SIP INVITE
-    → LiveKit SIP Service
-      → LiveKit Room (WebRTC SFU)
-        → Agent Worker (Python or Go)
-          → OpenAI Realtime / Grok (conversation)
-          → Cartesia Sonic 3.5 (voice)
-          → NestJS (tools/booking)
-        → HD Audio to caller (Opus/G.722)
+Cartesia HD PCM (24 kHz, pcm_s16le)
+  → Go publisher (experimental/livekit/publisher/)
+    → LiveKit room (LiveKit Cloud free tier)
+      → Browser client (experimental/livekit/web-client/)
+        → User hears HD voice through speakers
 ```
 
-## Key Decisions Required
+**Phase 2 (two-way conversation) and Phase 3 (PSTN bridge via LiveKit SIP) are out of scope for this spike.**
 
-1. SIP Provider: Telnyx (existing account) vs Simwood (UK specialist)
-2. Agent Runtime: Python LiveKit Agents vs Go gateway extension
-3. Cartesia Config: Higher sample rate (24000+) vs current 8000
-4. Conversation Brain: Keep OpenAI vs evaluate Grok
+---
 
-## Dependencies (for prototype)
+## Key Constraints
 
-- LiveKit server (Docker: `livekit/livekit-server`)
-- LiveKit SIP service (Docker: `livekit/sip`)
-- Redis (already have)
-- Cartesia API key (already have)
-- SIP trunk credentials (pending)
+- Production PCMU runtime on VPS is locked and must remain untouched.
+- No production binary rebuild, no production env change, no production service restart.
+- No production Telnyx webhook change.
+- No Cartesia production config change.
+- No OpenAI model change.
+- No booking flow integration.
+- All spike credentials are scoped to the spike project only — no production secrets.
 
-## Spike Phases (per NEXTGEN plan)
+---
 
-### Phase 1 — Research ✅
-- [x] LiveKit Agents architecture understood
-- [x] Cartesia LiveKit plugin confirmed
-- [x] SIP codec support documented
-- [x] UK provider options evaluated
+## Spike Phases (2026-06-03 minimal version)
 
-### Phase 2 — Prototype (pending)
-- [ ] Deploy LiveKit server locally
-- [ ] Configure Telnyx SIP trunk
-- [ ] Create minimal agent with Cartesia greeting
-- [ ] Test audio quality
+### Phase 1 — One-way audio proof (target)
 
-### Phase 3 — Compare (pending)
-- [ ] Side-by-side comparison with Twilio path
-- [ ] Latency measurement
-- [ ] Voice quality assessment
+- [ ] Set up LiveKit Cloud project (free tier)
+- [ ] Scaffold Go publisher (Cartesia HD → Opus → LiveKit)
+- [ ] Scaffold web client (HTML + livekit-client)
+- [ ] Run spike: hear Cartesia greeting in HD through browser
+- [ ] Measure latency and audio quality
+- [ ] Document results
 
-### Phase 4 — Decide (pending)
-- [ ] Production architecture decision
+### Out of scope (deferred)
+
+- Two-way conversation (browser mic → OpenAI → Cartesia)
+- LiveKit SIP trunk to Telnyx
+- Production deployment
+- Booking integration
+- PCMU removal or replacement
+
+---
+
+## Directory Structure
+
+```
+experimental/livekit/
+├── README.md              # This file
+├── server-notes.md        # LiveKit Cloud or self-hosted setup notes
+├── publisher/
+│   ├── .env.example       # Placeholder env names (no real secrets)
+│   └── README.md          # How to run the publisher
+├── web-client/
+│   ├── index.html         # Simple HTML page with livekit-client (scaffold only)
+│   └── README.md          # How to open in browser
+└── results/
+    └── README.md          # Results will be documented here after spike runs
+```
+
+**Actual Go publisher code and working web client are not yet written.** They will be added in a follow-up step after the plan is reviewed.
+
+---
+
+## Rollback
+
+The spike is on a feature branch (`feat/livekit-hd-spike`). To roll back:
+
+```bash
+git checkout main
+git branch -D feat/livekit-hd-spike
+```
+
+The PCMU production runtime on VPS is completely independent and continues to operate normally.
+
+---
+
+## Original Research Notes (2026-05-28, superseded)
+
+The original research-phase notes (Phase 1 research complete, Phases 2-4 pending, Twilio-based comparison) are superseded by the 2026-06-03 minimal spike. The full next-gen plan is in `docs/NEXTGEN-LIVEKIT-HD-AUDIO-PLAN.md`.
