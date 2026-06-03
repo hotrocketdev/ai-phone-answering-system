@@ -507,3 +507,15 @@ Services: gateway active, backend active, `/healthz` 200, Telnyx webhook 200, no
 Debug artifacts cleaned: 239 capture files + 2 directories removed from `/tmp` (66 MB). No source code or logs removed. `.env.bak-pre-cleanup-2026-06-03` and `.env.bak-pre-g722test-2026-06-03` preserved on VPS as rollback safety nets.
 
 G722 is available behind env flags only (not default). Telnyx comfort noise is documented as an expected/current limitation. No further codec experiments are planned.
+
+## 16. VOICE QUALITY STACK STRATEGY — 2026-06-03 (CORRECTION)
+
+**The product goal is near-human voice quality for a premium AI receptionist, not just "working phone bot".**
+
+The codec investigation proved that **Telnyx direct WebSocket + PCMU/G722 cannot reach the near-human quality target**. The constraint is PSTN itself: G.711 narrowband (~3.4 kHz) and G.722 wideband (~7 kHz) are the ceiling for any PSTN caller, regardless of codec or provider. Cartesia's HD audio (24 kHz) is lost in the downsampling to PSTN levels.
+
+**PCMU is the stable MVP baseline, not the final product quality.** The only path to near-human quality is a non-PSTN media path (WebRTC/Opus at 48 kHz) via LiveKit or similar.
+
+**Recommended next spike:** Path C — LiveKit HD media path spike. LiveKit gives ~20 kHz frequency response (near-human) for non-PSTN callers (web app, mobile app, SIP clients). PSTN callers would continue to get G.722 wideband via LiveKit SIP → Telnyx. The spike is a proof-of-concept on a feature branch, not a production change. PCMU production remains unchanged and is the safe fallback.
+
+Full strategy: `docs/context/VOICE_QUALITY_STACK_STRATEGY.md`.
