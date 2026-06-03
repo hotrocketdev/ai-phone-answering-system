@@ -400,3 +400,40 @@ L16 (linear 16-bit PCM, 16 kHz, no compression) is not a standard Telnyx codec o
 - `/opt/ai-voice-receptionist/.env` (temporarily switched to G722, reverted to PCMU)
 - No code change made
 - No commit made (debug capture files, binary, and `.env` changes are runtime-only)
+
+## Noise Source Investigation — 2026-06-03 (COMPLETE)
+
+Two controlled silence tests (caller completely silent for ~10 seconds after greeting) were run from two different physical locations to isolate the source of the constant −34.6 dB noise floor in the inbound audio.
+
+### Test A — Original location
+- Call: `v3:O7RUziVGN3BR7oMRszTRCRYJl-FpOQXiJoNkQ6zX_pAeUn-eYcdW2w`, 01:04 UTC
+- Inbound (7s, caller silent): min=−34.8, p10=−34.6, median=−34.6, p90=−34.6, max=−32.0 dB
+- Outbound (8s, Cartesia greeting): clean, silence floor median = −78.5 dB
+
+### Test B — Different location
+- Call: `v3:oh6699eMepLn8uMvjr50OXYv0BZeIee5i_-ZC599ecZ_6SYOwaPf6w`, 01:11 UTC
+- Inbound (9.92s, caller silent): min=−34.6, p10=−34.6, median=−34.6, p90=−34.6, max=−34.6 dB
+- Outbound (4.16s, Cartesia greeting): clean, silence floor median = −77.1 dB
+
+### Classification
+
+The noise floor is **identical (−34.6 dB) at both locations**, definitively ruling out the caller's local environment/handset as the source. The constant exact level across hundreds of frames (min, p10, median, p90, max all at −34.6 dB) is characteristic of a **generated signal** rather than natural noise.
+
+**Most likely cause: C — Telnyx inbound leg comfort noise generation (CNG).** VoIP providers commonly inject a low-level comfort noise signal to fill silence gaps and prevent the caller from hearing complete silence (which can feel like a dropped call). This is a Telnyx-side behavior, not a VoxLane bug.
+
+Ruled out:
+- A — Caller handset/environment (identical noise at two locations)
+- D — Telnyx outbound playback (outbound capture clean)
+- E — Cartesia audio (outbound capture clean)
+- F — Gateway encoding/pacing (outbound capture clean)
+
+Unlikely:
+- B — Mobile network/PSTN leg (natural noise would vary frame-to-frame)
+- G — Normal phone background noise (natural noise varies)
+
+### Recommended next action
+
+- **Document as expected Telnyx comfort noise.** No code change needed — the gateway is correctly receiving and forwarding what Telnyx sends.
+- **If the comfort noise is objectionable**, contact Telnyx support to ask if CNG can be disabled on the media stream.
+- **Do not add a comfort noise gate in the gateway** — it would break VAD and OpenAI's ability to detect when the caller starts speaking.
+- **PCMU remains the safe runtime.** G722 is documented as viable but not promoted to default. The noise is not codec-related and changing codec again will not help.

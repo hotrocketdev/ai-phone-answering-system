@@ -474,3 +474,16 @@ Conclusion: G722 is technically viable but does not dramatically improve perceiv
 Debug capture module limitation noted: the inbound audio capture's decode function only supports PCMU/PCMA, not G.722. It logs `inbound audio capture decode failed codec=g722: unsupported inbound G.711 codec "g722"` for every inbound frame on G722 calls. This is debug-only and does not affect the live call. Fixing this is a separate future task.
 
 PCMU runtime confirmed restored: `TELNYX_STREAM_BIDIRECTIONAL_CODEC=PCMU`, `CARTESIA_OUTPUT_ENCODING=pcm_mulaw`, `CARTESIA_OUTPUT_SAMPLE_RATE=8000`, `AUDIO_TRANSCODE_OUTBOUND_TO=none`. G722 is **not enabled** and must remain disabled unless re-authorized.
+
+## 14. NOISE SOURCE INVESTIGATION — 2026-06-03 (COMPLETE)
+
+Two controlled silence tests (caller completely silent for ~10 seconds) from two different physical locations:
+
+- **Test A** (01:04 UTC, 7s): inbound noise floor median = −34.6 dB
+- **Test B** (01:11 UTC, 9.92s, different location): inbound noise floor median = −34.6 dB
+
+Outbound capture both tests: clean (silence floor −77 to −78 dB, normal G.711 quantization).
+
+**Classification**: Noise is **identical at both locations** → caller's local environment ruled out. Constant exact level (−34.6 dB across all frames) suggests a **generated signal**, most likely **Telnyx comfort noise generation (CNG)** on the inbound leg. This is a Telnyx-side behavior, not a VoxLane bug.
+
+**Recommended action**: Document as expected Telnyx comfort noise. No code change. If objectionable, contact Telnyx support to ask if CNG can be disabled. Do not add a comfort noise gate in the gateway (would break VAD).

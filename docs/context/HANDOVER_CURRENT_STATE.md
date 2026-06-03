@@ -278,4 +278,32 @@ Conclusion: G722 is technically viable but does not dramatically improve perceiv
 Debug capture module limitation noted: the inbound audio capture's decode function only supports PCMU/PCMA, not G.722. It logs `inbound audio capture decode failed codec=g722: unsupported inbound G.711 codec "g722"` for every inbound frame on G722 calls. This is debug-only and does not affect the live call. Fixing this is a separate future task.
 
 PCMU runtime confirmed restored: `TELNYX_STREAM_BIDIRECTIONAL_CODEC=PCMU`, `CARTESIA_OUTPUT_ENCODING=pcm_mulaw`, `CARTESIA_OUTPUT_SAMPLE_RATE=8000`, `AUDIO_TRANSCODE_OUTBOUND_TO=none`. G722 is **not enabled** and must remain disabled unless re-authorized.
+
+## 2026-06-03 Noise Source Investigation — COMPLETE
+
+Two controlled silence tests were run (caller completely silent for ~10 seconds after greeting) from two different physical locations:
+
+**Test A (original location, call `v3:O7RUziVGN3BR7oMRszTRCRYJl-FpOQXiJoNkQ6zX_pAeUn-eYcdW2w`, 01:04 UTC, 7s inbound)**:
+- Noise floor: min=−34.8, p10=−34.6, median=−34.6, p90=−34.6, max=−32.0 dB
+- Zero silence segments
+
+**Test B (different location, call `v3:oh6699eMepLn8uMvjr50OXYv0BZeIee5i_-ZC599ecZ_6SYOwaPf6w`, 01:11 UTC, 9.92s inbound)**:
+- Noise floor: min=−34.6, p10=−34.6, median=−34.6, p90=−34.6, max=−34.6 dB
+- Zero silence segments
+
+**Outbound capture (both tests)**: Clean — silence segments show true codec floor at −77 to −78 dB (normal G.711 quantization).
+
+**Classification**: The noise floor is **identical (−34.6 dB) at both locations**, definitively ruling out the caller's local environment/handset (A) as the source. The constant exact level across hundreds of frames (min, p10, median, p90, max all at −34.6 dB) is characteristic of a **generated signal** rather than natural noise. Most likely cause: **C — Telnyx inbound leg comfort noise generation (CNG)**, a common VoIP practice to fill silence gaps.
+
+Ruled out:
+- A — Caller handset/environment (identical noise at two locations)
+- D — Telnyx outbound playback (outbound capture clean)
+- E — Cartesia audio (outbound capture clean)
+- F — Gateway encoding/pacing (outbound capture clean)
+
+Unlikely:
+- B — Mobile network/PSTN leg (natural noise would vary frame-to-frame)
+- G — Normal phone background noise (natural noise varies)
+
+**Recommended action**: Document as expected Telnyx comfort noise. No code change needed — the gateway is correctly receiving and forwarding what Telnyx sends. If the comfort noise is objectionable, contact Telnyx support to ask if CNG can be disabled on the media stream. Do not add a comfort noise gate in the gateway — it would break VAD and OpenAI's ability to detect when the caller starts speaking.
 ```
