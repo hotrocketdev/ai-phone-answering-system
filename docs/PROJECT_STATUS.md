@@ -629,3 +629,67 @@ spike complete in 5.21s (audio: 5.00s)
 - Replace PCMU with Opus (48 kHz) in the publisher. Install `libopus` and use `github.com/hraban/opus` with CGO on a Linux build host, OR embed a pre-encoded OGG/Opus file (requires ffmpeg on the build host).
 - After Opus works: run the full end-to-end test (browser + publisher) and measure subjective quality improvement.
 - After Opus is proven: decide whether to proceed to Phase 2 (two-way conversation) or stop at Phase 1 (one-way proof of HD).
+
+## 19. LIVEKIT BROWSER TEST RUNBOOK + WAIT-FOR-SUBSCRIBER — DEPLOYED (2026-06-03)
+
+**Branch:** `feat/livekit-hd-spike` (still active, production main still at `d081cce`)
+
+**Commit:** `89e5c91` — "feat(spike): browser test runbook + wait-for-subscriber mode" (pushed)
+
+**What was added in this iteration:**
+
+1. **`experimental/livekit/results/BROWSER_AUDIO_TEST_RUNBOOK.md`** (new, 214 lines) — step-by-step procedure for the user to perform the end-to-end browser audio test. Includes:
+   - Prerequisites (Go, browser, network).
+   - 7-step runbook (start web client, generate token, paste URL + token, connect, start publisher, confirm subscription, hear tone).
+   - Full troubleshooting matrix (autoplay policy, ICE failure, token mismatch, codec, mute, network).
+   - Notes on what the test does and does NOT prove.
+   - File:// CORS workaround (`python -m http.server 8765`).
+
+2. **`SPIKE_WAIT_FOR_SUBSCRIBER=true`** env var (new, optional, default `false`) — when set, the publisher blocks until a remote participant joins the room, then publishes. Useful when the user needs time to set up the browser before the tone plays.
+
+3. **`experimental/livekit/results/README.md`** — two new sections:
+   - "Browser End-to-End Audio Test" (status, pre-flight evidence, what was verified, what requires user, diagnosis matrix).
+   - "Opus/HD Follow-Up Plan" (5 possible next approaches: LiveKit SDK upgrade, Pion mediadevices, raw PCM, Node publisher, browser Cartesia relay — with recommended order).
+
+4. **`experimental/livekit/publisher/README.md`** — replaced stale 2026-05-28 scaffold with current state. Documents all env vars, run modes, test suite, safety guarantees.
+
+5. **`experimental/livekit/README.md`** — updated spike phase checklist.
+
+**Pre-flight publisher tests (no browser, 2026-06-03 04:27 UTC):**
+- Default one-shot: `room=RM_86T59simEdiN`, `track=TR_AM9tuba5XUdHdt`, 5.19s for 5.00s audio, clean exit.
+- Wait-for-subscriber: detected 1 stale remote (from previous test), proceeded with publish, `track=TR_AMu9yEoTrv373B`.
+
+**Unit tests:** 5/5 pass in publisher package.
+
+**What the user must do to complete the spike:**
+1. Open `experimental/livekit/web-client/index.html` (or serve via `python -m http.server 8765`).
+2. Generate a listener token: `cd experimental/livekit/token-gen && go run . --room voxlane-hd-spike --identity voxlane-listener --subscribe`.
+3. Paste URL + token, click Connect.
+4. Run publisher: `cd experimental/livekit/publisher && SPIKE_WAIT_FOR_SUBSCRIBER=true go run .` (or default one-shot).
+5. Listen for the 5-second 440 Hz tone.
+6. Report back: heard it yes/no, any errors.
+
+**Spike verdict so far:**
+- ✅ LiveKit Cloud connection works (publisher side, server-side verified).
+- ✅ PCMU audio track publishes correctly.
+- ✅ Stream completes cleanly (5.19s for 5.00s audio = ~190ms overhead).
+- ✅ Token generation works.
+- ✅ Web client code is syntactically correct and ready.
+- ⚠ Browser end-to-end audio test pending (user must execute).
+- ❌ HD quality (Opus, 48 kHz) NOT proven.
+- ❌ Cartesia synthesis NOT tested (no API key in spike).
+
+**Spike is NOT an HD success** until both:
+1. The browser actually hears audio (runbook test passes).
+2. The publisher uses Opus (not PCMU) — follow-up spike.
+
+**Production runtime status:** UNTOUCHED. All work on `feat/livekit-hd-spike` branch. Production main is at `d081cce`. Live VPS continues to run PCMU per the locked baseline.
+
+**Stop conditions (still in force):**
+- Do NOT wire LiveKit into production VoxLane.
+- Do NOT replace Telnyx.
+- Do NOT change Cartesia production config.
+- Do NOT remove PCMU/Twilio fallbacks.
+- Do NOT add LiveKit SIP trunk to Telnyx.
+- Do NOT build two-way conversation (Phase 2) until Opus HD spike is complete and reviewed.
+- Do NOT merge `feat/livekit-hd-spike` to main until spike is reviewed and approved.
