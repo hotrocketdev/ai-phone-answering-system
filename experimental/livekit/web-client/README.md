@@ -1,60 +1,65 @@
-# LiveKit Web Client — Spike Scaffold
+# LiveKit Web Client — Spike
 
-**Status:** Scaffold only — actual working client not yet written
-
----
-
-## Purpose
-
-Simple HTML/JS web client that connects to a LiveKit room and plays the audio track published by the Go publisher. This is the browser-side component of the one-way audio proof.
+**Status:** Working — connects to a LiveKit room and plays subscribed audio tracks.
 
 ---
 
-## Planned Architecture
+## How to use
 
-```
-Browser loads index.html
-  → livekit-client connects to LiveKit room (with token)
-    → Subscribes to audio track
-      → Attaches to <audio> element
-        → User hears HD audio through speakers
-```
+1. **Generate a token** using the `token-gen` CLI (see `../token-gen/README.md`):
+   ```bash
+   cd ../token-gen
+   go run . --room voxlane-hd-spike --identity voxlane-listener --subscribe
+   ```
+   Copy the JWT (long string starting with `eyJ…`) to the clipboard.
 
----
+2. **Open `index.html`** in a modern browser (Chrome/Edge/Firefox).
 
-## Planned Steps (when implemented)
+3. **Paste the LiveKit URL** (e.g. `wss://ai-voice-assistant-314hy5b3.livekit.cloud`) and the **token** into the form.
 
-1. Include `livekit-client` from CDN: `https://unpkg.com/livekit-client@latest`
-2. Generate a short-lived token (via LiveKit Cloud dashboard or a small token server)
-3. Connect to the room: `room.connect(livekitUrl, token)`
-4. Listen for track subscribed events
-5. Attach the audio track to an `<audio>` element
+4. **Click Connect.** The status should change to "Connected to room…" once the WebSocket is up.
 
----
+5. **Start the publisher** in another terminal:
+   ```bash
+   cd ../publisher
+   go run .
+   ```
+   The publisher will join the room, publish an audio track, and stream 5 seconds of test tone (or a Cartesia greeting if `CARTESIA_API_KEY` is set).
 
-## Token Generation
-
-For the spike, generate a token via the LiveKit Cloud dashboard or use a small Go script. Token must be:
-
-- Scoped to the spike room only
-- Short-lived (1 hour TTL)
-- Has permission to subscribe to audio tracks
-
-**Do not hardcode tokens in the HTML file.** Tokens should be generated at runtime or entered via a form.
+6. **Listen.** The browser will subscribe to the audio track and play it through the speakers. The audio meter shows the live level.
 
 ---
 
-## How to Run (when implemented)
+## What this client does
 
-1. Open `index.html` in a browser
-2. Enter the LiveKit URL and token
-3. Click "Connect"
-4. Hear the Cartesia greeting in HD
+- Connects to a LiveKit room via WebSocket.
+- Auto-subscribes to the first audio track published by another participant.
+- Attaches the audio to an `<audio>` element with `autoplay` enabled.
+- Renders a 32-bar audio level meter from an `AnalyserNode`.
+- Logs all state changes and track events to the on-page log.
 
 ---
 
-## Safety
+## What this client does NOT do
 
-- Single HTML file, no backend integration.
-- No production frontend integration.
-- No production credentials used.
+- Publish any audio from the browser (no mic capture — the spike is one-way).
+- Use any production VoxLane code.
+- Connect to a backend, tenant, or booking system.
+- Store tokens or credentials in localStorage.
+- Use any framework — vanilla HTML/JS + `livekit-client@2.5.7` from CDN.
+
+---
+
+## Files
+
+- `index.html` — single-file web client (no build step, no backend).
+
+---
+
+## Troubleshooting
+
+- **"Both URL and token are required"** — fill in both fields.
+- **`Autoplay policy blocked audio.play()`** — click anywhere on the page first; modern browsers require a user gesture before audio can start.
+- **`room.connect()` hangs** — check that the URL starts with `wss://` and that the token is from the same LiveKit project.
+- **No audio** — the publisher must be running at the same time. Check the publisher's log for `track published`.
+- **Meter shows nothing** — audio may be silent. The meter is RMS-derived; a quiet track shows near-zero bars.

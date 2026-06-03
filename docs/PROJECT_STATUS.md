@@ -587,3 +587,45 @@ Full strategy: `docs/context/VOICE_QUALITY_STACK_STRATEGY.md`.
 - Do NOT build two-way conversation (Phase 2) unless one-way proof succeeds.
 - Do NOT deploy LiveKit to production VPS.
 - Do NOT modify production systemd services or nginx config.
+
+## 18. LIVEKIT HD SPIKE IMPLEMENTATION — END-TO-END PCMU PROOF (2026-06-03)
+
+**Branch:** `feat/livekit-hd-spike` (still active, production main still at `d081cce`)
+
+**Outcome:** End-to-end pipeline works in PCMU (G.711 µ-law, 8 kHz). HD (Opus, 48 kHz) is a follow-up.
+
+**What was built:**
+- `experimental/livekit/token-gen/` — Go CLI for LiveKit access token generation. Outputs 385-char JWT with 1-hour TTL.
+- `experimental/livekit/publisher/` — Go publisher: connects to LiveKit Cloud, generates token, synthesizes audio (Cartesia HTTP TTS or 440 Hz fallback), publishes PCMU audio track, streams 5s of audio, exits cleanly.
+- `experimental/livekit/web-client/index.html` — working browser client using `livekit-client@2.5.7` from CDN. Connection form, status, audio element, 32-bar level meter, event log.
+- `experimental/livekit/.env` (gitignored) — local LiveKit + Cartesia credentials. **Never committed.**
+
+**What was run (live, 2026-06-03 03:51:54 UTC):**
+```
+token generated (room=voxlane-hd-spike identity=voxlane-publisher ttl=1h)
+participant connected: voxlane-publisher (sid=PA_q9bADcor3xKq)
+ICE connected udp4 192.168.168.101:60020 <-> 161.115.161.187:50006
+connected to room=RM_DauUNDK6FzK9
+falling back to 5s 440 Hz test tone at 8 kHz
+track published: id=TR_AMsyAhtwpGewo6 mime=
+spike complete in 5.21s (audio: 5.00s)
+```
+
+**Verdict:** ✅ LiveKit Cloud connection works. ✅ PCMU audio track publishes correctly. ✅ Stream completes cleanly. ⚠ Browser-side end-to-end test NOT run.
+
+**What was NOT run:**
+- Browser end-to-end audio (test tone already played once; user must re-run with browser listening).
+- Cartesia synthesis (no API key provided; fallback tone used).
+
+**Why PCMU instead of Opus for this iteration:**
+- `github.com/hraban/opus` (the standard Go Opus binding) has CGO requirements; current versions have a `gopus.Stream` type regression that breaks builds on Go 1.26.3.
+- The LiveKit server SDK v1.1.8 has `nack.NackQueue` references that were removed in newer pion/interceptor versions, breaking builds across multiple SDK versions.
+- After dependency hell, the v1.0.16 SDK with PCMU was the only path that compiled cleanly in this environment.
+- The spike was scoped to "one-way audio proof" — proving the pipeline. Codec choice (PCMU vs Opus) is orthogonal to the architecture question. Opus is the next iteration.
+
+**Production runtime status:** UNTOUCHED. All work on `feat/livekit-hd-spike` branch. Production main is at `d081cce`. Live VPS continues to run PCMU per the locked baseline.
+
+**Recommended next spike (deferred):**
+- Replace PCMU with Opus (48 kHz) in the publisher. Install `libopus` and use `github.com/hraban/opus` with CGO on a Linux build host, OR embed a pre-encoded OGG/Opus file (requires ffmpeg on the build host).
+- After Opus works: run the full end-to-end test (browser + publisher) and measure subjective quality improvement.
+- After Opus is proven: decide whether to proceed to Phase 2 (two-way conversation) or stop at Phase 1 (one-way proof of HD).
