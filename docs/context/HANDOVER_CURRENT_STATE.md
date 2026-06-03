@@ -344,4 +344,71 @@ The codec investigation proved that **Telnyx direct WebSocket + PCMU/G722 cannot
 **Recommended next spike:** Path C — LiveKit HD media path spike. This is the only path that can deliver ~20 kHz frequency response (near-human) for non-PSTN callers. PSTN callers would continue to get G.722 wideband via LiveKit SIP → Telnyx. The spike is on a feature branch, not production. PCMU production remains unchanged.
 
 Full strategy: `docs/context/VOICE_QUALITY_STACK_STRATEGY.md`.
-```
+
+## 2026-06-03 LiveKit HD Spike — DESIGN + SCAFFOLD COMPLETE
+
+**Branch:** `feat/livekit-hd-spike` (created from `main`, working tree clean, only spike files committed)
+
+**Commit:** `32f9ccb` — "docs: LiveKit HD audio spike — design + scaffold on feat/livekit-hd-spike" (pushed)
+
+**Goal:** Prove that VoxLane can deliver near-human voice quality through a non-PSTN media path (LiveKit + Opus at 48 kHz) without disturbing the current PCMU production runtime.
+
+**Spike scope (minimal):** One-way audio proof only. Cartesia HD PCM (24 kHz) → Go publisher → LiveKit room → browser client hears HD voice. No SIP, no OpenAI, no booking, no Telnyx changes. Phase 2 (two-way conversation) and Phase 3 (PSTN bridge via LiveKit SIP) are explicitly out of scope.
+
+**Why this is the right path:** PSTN is the ceiling. G.711 narrowband ~3.4 kHz, G.722 wideband ~7 kHz. No codec or provider change within PSTN can exceed this. The only way to deliver HD audio (~20 kHz, near-human) to a caller is a non-PSTN media path using Opus/WebRTC. G722 test (2026-06-03) confirmed: marginal improvement, voice quality "more or less the same" as PCMU, comfort noise unchanged.
+
+**Files created/modified (8 files, 729 insertions, 47 deletions):**
+- `docs/context/LIVEKIT_HD_SPIKE_PLAN.md` (new, 16 sections): full spike design — purpose, PSTN ceiling analysis, current PCMU baseline, G722 result, target architecture, spike scope, infrastructure options, required env vars, security, rollback, success criteria, directory structure, recommended next steps, references.
+- `experimental/livekit/README.md` (updated from 2026-05-28 research-only): now reflects 2026-06-03 minimal spike, supersedes old phases.
+- `experimental/livekit/server-notes.md` (new): LiveKit Cloud (recommended) vs self-hosted Docker vs local Docker setup notes.
+- `experimental/livekit/publisher/README.md` (new): Go publisher scaffold (Cartesia HD → Opus → LiveKit).
+- `experimental/livekit/publisher/.env.example` (new): placeholder env names only (no real secrets).
+- `experimental/livekit/web-client/README.md` (new): HTML web client scaffold.
+- `experimental/livekit/web-client/index.html` (new): minimal HTML scaffold with form for LiveKit URL + token, audio element, log area. LiveKit integration not yet implemented.
+- `experimental/livekit/results/README.md` (new): results template (empty until spike runs).
+
+**Infrastructure decision:** Use LiveKit Cloud free tier for the spike. Fastest to set up, no infrastructure overhead, sufficient for proving the audio path. Can switch to self-hosted later if needed.
+
+**Key technical findings (from official LiveKit docs):**
+- Go SDK `github.com/livekit/server-sdk-go` supports room creation, token generation, track publishing, SIP client.
+- Browser client `livekit-client` is standard WebRTC, supports Opus audio.
+- Opus natively supports 8/12/16/24/48 kHz; LiveKit uses 48 kHz internally.
+- Cartesia PCM (pcm_s16le, 24 kHz) can be published directly via custom `SampleProvider.NextSample(ctx)` — no transcoding needed.
+- Simple HTML client can connect to a room and play audio.
+- SIP/PSTN integration (LiveKit SIP service) is a separate Docker image, not needed for this spike.
+
+**Safety guarantees (verified):**
+- Production PCMU runtime on VPS is completely untouched. No binary rebuild, no env change, no service restart.
+- Production Telnyx webhook, OpenAI Realtime config, Cartesia production config — all unchanged.
+- No production credentials used in spike. Placeholder env names only.
+- Spike publisher runs as standalone Go process, not inside production voice-gateway.
+- Web client is a single HTML file, not integrated into any production frontend.
+- Token generation uses short-lived (1 hour TTL) room-scoped permissions.
+- Rollback is simply deleting the feature branch: `git checkout main && git branch -D feat/livekit-hd-spike`.
+
+**Success criteria for the spike (when implemented and run):**
+1. LiveKit room can be created.
+2. Browser client can connect.
+3. Cartesia HD PCM/Opus audio can be heard in browser.
+4. Audio quality is clearly better than PCMU phone path.
+5. Latency measured and < 3s for greeting.
+6. Production PCMU path remains unchanged.
+7. Rollback is verified (deleting branch has no effect on production).
+
+**Next steps (deferred until plan is reviewed):**
+- Implement Go publisher (`experimental/livekit/publisher/main.go`): connect to LiveKit room, create Opus audio track, implement `SampleProvider` that streams Cartesia HD PCM.
+- Implement working web client (`experimental/livekit/web-client/app.js`): connect to room, subscribe to audio track, attach to `<audio>` element.
+- Set up LiveKit Cloud project and generate test token.
+- Run spike: hear Cartesia greeting in HD through browser.
+- Measure latency, compare audio quality to PCMU, document results in `experimental/livekit/results/`.
+
+**Stop conditions (do NOT do without explicit approval):**
+- Do NOT wire LiveKit into production VoxLane.
+- Do NOT replace Telnyx.
+- Do NOT replace OpenAI Realtime.
+- Do NOT change Cartesia production config.
+- Do NOT remove PCMU/Twilio fallbacks.
+- Do NOT add LiveKit SIP trunk to Telnyx.
+- Do NOT build two-way conversation (Phase 2) unless one-way proof succeeds.
+- Do NOT deploy LiveKit to production VPS.
+- Do NOT modify production systemd services or nginx config.
