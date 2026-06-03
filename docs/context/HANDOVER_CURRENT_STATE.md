@@ -256,4 +256,26 @@ Scope:
 - Separate from the 2026-06-02 10x playback-stretch failure (that was on a different call, on the static greeting, and was a pacing failure; the current noise is reported on normal conversation flow with the natural-flow binary).
 
 Next step (gated on user instruction): capture the natural-flow regression call's outbound + inbound audio via the existing `DEBUG_OUTBOUND_TTS_CAPTURE=true` capture module, run frame-level analysis (RMS, silence runs, amplitude jumps, PCMU decode) on both directions, and classify the noise source (Cartesia rendering, gateway pacing, Telnyx transport, or OpenAI turn boundary). Do not modify the active PCMU runtime. Do not enable G722.
+
+## 2026-06-03 PCMU Audio-Quality Classification — COMPLETE
+
+The remaining "little bit of noise" on the natural-flow PCMU call was classified as **normal G.711 narrowband quality ceiling (codec quantization noise)**. The outbound Cartesia capture was clean locally; the inbound capture showed a constant −34.6 dB noise floor from frame 0 to frame 899 (present before any outbound audio, ruling out echo). The noise floor is consistent with G.711's theoretical SNR of ~35–40 dB. All other boundaries ruled out: Cartesia clean, gateway pacing correct (20 ms frames, 4.0 s greeting = normal), no echo, no duplicate TTS, no frame drops, no WebSocket errors. PCMU path is technically clean; remaining issue is codec quality ceiling.
+
+## 2026-06-03 G722 Controlled Live Test — COMPLETED, REVERTED TO PCMU
+
+G722 was enabled for one controlled live test (`v3:kYO2YB4ycL6HUvJrLLHucjIQIfIyaKykNx1qVjFKNBSbfWA_9yRJCw`, 00:50:54–00:51:36 UTC, 42 s). The main audio pipeline decoded G.722 correctly — all 4 caller turns captured, all booking slots captured, completion message fired, no Telnyx errors, no WebSocket errors, no codec errors.
+
+User-reported perception vs PCMU:
+- Voice quality: **more or less the same** (no dramatic improvement)
+- Line noise: **still had a bit of noise** (noise floor not eliminated)
+- Mechanical sound: **a bit reduced** (marginal)
+- Latency: **a bit better** (marginal)
+- Transcript quality: **a bit better** (marginal)
+- Booking flow: natural, all data captured
+
+Conclusion: G722 is technically viable but does not dramatically improve perceived audio quality over PCMU. The remaining noise is present on both codecs, confirming it is not a codec quantization issue. PCMU was restored immediately. G722 is documented as a viable alternative but not promoted to the default runtime. L16 is not recommended (not a standard Telnyx codec, and the noise is not codec-related).
+
+Debug capture module limitation noted: the inbound audio capture's decode function only supports PCMU/PCMA, not G.722. It logs `inbound audio capture decode failed codec=g722: unsupported inbound G.711 codec "g722"` for every inbound frame on G722 calls. This is debug-only and does not affect the live call. Fixing this is a separate future task.
+
+PCMU runtime confirmed restored: `TELNYX_STREAM_BIDIRECTIONAL_CODEC=PCMU`, `CARTESIA_OUTPUT_ENCODING=pcm_mulaw`, `CARTESIA_OUTPUT_SAMPLE_RATE=8000`, `AUDIO_TRANSCODE_OUTBOUND_TO=none`. G722 is **not enabled** and must remain disabled unless re-authorized.
 ```
