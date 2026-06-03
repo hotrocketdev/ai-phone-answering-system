@@ -63,11 +63,12 @@ Cartesia HD PCM (24 kHz, pcm_s16le)
 
 ### Phase 1 — One-way audio proof (target)
 
-- [ ] Set up LiveKit Cloud project (free tier)
-- [ ] Scaffold Go publisher (Cartesia HD → Opus → LiveKit)
-- [ ] Scaffold web client (HTML + livekit-client)
-- [ ] Run spike: hear Cartesia greeting in HD through browser
-- [ ] Measure latency and audio quality
+- [x] Set up LiveKit Cloud project (free tier)
+- [x] Scaffold Go publisher (Cartesia HD → PCMU → LiveKit) — PCMU intermediate, Opus deferred
+- [x] Scaffold web client (HTML + livekit-client)
+- [x] Run publisher pre-flight: token generated, room joined, track published, 5s tone streamed
+- [ ] Run end-to-end browser test (user must execute — see [results/BROWSER_AUDIO_TEST_RUNBOOK.md](results/BROWSER_AUDIO_TEST_RUNBOOK.md))
+- [ ] Replace PCMU with Opus (deferred — see [results/README.md](results/README.md) "Opus/HD Follow-Up Plan")
 - [ ] Document results
 
 ### Out of scope (deferred)

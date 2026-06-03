@@ -63,10 +63,20 @@ func main() {
 	log.Printf("token generated (room=%s identity=%s ttl=1h)", roomName, identity)
 
 	// 2. Room
+	waitForSubscriber := os.Getenv("SPIKE_WAIT_FOR_SUBSCRIBER") == "true"
+	subscribed := make(chan struct{}, 1)
 	cb := lksdk.NewRoomCallback()
 	cb.OnDisconnected = func() { log.Println("disconnected") }
 	cb.OnParticipantConnected = func(p *lksdk.RemoteParticipant) {
 		log.Printf("participant connected: %s (sid=%s)", p.Identity(), p.SID())
+		// Signal the first non-self participant so wait-for-subscriber
+		// mode can start publishing.
+		if p.Identity() != identity {
+			select {
+			case subscribed <- struct{}{}:
+			default:
+			}
+		}
 	}
 	cb.OnParticipantDisconnected = func(p *lksdk.RemoteParticipant) {
 		log.Printf("participant disconnected: %s (sid=%s)", p.Identity(), p.SID())
@@ -78,6 +88,23 @@ func main() {
 	}
 	defer room.Disconnect()
 	log.Printf("connected to room=%s as %s", room.SID(), identity)
+
+	if waitForSubscriber {
+		// If a subscriber is already in the room (e.g. browser connected
+		// first), don't wait. Otherwise, block until the first remote
+		// participant joins.
+		if len(room.GetParticipants()) == 0 {
+			log.Println("SPIKE_WAIT_FOR_SUBSCRIBER=true — waiting for a listener to join…")
+			select {
+			case <-subscribed:
+				log.Println("listener detected — proceeding with publish")
+			case <-time.After(60 * time.Second):
+				log.Fatal("no listener joined within 60s — aborting")
+			}
+		} else {
+			log.Printf("listener already in room (%d remote) — proceeding with publish", len(room.GetParticipants()))
+		}
+	}
 
 	// 3. Audio source
 	// PCMU is the spike's intermediate codec (see pcmsampleprovider.go
