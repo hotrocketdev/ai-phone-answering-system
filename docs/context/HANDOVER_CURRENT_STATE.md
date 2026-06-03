@@ -556,3 +556,66 @@ This iteration adds the **user-facing browser test procedure** and a small publi
 - Do NOT merge `feat/livekit-hd-spike` to main until spike is reviewed and approved.
 
 **Defer to user:** The user will run the browser test and report back. Once the user confirms the browser heard the tone, the next step is the Opus/HD follow-up spike.
+
+## 2026-06-03 VPS Sync — Spike branch pulled to production server
+
+**Server:** `jorge@srv1194478` (VPS where VoxLane production runs)
+**Repo path on VPS:** `/opt/ai-voice-receptionist/`
+
+**What was done on VPS:**
+1. `git fetch origin` — fetched the spike branch.
+2. `git stash push -m 'pre-spike-checkout-2026-06-03' backend/tsconfig.tsbuildinfo` — stashed the one modified tracked file (build artifact, safe to stash).
+3. `git checkout feat/livekit-hd-spike` — switched the working tree to the spike branch. Now on HEAD `8ff2f3c` (5 spike commits).
+4. `mkdir -p experimental/livekit && cat > experimental/livekit/.env` — created the gitignored `.env` with LiveKit Cloud creds (0600 perms, jorge only).
+5. **Production runtime verified unchanged:**
+   - `/opt/ai-voice-receptionist/.env` — 1826 bytes, mtime `Jun 3 01:18` (pre-spike) ✅
+   - `/opt/ai-voice-receptionist/voice-gateway/gateway` — 13,557,922 bytes, mtime `Jun 2 23:35`, SHA256 `24052c82…0cbafe` (matches the recorded production SHA) ✅
+   - `systemctl is-active voxlane-gateway` → `active` ✅
+   - `systemctl is-active voxlane-backend` → `active` ✅
+   - `curl POST http://localhost:3003/api/public/voice/webhook/telnyx` → 200 ✅
+   - `curl GET http://localhost:8081/healthz` → 200 ✅
+
+**Working tree state on VPS:**
+- Branch: `feat/livekit-hd-spike` (tracking `origin/feat/livekit-hd-spike`)
+- Tracked files: clean (everything committed)
+- Stash: 1 entry (`pre-spike-checkout-2026-06-03` contains the stashed `backend/tsconfig.tsbuildinfo`)
+- Untracked files (build artifacts, unchanged from main): `.env.bak-pre-cleanup-2026-06-03`, `.env.bak-pre-g722test-2026-06-03`, `backend/start.sh`, `shared/package-lock.json`, `voice-gateway/gateway`, `voice-gateway/gateway.bak*`
+- New on this branch: `experimental/livekit/.env` (gitignored, 0600)
+
+**Note on Go availability:** Go is **not installed** on the VPS (`go: command not found`). The spike source code is pulled and ready, but the publisher cannot be built/run on the VPS without installing Go first. To install Go on VPS (one-time, spike-only, NOT production-affecting):
+
+```bash
+# On VPS, as jorge
+cd /tmp
+wget https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
+tar -C $HOME -xzf go1.23.4.linux-amd64.tar.gz
+export PATH="$HOME/go/bin:$PATH"
+go version  # should print go1.23.4
+
+# Then build/run spike
+cd /opt/ai-voice-receptionist/experimental/livekit/publisher
+go build -o publisher.exe .
+./publisher.exe
+```
+
+**Reverting to main (when done with spike testing):**
+```bash
+# On VPS
+cd /opt/ai-voice-receptionist
+git checkout main
+# Optional: pop the stash
+git stash pop
+# Optional: drop spike .env
+rm experimental/livekit/.env
+```
+
+**Note:** reverting to main does NOT affect the production binary or services — those are independent of the git branch. The voice-gateway systemd service runs the pre-built `/opt/ai-voice-receptionist/voice-gateway/gateway` binary which is not git-tracked.
+
+**Production runtime status:** UNTOUCHED. Spike branch is checked out on VPS, but no production files (.env, binary, systemd) were modified. Branch switch is the only git-level change.
+
+**Stop conditions (still in force):**
+- Do NOT merge `feat/livekit-hd-spike` to main on VPS until spike is reviewed and approved.
+- Do NOT install Go system-wide on VPS unless the user explicitly approves (Go install is in $HOME, not system, so it's local but still requires approval).
+- Do NOT install or modify any production service.
+- Do NOT rebuild the production gateway binary.
+- Do NOT modify `/opt/ai-voice-receptionist/.env` (production env).

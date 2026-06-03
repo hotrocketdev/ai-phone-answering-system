@@ -693,3 +693,38 @@ spike complete in 5.21s (audio: 5.00s)
 - Do NOT add LiveKit SIP trunk to Telnyx.
 - Do NOT build two-way conversation (Phase 2) until Opus HD spike is complete and reviewed.
 - Do NOT merge `feat/livekit-hd-spike` to main until spike is reviewed and approved.
+
+## 20. VPS SYNC — SPIKE BRANCH PULLED TO PRODUCTION SERVER (2026-06-03)
+
+**Server:** `jorge@srv1194478`
+**Repo path:** `/opt/ai-voice-receptionist/`
+
+**What was done on VPS:**
+1. `git fetch origin` — fetched the spike branch.
+2. Stashed the one modified tracked file (`backend/tsconfig.tsbuildinfo` — build artifact).
+3. `git checkout feat/livekit-hd-spike` — switched to spike branch. Now on HEAD `8ff2f3c`.
+4. Created `experimental/livekit/.env` (gitignored, 0600 perms) with LiveKit Cloud creds.
+
+**Production runtime verified unchanged:**
+- `/opt/ai-voice-receptionist/.env` — 1826 bytes, mtime `Jun 3 01:18` (pre-spike) ✅
+- `voice-gateway/gateway` — 13,557,922 bytes, mtime `Jun 2 23:35`, SHA256 `24052c82…0cbafe` (matches production SHA) ✅
+- `voxlane-gateway.service` active ✅
+- `voxlane-backend.service` active ✅
+- `POST /api/public/voice/webhook/telnyx` = 200 ✅
+- `GET /healthz` = 200 ✅
+
+**Note on Go:** Go is NOT installed on VPS. The spike source is pulled and ready, but the publisher cannot be built/run on the VPS without installing Go first (one-time install in `$HOME/go`, not system-wide).
+
+**Reverting to main:**
+```bash
+cd /opt/ai-voice-receptionist
+git checkout main
+git stash pop
+# Optional: rm experimental/livekit/.env
+```
+
+**Stop conditions (still in force):**
+- Do NOT merge `feat/livekit-hd-spike` to main on VPS until spike is reviewed and approved.
+- Do NOT install Go system-wide on VPS (only $HOME if user approves).
+- Do NOT rebuild production gateway binary.
+- Do NOT modify `/opt/ai-voice-receptionist/.env` (production env).
