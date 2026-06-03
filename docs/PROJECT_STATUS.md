@@ -728,3 +728,38 @@ git stash pop
 - Do NOT install Go system-wide on VPS (only $HOME if user approves).
 - Do NOT rebuild production gateway binary.
 - Do NOT modify `/opt/ai-voice-receptionist/.env` (production env).
+
+## 21. GO 1.23.4 INSTALLED ON VPS (JORGE-LOCAL, SPIKE-ONLY) (2026-06-03)
+
+**User explicitly approved Go install on VPS** (2026-06-03 23:35 UTC).
+
+**Installation method:**
+- Downloaded `go1.23.4.linux-amd64.tar.gz` (73.6 MB) to `/tmp/`.
+- Extracted to `$HOME/go-sdk-1.23.4` then symlinked `$HOME/go → $HOME/go-sdk-1.23.4`.
+- PATH: jorge must run `export PATH="$HOME/go/bin:$PATH"` in any new shell.
+
+**NOT installed:**
+- NOT system-wide (`/usr/local/go` or `/opt/go`).
+- NOT added to `/etc/profile`, `/etc/bash.bashrc`, or jorge's `.bashrc`.
+- NOT touching `apt` or `dpkg`.
+
+**Production runtime impact:** NONE. User-level install.
+
+**Verification (2026-06-03 23:38-23:40 UTC):**
+- `go version` → `go1.23.4 linux/amd64` ✅
+- `go mod download` in publisher → all LiveKit/pion deps cached ✅
+- `go build -o publisher.bin` in publisher → 26.4 MB binary ✅
+- `go test -v ./...` in publisher → 5/5 tests pass ✅
+- `go build -o token-gen.bin` in token-gen → 30.8 MB binary ✅
+- `./token-gen.bin ...` → valid JWT ✅
+- `./publisher.bin` pre-flight → connected, published, completed cleanly ✅
+
+**Removal (when done with spike):**
+```bash
+rm -rf $HOME/go
+```
+No system cleanup needed.
+
+**Updated stop conditions:**
+- Go is installed in `$HOME/go` (jorge-local). Do NOT move to system locations.
+- Do NOT add to system PATH or shell rc files.

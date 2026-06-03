@@ -582,20 +582,28 @@ This iteration adds the **user-facing browser test procedure** and a small publi
 - Untracked files (build artifacts, unchanged from main): `.env.bak-pre-cleanup-2026-06-03`, `.env.bak-pre-g722test-2026-06-03`, `backend/start.sh`, `shared/package-lock.json`, `voice-gateway/gateway`, `voice-gateway/gateway.bak*`
 - New on this branch: `experimental/livekit/.env` (gitignored, 0600)
 
-**Note on Go availability:** Go is **not installed** on the VPS (`go: command not found`). The spike source code is pulled and ready, but the publisher cannot be built/run on the VPS without installing Go first. To install Go on VPS (one-time, spike-only, NOT production-affecting):
+**Note on Go availability:** Go 1.23.4 is **now installed** in `$HOME/go` (symlink to `$HOME/go-sdk-1.23.4`) on the VPS. This is jorge-local, NOT system-wide. The go.mod has `go 1.26.3` but Go's toolchain mechanism auto-downloads `go1.26.0` on first build.
 
+**Verified working on VPS (2026-06-03 23:38 UTC):**
+- `go version` → `go1.23.4 linux/amd64` ✅
+- `go mod download` in publisher → succeeded (downloaded all LiveKit/pion deps) ✅
+- `go build -o publisher.bin` → succeeded, 26 MB binary ✅
+- `go test ./...` in publisher → 5/5 tests pass ✅
+- `go build` in token-gen → succeeded, 30 MB binary ✅
+- `./token-gen.bin --room voxlane-hd-spike --identity voxlane-listener --subscribe` → produces valid JWT ✅
+- Pre-flight `./publisher.bin` → connected to room `RM_LVGwSBssX6ea`, track `TR_AMpbW2Pof49GJJ`, 5.18s for 5.00s audio, clean exit ✅
+
+**To run the spike from VPS:**
 ```bash
-# On VPS, as jorge
-cd /tmp
-wget https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
-tar -C $HOME -xzf go1.23.4.linux-amd64.tar.gz
+# In a new shell
 export PATH="$HOME/go/bin:$PATH"
-go version  # should print go1.23.4
-
-# Then build/run spike
 cd /opt/ai-voice-receptionist/experimental/livekit/publisher
-go build -o publisher.exe .
-./publisher.exe
+./publisher.bin
+```
+
+Or use wait-for-subscriber mode (browser-friendly):
+```bash
+SPIKE_WAIT_FOR_SUBSCRIBER=true ./publisher.bin
 ```
 
 **Reverting to main (when done with spike testing):**
@@ -619,3 +627,43 @@ rm experimental/livekit/.env
 - Do NOT install or modify any production service.
 - Do NOT rebuild the production gateway binary.
 - Do NOT modify `/opt/ai-voice-receptionist/.env` (production env).
+
+## 2026-06-03 Go 1.23.4 installed on VPS (jorge-local, spike-only)
+
+**User explicitly approved Go install on VPS** (2026-06-03 23:35 UTC).
+
+**Installation method:**
+- Downloaded `go1.23.4.linux-amd64.tar.gz` (73.6 MB) to `/tmp/`.
+- Extracted to `$HOME/go-sdk-1.23.4` then symlinked `$HOME/go → $HOME/go-sdk-1.23.4`.
+- PATH: jorge must run `export PATH="$HOME/go/bin:$PATH"` in any new shell.
+
+**NOT installed:**
+- NOT system-wide (`/usr/local/go` or `/opt/go`) — stays in `$HOME/go`.
+- NOT added to `/etc/profile`, `/etc/bash.bashrc`, or jorge's `.bashrc`.
+- NOT touching `apt` or `dpkg`.
+
+**Production runtime impact:** NONE. Go is a user-level install, not a system service. Production `.env`, `gateway` binary, systemd services are all untouched.
+
+**Verification (2026-06-03 23:38-23:40 UTC):**
+- `go version` → `go1.23.4 linux/amd64` ✅
+- `go mod download` in publisher → all LiveKit/pion deps cached ✅
+- `go build -o publisher.bin` in publisher → 26.4 MB binary ✅
+- `go test -v ./...` in publisher → 5/5 tests pass ✅
+- `go build -o token-gen.bin` in token-gen → 30.8 MB binary ✅
+- `./token-gen.bin --room voxlane-hd-spike --identity voxlane-listener --subscribe` → valid JWT ✅
+- `./publisher.bin` pre-flight → room `RM_LVGwSBssX6ea`, track `TR_AMpbW2Pof49GJJ`, 5.18s for 5.00s audio, clean exit ✅
+
+**Removal (when done with spike):**
+```bash
+# On VPS
+rm -rf $HOME/go-sdk-1.23.4
+rm $HOME/go  # the symlink
+# Or in one go
+rm -rf $HOME/go
+```
+No system cleanup needed (no system-wide install).
+
+**Updated stop conditions (2026-06-03):**
+- Go is installed in `$HOME/go` (jorge-local). Do NOT move to system locations.
+- Do NOT add to system PATH or shell rc files (would affect production shell sessions if any).
+- Do NOT install other tools/libraries system-wide.
