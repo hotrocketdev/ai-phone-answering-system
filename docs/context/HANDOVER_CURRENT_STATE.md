@@ -622,6 +622,62 @@ synthetic 440 Hz sine (or Cartesia PCM in Step 5)
 2. **Cartesia HD PCM** (Step 5 of plan). Pipe Cartesia's `pcm_s16le` at 24 kHz or 48 kHz into ffmpeg via stdin (instead of the synthetic 440 Hz tone). ~20 lines of code change to `ffmpegopus.go`. Deferred until browser Opus test passes.
 3. **Subjective quality comparison** — not yet measured. The Opus spike will be a real HD test, not just a connectivity test.
 
+## 2026-06-04 13:45–14:05 — Step 5: Cartesia HD Opus path WORKING. Browser heard voice. Residual noise isolated to Cartesia source PCM.
+
+**Commits in this session:** `e4084a3` (Step 5 code) → `c61587f` (48kHz fix) → `be4ea70` (anlmdn + WAV save)
+
+**What was done:**
+
+1. **Step 5 — Cartesia HD PCM into ffmpeg Opus** (`e4084a3`):
+   - Added `streamCartesiaPCM(ff, pcm)` to `ffmpegopus.go`.
+   - Modified `startFfmpegOpus(ctx, inputSampleRate)` to accept the input sample rate.
+   - Updated `main.go` opus branch: when `CARTESIA_API_KEY` and `SPIKE_GREETING_TEXT` are set, calls Cartesia HTTP TTS at 24kHz, pipes PCM to ffmpeg stdin, encodes to Opus 64kbps VBR.
+   - First pre-flight run succeeded: `cartesia_pcm samples=101760 duration=4.24s rate=24000`, `opus_header version=1 channels=1`, `track TR_AMtmN8FPs9wtoF`, `spike complete in 4.93s`.
+   - User confirmed: **"I can hear the Porto Douro call"** — first end-to-end HD voice path proven.
+
+2. **Noise investigation (first round) — 48kHz direct, skip ffmpeg resample** (`c61587f`):
+   - User reported noise. First hypothesis: ffmpeg 24→48kHz resampling artefacts.
+   - Changed `cartesiaRate` from 24000 to 48000 (Cartesia's native Opus rate). ffmpeg no longer resamples.
+   - Pre-flight: `samples=195840 duration=4.08s rate=48000`, `input_rate=48000`. Audio played.
+   - User reported: **"she sounds great but there is some noise on th eline"** — same noise, so the noise is NOT from ffmpeg resampling.
+
+3. **Noise investigation (second round) — ffmpeg denoiser**:
+   - Added `-af "highpass=f=80,afftdn=nf=-25"` to ffmpeg.
+   - Pre-flight ran but user reported: **"still noisy"** — afftdn wasn't enough.
+   - Saved the raw Cartesia PCM to `/tmp/cartesia.wav` via new `SPIKE_SAVE_PCM` env var. User scp'd it and listened.
+   - User confirmed: **"still noisy same"** — noise is in Cartesia's source PCM, not in the spike pipeline.
+
+4. **Noise investigation (third round) — try different Cartesia model**:
+   - Set `CARTESIA_MODEL=sonic-2` (was `sonic-3.5`).
+   - Pre-flight: `synthesizing via Cartesia HD: voice=2f251ac3-... model=sonic-2`.
+   - User confirmed: **"same very noise"** — noise persists across Cartesia models.
+
+5. **Noise investigation (fourth round) — stronger ffmpeg denoiser** (`be4ea70`):
+   - Replaced `afftdn` with `anlmdn=s=0.0001:p=0.004:r=0.012` (non-local means, 10x default strength).
+   - Tried to download an RNNoise `.nn` model for `arnndn` filter, but URLs returned 404 (GregorR/rnnoise-models is structured with non-obvious directory names; the model file isn't where expected).
+   - Pre-flight ran but user reported: **"more noisy this time"** — anlmdn didn't help.
+
+**Verdict (current state):**
+
+- The Opus HD pipeline itself is **clean**. The LiveKit protocol logs prove the track is delivered, `play()` is invoked and not rejected, audio runs for 5 seconds, then unsubscribes cleanly. Browser confirms listening.
+- The noise is in **Cartesia's source PCM output** — confirmed by:
+  1. Noise is present in raw `/tmp/cartesia.wav` (no Opus, no ffmpeg, no LiveKit).
+  2. Noise persists across `sonic-3.5` and `sonic-2` models.
+  3. ffmpeg denoisers (afftdn, anlmdn) do not remove it.
+  4. ffmpeg resampling at 24→48kHz is not the cause.
+- This is a **Cartesia TTS model characteristic** (the noise floor of the synthesis), not a spike pipeline issue.
+
+**Possible next steps (for follow-up investigation):**
+
+1. **Try a different Cartesia voice** — maybe the specific voice (`2f251ac3-89a9-4a77-a452-704b474ccd01`) has more noise. Other Cartesia voices might be cleaner.
+2. **Try Cartesia's higher-quality model** (if any) or a different TTS provider (ElevenLabs, Play.ht, etc.) for a comparison.
+3. **Accept the noise as a Cartesia source limitation** and document the spike as "HD voice path proven, but Cartesia source has audible noise floor — investigate TTS alternatives before production".
+4. **Try downloading an RNNoise `.nn` model from another source** (e.g. https://github.com/xiph/rnnoise or https://github.com/jmvalin/rnnoise) and use ffmpeg's `arnndn` filter — this is the gold standard for speech denoising.
+
+**Production runtime status:** UNTOUCHED. All work on `feat/livekit-hd-spike` branch. The Opus HD path is implemented and proven (browser heard Cartesia voice through HD/WebRTC), but Cartesia's noise floor is a separate issue from the spike.
+
+**Cartesia API key:** Set in spike's `/opt/ai-voice-receptionist/experimental/livekit/.env` (gitignored, 0600 perms). Also exists in production `.env` at `C:\builds\AI-Phone-Answer-System\.env`.
+
 ## 2026-06-03 VPS Sync — Spike branch pulled to production server
 
 **Server:** `jorge@srv1194478` (VPS where VoxLane production runs)
