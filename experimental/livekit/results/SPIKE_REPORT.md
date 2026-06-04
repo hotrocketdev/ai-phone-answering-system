@@ -265,7 +265,12 @@ The reply tone was successfully published to the room; in this run there was no 
 
 ### What still needs to happen
 
-- **Manual browser user test**: open `experimental/livekit/web-client/two-way.html` in Chrome, paste the LiveKit URL + a publisher+listener pair of tokens, click *Enable microphone & publish*, talk. The worker should subscribe to the mic, log the frames, and play back a tone (or Cartesia greeting) that you hear in the same browser. This is the only remaining proof of the user-facing two-way loop.
+- ~~**Manual browser user test**~~ — **DONE** on 2026-06-04 23:38. A real user ran the two-way browser test from a Chrome tab and heard the 3 s 440 Hz test tone (Cartesia test-account credits were exhausted at test time, so the worker fell back to tone as designed). VU meter on the page lit up in sync with the tone. Pipeline: Chrome `getUserMedia` → LiveKit Cloud → server SDK `OnTrackSubscribed` → samplebuilder → first-frame trigger → ffmpeg → OggOpusReader → outboundProvider → LiveKit writer → Chrome `<audio>` element. **Two-way loop proven with a real human in the loop.**
+
+  Two bugs had to be fixed before this worked (commit `477b0b5`):
+  1. `publishOutboundTrack` called `StartWrite` before `PublishTrack`. The LiveKit server SDK (`localsampletrack.go:240`) only spawns the `writeWorker` goroutine when the track is already bound to a peer connection, which only happens once `PublishTrack` has run. Calling `StartWrite` first set `s.provider = provider` but never spawned the consumer, so every Opus frame was silently dropped on the way to the RTP egress. The fix swaps the two calls (matches the order the spike publisher already uses).
+  2. `ogg.go` `NextOpusPacket` had an infinite loop. After returning the first packet from a page, the next call found `packet == nil` and `pageBuf != nil`, so the for-loop's two guards were both false and the function spun forever. Replaced with a copy of the publisher's `oggdemuxer.go` (one Opus packet per segment, `segIdx`-driven).
+
 - **Stage 3 (OpenAI Realtime)** is still a separate follow-up spike and was not touched in this work.
 
 ---
