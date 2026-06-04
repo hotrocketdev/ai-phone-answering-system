@@ -108,6 +108,17 @@ func (w *worker) publishOutboundTrack(room *lksdk.Room) error {
 	w.outbound = track
 	w.provider = newOutboundProvider()
 
+	// PublishTrack must be called BEFORE StartWrite: StartWrite
+	// only spawns its writer goroutine when the track is already
+	// bound to a peer connection, which only happens once the
+	// track has been published. Calling StartWrite first would
+	// silently leave the provider channel unconsumed.
+	pub, err := room.LocalParticipant.PublishTrack(track, &lksdk.TrackPublicationOptions{})
+	if err != nil {
+		return err
+	}
+	log.Printf("outbound track published: id=%s mime=%s", pub.SID(), pub.MimeType())
+
 	// StartWrite kicks off a goroutine that pulls from the provider's
 	// channel and writes each sample to the LiveKit RTP egress.
 	done := make(chan struct{})
@@ -117,11 +128,6 @@ func (w *worker) publishOutboundTrack(room *lksdk.Room) error {
 	}); err != nil {
 		return err
 	}
-	pub, err := room.LocalParticipant.PublishTrack(track, &lksdk.TrackPublicationOptions{})
-	if err != nil {
-		return err
-	}
-	log.Printf("outbound track published: id=%s mime=%s", pub.SID(), pub.MimeType())
 	return nil
 }
 

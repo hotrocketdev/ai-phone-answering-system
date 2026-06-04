@@ -1,27 +1,27 @@
-// Minimal Ogg page demuxer for Opus. Adapted from the spike publisher's
-// oggdemuxer.go (kept in sync). Returns raw Opus packets (OpusHead,
-// OpusTags, then audio frames) suitable for direct handing to a
-// LiveKit OpusPayloader.
+// Minimal Ogg Opus demuxer. Identical to the spike publisher's
+// oggdemuxer.go (kept in sync). Returns one raw Opus packet per
+// NextOpusPacket() call; first two packets are OpusHead and OpusTags.
 package main
 
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 )
 
-const (
-	oggCapturePattern = "OggS"
-	oggPageHeaderSize = 27
-)
+const oggCapture = "OggS"
 
-// oggOpusReader pulls Opus packets out of an Ogg Opus stream.
+// oggOpusReader reads Ogg Opus pages and yields raw Opus packets.
 type oggOpusReader struct {
-	r        io.Reader
-	pageBuf  []byte
-	pageOff  int
-	packet   []byte
-	packetOff int
+	r io.Reader
+
+	// current page being processed
+	pageBuf    []byte
+	segOffsets []int
+	segLens    []int
+	segIdx     int
+	eos        bool
 }
 
 // newOggOpusReaderImpl is the constructor; aliased to newOggOpusReader
@@ -30,99 +30,108 @@ func newOggOpusReaderImpl(r io.Reader) *oggOpusReader {
 	return &oggOpusReader{r: r}
 }
 
-// NextOpusPacket returns the next Opus packet from the stream.
-// Returns io.EOF on end of stream.
-func (d *oggOpusReader) NextOpusPacket() ([]byte, error) {
-	for {
-		if d.packet != nil && d.packetOff < len(d.packet) {
-			out := d.packet[d.packetOff:]
-			d.packetOff = len(d.packet)
-			d.packet = nil
-			return out, nil
+// NextOpusPacket returns the next raw Opus packet, or io.EOF at end of
+// stream. Each packet is one Opus frame (~20ms at default settings).
+func (o *oggOpusReader) NextOpusPacket() ([]byte, error) {
+	for o.segIdx >= len(o.segLens) {
+		// need a new page
+		if o.eos {
+			return nil, io.EOF
 		}
-		if d.pageBuf == nil {
-			hdr, err := d.readPageHeader()
-			if err != nil {
-				return nil, err
-			}
-			segCount := int(hdr[26])
-			segs := make([]byte, segCount)
-			if _, err := io.ReadFull(d.r, segs); err != nil {
-				return nil, err
-			}
-			var pageLen int
-			for _, s := range segs {
-				pageLen += int(s)
-			}
-			body := make([]byte, pageLen)
-			if _, err := io.ReadFull(d.r, body); err != nil {
-				return nil, err
-			}
-			// Walk the lacing table to split into packets.
-			d.pageBuf = body
-			d.pageOff = 0
-			d.packet = nil
-			d.packetOff = 0
-			for _, s := range segs {
-				size := int(s)
-				if d.packet == nil {
-					d.packet = d.pageBuf[d.pageOff : d.pageOff+size]
-				} else {
-					d.packet = append(d.packet, d.pageBuf[d.pageOff:d.pageOff+size]...)
-				}
-				d.pageOff += size
-				if s < 255 {
-					// End of packet.
-					d.packetOff = 0
-					// Loop: NextOpusPacket will read from d.packet.
-					break
-				}
-			}
-			if d.packet == nil {
-				// Continuation packet spans entire page; keep building.
-				continue
-			}
+		if err := o.readPage(); err != nil {
+			return nil, err
 		}
 	}
+	pkt := o.pageBuf[o.segOffsets[o.segIdx] : o.segOffsets[o.segIdx]+o.segLens[o.segIdx]]
+	o.segIdx++
+	return pkt, nil
 }
 
-func (d *oggOpusReader) readPageHeader() ([]byte, error) {
-	hdr := make([]byte, oggPageHeaderSize)
-	if _, err := io.ReadFull(d.r, hdr); err != nil {
-		return nil, err
+// readPage reads one Ogg page from the underlying reader and splits it
+// into segments.
+func (o *oggOpusReader) readPage() error {
+	var hdr [27]byte
+	if _, err := io.ReadFull(o.r, hdr[:]); err != nil {
+		return err
 	}
-	if string(hdr[:4]) != oggCapturePattern {
-		return nil, errors.New("ogg: missing OggS capture pattern")
+	if string(hdr[:4]) != oggCapture {
+		return fmt.Errorf("ogg: bad capture pattern %q", hdr[:4])
 	}
-	return hdr, nil
+	if hdr[4] != 0 {
+		return fmt.Errorf("ogg: bad stream structure version %d", hdr[4])
+	}
+	headerType := hdr[5]
+	nSeg := int(hdr[26])
+
+	// read segment table
+	segTable := make([]byte, nSeg)
+	if _, err := io.ReadFull(o.r, segTable); err != nil {
+		return err
+	}
+
+	// group the segment table into logical packets.
+	// For Opus (1 packet per segment typically), each segment is its
+	// own logical packet. We just record (offset, length) for each
+	// segment and treat each as one Opus packet.
+	totalData := 0
+	for _, s := range segTable {
+		totalData += int(s)
+	}
+	o.pageBuf = make([]byte, totalData)
+	if _, err := io.ReadFull(o.r, o.pageBuf); err != nil {
+		return err
+	}
+
+	offsets := make([]int, 0, nSeg)
+	lens := make([]int, 0, nSeg)
+	off := 0
+	for _, s := range segTable {
+		offsets = append(offsets, off)
+		lens = append(lens, int(s))
+		off += int(s)
+	}
+	o.segOffsets = offsets
+	o.segLens = lens
+	o.segIdx = 0
+
+	if headerType&0x04 != 0 {
+		o.eos = true
+	}
+	return nil
 }
 
-// OpusHead is the parsed header from the first Ogg packet.
+// opusHead is the parsed Opus identification header.
 type opusHead struct {
 	Version         uint8
 	ChannelCount    uint8
+	PreSkip         uint16
 	InputSampleRate uint32
-	OutputGain      uint16
+	OutputGain      int16
 	MappingFamily   uint8
 }
 
-// ParseOpusHead decodes the 19-byte OpusHead packet. The first 8
-// bytes are the magic string "OpusHead"; the rest are little-endian
-// fields.
-func ParseOpusHead(b []byte) (*opusHead, error) {
-	if len(b) < 19 {
-		return nil, errors.New("opus head: short packet")
+// ParseOpusHead validates the first Ogg page is an OpusHead and returns
+// its parsed fields.
+func ParseOpusHead(packet []byte) (*opusHead, error) {
+	if len(packet) < 19 {
+		return nil, errors.New("opus: OpusHead too short")
 	}
-	if string(b[:8]) != "OpusHead" {
-		return nil, errors.New("opus head: bad magic")
+	if string(packet[:8]) != "OpusHead" {
+		return nil, errors.New("opus: missing OpusHead magic")
 	}
-	preSkip := binary.LittleEndian.Uint16(b[10:12])
-	_ = preSkip // preSkip is informational; not exposed in the struct.
-	return &opusHead{
-		Version:         b[8],
-		ChannelCount:    b[9],
-		InputSampleRate: binary.LittleEndian.Uint32(b[12:16]),
-		OutputGain:      binary.LittleEndian.Uint16(b[16:18]),
-		MappingFamily:   b[18],
-	}, nil
+	h := &opusHead{
+		Version:         packet[8],
+		ChannelCount:    packet[9],
+		PreSkip:         binary.LittleEndian.Uint16(packet[10:12]),
+		InputSampleRate: binary.LittleEndian.Uint32(packet[12:16]),
+		OutputGain:      int16(binary.LittleEndian.Uint16(packet[16:18])),
+		MappingFamily:   packet[18],
+	}
+	if h.Version != 1 {
+		return nil, fmt.Errorf("opus: unsupported OpusHead version %d", h.Version)
+	}
+	if h.ChannelCount < 1 || h.ChannelCount > 8 {
+		return nil, fmt.Errorf("opus: invalid channel count %d", h.ChannelCount)
+	}
+	return h, nil
 }
