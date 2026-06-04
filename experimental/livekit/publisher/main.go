@@ -18,12 +18,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -106,37 +108,103 @@ func main() {
 		}
 	}
 
-	// 3. Audio source
-	// PCMU is the spike's intermediate codec (see pcmsampleprovider.go
-	// for the rationale and Opus follow-up plan). Cartesia is asked for
-	// 8 kHz mono to avoid a resampling step.
-	const sampleRate = 8000
-	var pcm []int16
-	if cartesiaKey != "" && greeting != "" {
-		log.Printf("synthesizing via Cartesia: voice=%s model=%s rate=%d", voiceID, modelID, sampleRate)
-		pcm, err = Synthesize(cartesiaKey, greeting, voiceID, modelID, sampleRate)
-		if err != nil {
-			log.Fatalf("cartesia: %v", err)
-		}
-		log.Printf("got %d PCM samples (%.2fs @ %d Hz)", len(pcm), float64(len(pcm))/float64(sampleRate), sampleRate)
-	} else {
-		log.Println("no CARTESIA_API_KEY or SPIKE_GREETING_TEXT — falling back to 5s 440 Hz test tone at 8 kHz")
-		pcm = generateTone(sampleRate, 1, 440.0, 5.0)
+	// 3. Audio source — codec selection
+	// SPIKE_AUDIO_CODEC selects between PCMU (default, original spike)
+	// and Opus (HD follow-up, ffmpeg-backed). The two paths share
+	// nothing at the SampleProvider level: PCMU is encoded in pure Go,
+	// Opus is encoded by an ffmpeg child process.
+	spikeCodec := strings.ToLower(getenv("SPIKE_AUDIO_CODEC", "pcmu"))
+	switch spikeCodec {
+	case "pcmu", "opus":
+		// ok
+	default:
+		log.Fatalf("invalid SPIKE_AUDIO_CODEC=%q (want pcmu or opus)", spikeCodec)
 	}
-	if len(pcm) == 0 {
-		log.Fatal("no audio to publish")
-	}
+	log.Printf("spike_audio_codec=%s", spikeCodec)
 
-	// 4. Sample provider (PCMU)
-	provider, err := NewPCMSampleProvider(pcm, sampleRate)
-	if err != nil {
-		log.Fatalf("encoder: %v", err)
+	// 4. Build the SampleProvider + track for the chosen codec.
+	var provider lksdk.SampleProvider
+	switch spikeCodec {
+	case "pcmu":
+		// PCMU path (original spike): 8 kHz mono PCM → G.711 µ-law.
+		const sampleRate = 8000
+		var pcm []int16
+		if cartesiaKey != "" && greeting != "" {
+			log.Printf("synthesizing via Cartesia: voice=%s model=%s rate=%d", voiceID, modelID, sampleRate)
+			pcm, err = Synthesize(cartesiaKey, greeting, voiceID, modelID, sampleRate)
+			if err != nil {
+				log.Fatalf("cartesia: %v", err)
+			}
+			log.Printf("got %d PCM samples (%.2fs @ %d Hz)", len(pcm), float64(len(pcm))/float64(sampleRate), sampleRate)
+		} else {
+			log.Println("no CARTESIA_API_KEY or SPIKE_GREETING_TEXT — falling back to 5s 440 Hz test tone at 8 kHz")
+			pcm = generateTone(sampleRate, 1, 440.0, 5.0)
+		}
+		if len(pcm) == 0 {
+			log.Fatal("no audio to publish")
+		}
+		pcmuProv, err := NewPCMSampleProvider(pcm, sampleRate)
+		if err != nil {
+			log.Fatalf("encoder: %v", err)
+		}
+		provider = pcmuProv
+	case "opus":
+		// Opus path (HD follow-up): 48 kHz mono PCM → ffmpeg → Ogg Opus
+		// → demux → raw Opus packets → LiveKit.
+		//
+		// For the spike we use a synthetic 440 Hz tone. Cartesia HD PCM
+		// is a follow-up (Step 5 of the spike plan).
+		ff, err := startFfmpegOpus(context.Background())
+		if err != nil {
+			log.Fatalf("ffmpeg start: %v", err)
+		}
+		log.Printf("ffmpeg_started=true pid=%d", ff.cmd.Process.Pid)
+		if err := streamSyntheticTone(ff, 440.0, 5.0, 0.3); err != nil {
+			ff.kill()
+			log.Fatalf("stream synthetic tone: %v", err)
+		}
+		demuxer := NewOggOpusReader(ff.stdout)
+		// First packet is OpusHead — consume and validate.
+		headPkt, err := demuxer.NextOpusPacket()
+		if err != nil {
+			ff.kill()
+			log.Fatalf("ogg: read OpusHead: %v", err)
+		}
+		head, err := ParseOpusHead(headPkt)
+		if err != nil {
+			ff.kill()
+			log.Fatalf("ogg: parse OpusHead: %v", err)
+		}
+		log.Printf("opus_header version=%d channels=%d input_rate=%d pre_skip=%d gain=%d mapping_family=%d",
+			head.Version, head.ChannelCount, head.InputSampleRate, head.PreSkip, head.OutputGain, head.MappingFamily)
+		// Second packet is OpusTags — consume and skip.
+		if _, err := demuxer.NextOpusPacket(); err != nil {
+			ff.kill()
+			log.Fatalf("ogg: read OpusTags: %v", err)
+		}
+		log.Printf("ogg_demuxer_ready (OpusHead + OpusTags consumed)")
+		opusProv := NewOpusSampleProvider(demuxer)
+		provider = opusProv
+		// Note: we keep `ff` alive for the lifetime of the provider.
+		// When the demuxer hits io.EOF, the ffmpeg stream is done.
+		// If the publisher is interrupted, ff is leaked but Go's
+		// process group cleanup will reap it.
 	}
 
 	// 5. Track
+	var trackMimeType string
+	var trackClockRate uint32
+	switch spikeCodec {
+	case "pcmu":
+		trackMimeType = webrtc.MimeTypePCMU
+		trackClockRate = 8000
+	case "opus":
+		trackMimeType = webrtc.MimeTypeOpus
+		trackClockRate = OpusSampleRate
+	}
 	track, err := lksdk.NewLocalSampleTrack(webrtc.RTPCodecCapability{
-		MimeType:  webrtc.MimeTypePCMU,
-		ClockRate: uint32(sampleRate),
+		MimeType:  trackMimeType,
+		ClockRate: trackClockRate,
 		Channels:  1,
 	})
 	if err != nil {
@@ -166,7 +234,7 @@ func main() {
 	select {
 	case <-done:
 		elapsed := time.Since(startWait)
-		log.Printf("spike complete in %s (audio: %.2fs)", elapsed, float64(len(pcm))/float64(sampleRate))
+		log.Printf("spike complete in %s", elapsed)
 	case s := <-sig:
 		log.Printf("signal %v — shutting down", s)
 	case <-time.After(60 * time.Second):
