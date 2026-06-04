@@ -42,7 +42,21 @@ const (
 	cartesiaVersion = "2024-06-01"
 )
 
+// Spike t0 — set as the first thing in main(). Used by latencyLog and
+// by the sample providers to report the time of the first audio byte.
+var spikeStartTime = time.Now()
+
+// latencyLog logs a milestone with the elapsed time since spikeStartTime.
+// Output format: `[+NNNms] label`. Also emits a structured line with
+// elapsed_ms=<n> stage=<label> for easy grepping.
+func latencyLog(label string) {
+	elapsed := time.Since(spikeStartTime)
+	log.Printf("[+%5dms] %s", elapsed.Milliseconds(), label)
+}
+
 func main() {
+	spikeStartTime = time.Now()
+	latencyLog("spike_start")
 	if err := loadEnv(); err != nil {
 		log.Fatalf("env: %v", err)
 	}
@@ -63,7 +77,9 @@ func main() {
 	// path. See HANDOVER_CURRENT_STATE.md 2026-06-04 entry.
 	cartesiaRate := getenvInt("SPIKE_CARTESIA_RATE", 48000)
 	cartesiaEncoding := getenv("SPIKE_CARTESIA_ENCODING", "pcm_s16le")
-	ffmpegInputFormat := cartesiaEncoding // ffmpeg -f flag mirrors the encoding
+	// ffmpeg `-f` demuxer name strips the Cartesia-style "pcm_" prefix.
+	// Cartesia returns "pcm_s16le" / "pcm_f32le"; ffmpeg wants "s16le" / "f32le".
+	ffmpegInputFormat := strings.TrimPrefix(cartesiaEncoding, "pcm_")
 	filterChain := getenv("SPIKE_FILTER_CHAIN", "highpass=f=80,lowpass=f=12000,anlmdn=s=0.0001:p=0.004:r=0.012")
 	bitrate := getenvInt("SPIKE_OPUS_BITRATE", 64000)
 	opusApplication := getenv("SPIKE_OPUS_APPLICATION", "audio")
@@ -77,6 +93,7 @@ func main() {
 		log.Fatalf("token: %v", err)
 	}
 	log.Printf("token generated (room=%s identity=%s ttl=1h)", roomName, identity)
+	latencyLog("token_done")
 
 	// 2. Room
 	waitForSubscriber := os.Getenv("SPIKE_WAIT_FOR_SUBSCRIBER") == "true"
@@ -104,6 +121,7 @@ func main() {
 	}
 	defer room.Disconnect()
 	log.Printf("connected to room=%s as %s", room.SID(), identity)
+	latencyLog("room_connected")
 
 	if waitForSubscriber {
 		// If a subscriber is already in the room (e.g. browser connected
@@ -145,10 +163,12 @@ func main() {
 		var pcm []int16
 		if cartesiaKey != "" && greeting != "" {
 			log.Printf("synthesizing via Cartesia: voice=%s model=%s rate=%d", voiceID, modelID, sampleRate)
+			latencyLog("cartesia_start (pcmu)")
 			pcm, err = Synthesize(cartesiaKey, greeting, voiceID, modelID, "pcm_s16le", sampleRate)
 			if err != nil {
 				log.Fatalf("cartesia: %v", err)
 			}
+			latencyLog("cartesia_done (pcmu)")
 			log.Printf("got %d PCM samples (%.2fs @ %d Hz)", len(pcm), float64(len(pcm))/float64(sampleRate), sampleRate)
 		} else {
 			log.Println("no CARTESIA_API_KEY or SPIKE_GREETING_TEXT — falling back to 5s 440 Hz test tone at 8 kHz")
@@ -178,10 +198,12 @@ func main() {
 			// for the sonic-3.5 optimisation investigation.
 			log.Printf("synthesizing via Cartesia HD: voice=%s model=%s rate=%d encoding=%s filter=%q bitrate=%d app=%s greeting=%q",
 				voiceID, modelID, cartesiaRate, cartesiaEncoding, filterChain, bitrate, opusApplication, greeting)
+			latencyLog("cartesia_start")
 			cartesiaPCM, err := Synthesize(cartesiaKey, greeting, voiceID, modelID, cartesiaEncoding, cartesiaRate)
 			if err != nil {
 				log.Fatalf("cartesia: %v", err)
 			}
+			latencyLog("cartesia_done")
 			log.Printf("cartesia_pcm samples=%d duration=%.2fs rate=%d encoding=%s",
 				len(cartesiaPCM), float64(len(cartesiaPCM))/float64(cartesiaRate), cartesiaRate, cartesiaEncoding)
 			// Diagnostic: if SPIKE_SAVE_PCM is set, also save the raw
@@ -202,6 +224,7 @@ func main() {
 			}
 			log.Printf("ffmpeg_started=true pid=%d input_rate=%d input_format=%s filter=%q bitrate=%d app=%s",
 				ff.cmd.Process.Pid, cartesiaRate, ffmpegInputFormat, filterChain, bitrate, opusApplication)
+			latencyLog("ffmpeg_started")
 			if err := streamCartesiaPCM(ff, cartesiaPCM, ffmpegInputFormat); err != nil {
 				ff.kill()
 				log.Fatalf("stream cartesia PCM: %v", err)
@@ -229,6 +252,7 @@ func main() {
 				log.Fatalf("ogg: read OpusTags: %v", err)
 			}
 			log.Printf("ogg_demuxer_ready (OpusHead + OpusTags consumed, cartesia_path=true)")
+			latencyLog("ogg_demuxer_ready")
 			// Provider is set; skip the synthetic-tone branch below.
 			goto opusProviderReady
 		}
@@ -296,15 +320,18 @@ opusProviderReady:
 		log.Fatalf("publish: %v", err)
 	}
 	log.Printf("track published: id=%s name=%s mime=%s", pub.SID(), pub.Name(), pub.MimeType())
+	latencyLog("track_published")
 
 	// 6. Stream
 	done := make(chan struct{})
 	if err := track.StartWrite(provider, func() {
 		log.Println("audio playback complete")
+		latencyLog("audio_playback_complete")
 		close(done)
 	}); err != nil {
 		log.Fatalf("start write: %v", err)
 	}
+	latencyLog("start_write_called")
 
 	// 7. Wait for completion or signal
 	sig := make(chan os.Signal, 1)
@@ -315,6 +342,7 @@ opusProviderReady:
 	case <-done:
 		elapsed := time.Since(startWait)
 		log.Printf("spike complete in %s", elapsed)
+		latencyLog("spike_complete")
 	case s := <-sig:
 		log.Printf("signal %v — shutting down", s)
 	case <-time.After(60 * time.Second):

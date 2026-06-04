@@ -28,6 +28,9 @@ type PCMSampleProvider struct {
 	sampleRate int // PCM sample rate (must be 8000 for PCMU)
 	pos        int // read position in PCM buffer
 	audLevel   uint8
+	// firstFrameLogged is set on the first NextSample call so we can
+	// log a "first_audio_byte" latency milestone.
+	firstFrameLogged bool
 }
 
 // NewPCMSampleProvider encodes mono PCM at 8 kHz into 20ms PCMU frames.
@@ -47,6 +50,10 @@ func NewPCMSampleProvider(pcm []int16, sampleRate int) (*PCMSampleProvider, erro
 func (p *PCMSampleProvider) NextSample() (media.Sample, error) {
 	if p.pos >= len(p.pcm) {
 		return media.Sample{}, io.EOF
+	}
+	if !p.firstFrameLogged {
+		p.firstFrameLogged = true
+		latencyLog("first_audio_byte (pcmu)")
 	}
 	end := p.pos + p.frameSize
 	if end > len(p.pcm) {

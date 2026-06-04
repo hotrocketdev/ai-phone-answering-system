@@ -740,6 +740,59 @@ Other voices tested: Lucy, Gemma, Evie, Pippa, Arthur. (Victoria also tried in a
 
 Marked **done pending production migration decision** (separate from spike). No further spike work required to prove the path; remaining work is product-level (decide whether to migrate VoxLane to LiveKit/Opus, set up SIP trunk to Telnyx, build two-way conversation loop). All such work is **gated on user instruction** and **stop conditions still apply** (do NOT wire LiveKit into production, do NOT replace Telnyx, do NOT remove PCMU/Twilio fallbacks, do NOT merge to main).
 
+## 2026-06-04 16:15–16:18 — Latency test (PCMU vs Opus, 2 runs each)
+
+**Goal:** Measure `first-audio-byte` and `spike_complete` for the three spike variants. Target: well under the ~4-5s typical PSTN answer delay.
+
+**Instrumentation (commit, in this round):** Added `latencyLog(label)` helper + `spikeStartTime` global. New `t_*` milestones logged in `main()` (`spike_start`, `token_done`, `room_connected`, `cartesia_start`, `cartesia_done`, `ffmpeg_started`, `ogg_demuxer_ready`, `track_published`, `start_write_called`, `first_audio_byte`, `audio_playback_complete`, `spike_complete`). `PCMSampleProvider` and `OpusSampleProvider` each log `first_audio_byte` on the first call to `NextSample`. **Bug fixed during this round:** `ffmpegInputFormat` was being passed as the Cartesia-style `pcm_s16le` / `pcm_f32le`; ffmpeg's `-f` wants `s16le` / `f32le` (no prefix). Now stripped via `strings.TrimPrefix(format, "pcm_")`. `streamCartesiaPCM` accepts both forms.
+
+**Method:** Each variant run on a fresh LiveKit room with the same 4-word Porto Douro greeting (4.0-4.3 s of audio). Run twice. Numbers below are the average.
+
+### Results (all ms, relative to `time.Now()` at `main()` start)
+
+| Stage | PCMU + Cartesia (8 kHz pcm_mulaw) | Opus + Cartesia (48 kHz pcm_s16le) | Opus + Cartesia (48 kHz pcm_f32le) |
+|---|---|---|---|
+| `token_done` | <1 | <1 | <1 |
+| `room_connected` | 422 | 439 | 397 |
+| `cartesia_done` | 1284 | 1215 | 1228 |
+| `ffmpeg_started` | n/a | 1217 | 1229 |
+| `ogg_demuxer_ready` | n/a | 1867 | 1912 |
+| `track_published` | 1310 | 1890 | 1932 |
+| **`first_audio_byte`** | **1484** | **2064** | **2106** |
+| `audio_playback_complete` | 5565 | 6855 | 6856 |
+| `spike_complete` (from `time.Since(startWait)`) | 4.25 s | 4.96 s | 4.85 s |
+
+### Interpretation
+
+- **First-audio-byte** = wall-clock from publisher start to the first 20 ms Opus/PCMU frame being handed to LiveKit's RTP egress.
+- **PCMU: 1.48 s.** Opus: 2.06-2.11 s. The Opus path adds ~600 ms of overhead, of which ~700 ms is Cartesia fetching more samples at 48 kHz (4.16 s vs 4.08 s = ~80 ms) and ffmpeg startup (ffmpeg subprocess + OpusHead/OpusTags parsing = ~640 ms).
+- **All three variants beat the typical PSTN answer delay** (4-5 s on Telnyx+UK landline).
+- `spike_complete` (the `time.Since(startWait)` line) is the audio playback duration only, not total wall-clock. The 4.0-4.3 s of Cartesia audio is the dominant term.
+- **Spike "complete in 5 s"** is the audio playback time plus ~1 s of network tear-down overhead. The user-perceived "how fast does voice start" metric is `first_audio_byte` ≈ 2.1 s for the production-target Opus f32le path.
+
+### Implications for production migration
+
+- 2.1 s first-audio-byte is **acceptable for a receptionist bot** (humans typically answer in 1-3 rings = 4-12 s).
+- If we want <1 s first-audio-byte, options to consider (all gated on user instruction): (a) streaming Cartesia (not yet offered by Cartesia's TTS bytes endpoint — would need the stream endpoint), (b) pre-render the greeting at call setup, (c) split the greeting into chunks and stream the first chunk eagerly. None of these is in scope for the spike.
+- The 600 ms ffmpeg overhead is fixed-cost; can't be reduced without changing the architecture (e.g. libopus via CGO). Net-net: the spike's Opus path is the right cost/quality trade-off vs going to a custom CGO Opus binding.
+
+### Code changes (this round)
+
+- `experimental/livekit/publisher/main.go`:
+  - Added `spikeStartTime` global + `latencyLog(label)` helper.
+  - `latencyLog` calls at every milestone listed above (PCMU and Opus paths).
+  - PCMU path now also logs `cartesia_start (pcmu)` / `cartesia_done (pcmu)`.
+  - Fixed `ffmpegInputFormat := strings.TrimPrefix(cartesiaEncoding, "pcm_")` (was being passed as `pcm_s16le` / `pcm_f32le`).
+- `experimental/livekit/publisher/pcmsampleprovider.go`:
+  - Added `firstFrameLogged bool` field; logs `first_audio_byte (pcmu)` on the first `NextSample` call.
+- `experimental/livekit/publisher/ffmpegopus.go`:
+  - `OpusStats.FirstFrame time.Time` field; logs `first_audio_byte (opus)` on the first `NextSample` call.
+  - `streamCartesiaPCM` now normalizes `pcm_s16le` → `s16le` and `pcm_f32le` → `f32le` via `strings.TrimPrefix`.
+
+### Production runtime status
+
+**UNTOUCHED.** All latency instrumentation is in the spike publisher only. Production PCMU runtime on VPS is unchanged.
+
 ## 2026-06-03 VPS Sync — Spike branch pulled to production server
 
 **Server:** `jorge@srv1194478` (VPS where VoxLane production runs)

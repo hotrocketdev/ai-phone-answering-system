@@ -26,6 +26,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,6 +64,9 @@ type OpusStats struct {
 	BytesSent  int
 	StartTime  time.Time
 	LastFrame  time.Time
+	// FirstFrame is the wall-clock time of the first NextSample call.
+	// Zero until the first sample is yielded.
+	FirstFrame time.Time
 }
 
 // NewOpusSampleProvider wraps a demuxer (which reads ffmpeg's stdout).
@@ -82,7 +86,16 @@ func (p *OpusSampleProvider) NextSample() (media.Sample, error) {
 	p.mu.Lock()
 	p.stats.FramesSent++
 	p.stats.BytesSent += len(pkt)
-	p.stats.LastFrame = time.Now()
+	now := time.Now()
+	p.stats.LastFrame = now
+	if p.stats.FirstFrame.IsZero() {
+		p.stats.FirstFrame = now
+		// First-frame timestamp recorded; release the lock before
+		// calling latencyLog to keep the critical section short.
+		p.mu.Unlock()
+		latencyLog("first_audio_byte (opus)")
+		return media.Sample{Data: pkt, Duration: OpusFrameDuration}, nil
+	}
 	p.mu.Unlock()
 	return media.Sample{Data: pkt, Duration: OpusFrameDuration}, nil
 }
@@ -289,6 +302,10 @@ func streamSyntheticTone(f *ffmpegProcess, freq float64, durSec float64, amplitu
 // stdin so ffmpeg can finalize the stream. The input sample rate MUST
 // match the rate passed to startFfmpegOpus (inputSampleRate).
 //
+// Accepts both the Cartesia-style "pcm_s16le"/"pcm_f32le" and the
+// ffmpeg-style "s16le"/"f32le" formats — the "pcm_" prefix is stripped
+// before dispatch.
+//
 // This is the Step 5 path: Cartesia HD PCM -> ffmpeg Opus -> LiveKit
 // Opus -> browser. The user hears Cartesia's natural voice through
 // the HD/WebRTC path, bypassing PSTN's 3.4 kHz ceiling.
@@ -296,7 +313,8 @@ func streamCartesiaPCM(f *ffmpegProcess, pcm []int16, format string) error {
 	if len(pcm) == 0 {
 		return fmt.Errorf("cartesia: empty PCM buffer")
 	}
-	switch format {
+	normalized := strings.TrimPrefix(format, "pcm_")
+	switch normalized {
 	case "s16le", "":
 		if err := f.writePCM(pcm); err != nil {
 			return fmt.Errorf("write cartesia PCM s16le: %w", err)
