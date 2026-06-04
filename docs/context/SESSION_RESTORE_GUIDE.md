@@ -151,7 +151,7 @@ python -m http.server 8765
 # Open http://localhost:8765/index.html
 ```
 
-Full procedure: `experimental/livekit/results/BROWSER_AUDIO_TEST_RUNBOOK.md`.
+Full procedure: `docs/experimental/livekit-hd-spike/BROWSER_AUDIO_TEST_RUNBOOK.md`.
 
 ---
 

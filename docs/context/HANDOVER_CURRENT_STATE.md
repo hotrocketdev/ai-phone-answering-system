@@ -2,6 +2,8 @@
 
 Last updated: 2026-05-31
 
+> **2026-06-05 note on path references below**: All `.md` files previously under `experimental/livekit/results/` and `experimental/telnyx/` were moved to `docs/experimental/livekit-hd-spike/` and `docs/experimental/telnyx/` respectively. The historical path references in this document (e.g. `experimental/livekit/results/SPIKE_REPORT.md`) reflect where the files *were* at the time of the entry and are intentionally left unchanged to preserve the timeline. For the current location of any spike file, see `docs/experimental/livekit-hd-spike/README.md` (file index) or `docs/experimental/livekit-hd-spike/SPIKE_REPORT.md` § 6 ("Files in this spike").
+
 ## Short Summary
 
 VoxLane is a multi-tenant AI Voice Receptionist SaaS.

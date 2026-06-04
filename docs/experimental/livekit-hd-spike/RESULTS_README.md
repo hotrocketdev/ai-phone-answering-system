@@ -280,7 +280,7 @@ This is a one-shot demo. For a continuous loop, the publisher would need to be r
 - `experimental/livekit/token-gen/go.mod` — dependencies
 - `experimental/livekit/web-client/index.html` — working browser client
 - `experimental/livekit/web-client/README.md` — updated with run instructions
-- `experimental/livekit/results/README.md` — this file
+- `experimental/livekit/results/README.md` — this file (now at `docs/experimental/livekit-hd-spike/RESULTS_README.md`)
 
 ---
 

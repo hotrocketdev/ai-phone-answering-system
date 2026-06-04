@@ -255,4 +255,4 @@ The next iteration should:
 3. Compare subjective quality with PCMU phone path.
 4. Decide whether to proceed to Phase 2 (two-way conversation).
 
-See `experimental/livekit/results/README.md` section "Opus/HD Follow-Up Plan" for details.
+See `docs/experimental/livekit-hd-spike/RESULTS_README.md` section "Opus/HD Follow-Up Plan" for details.

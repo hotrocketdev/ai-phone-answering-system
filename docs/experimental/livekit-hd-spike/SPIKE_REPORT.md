@@ -30,8 +30,8 @@ The LiveKit HD audio spike is **done and proven**. We can deliver near-human voi
 | ffmpeg-backed Opus provider | `experimental/livekit/publisher/ffmpegopus.go` | ffmpeg subprocess + Ogg demux + libopus 64 kbps VBR audio mode. |
 | Ogg/Opus demuxer | `experimental/livekit/publisher/oggdemuxer.go` | Ogg page demuxer, 3 unit tests pass. |
 | Browser web client | `experimental/livekit/web-client/index.html` | ESM, `livekit-client@2.5.7` from CDN, audio meter, log area. |
-| Runbook | `experimental/livekit/results/BROWSER_AUDIO_TEST_RUNBOOK.md` | 7-step browser test procedure. |
-| Spike results | `experimental/livekit/results/README.md` | Full results incl. sonic-3.5 + latency sections. |
+| Runbook | `docs/experimental/livekit-hd-spike/BROWSER_AUDIO_TEST_RUNBOOK.md` | 7-step browser test procedure. |
+| Spike results | `docs/experimental/livekit-hd-spike/RESULTS_README.md` | Full results incl. sonic-3.5 + latency sections. |
 | Spike design | `docs/context/LIVEKIT_HD_SPIKE_PLAN.md` | 16-section design. |
 | Voice-quality strategy | `docs/context/VOICE_QUALITY_STACK_STRATEGY.md` | Why LiveKit is the only path to HD. |
 | HANDOVER | `docs/context/HANDOVER_CURRENT_STATE.md` | Sections dated 2026-06-03 through 2026-06-04 covering PCMU, G722, noise source, LiveKit design + impl + latency. |
@@ -151,10 +151,11 @@ See `NEXT_STEP_DECISION.md` for the full decision matrix (options A-E) and the r
 | `experimental/livekit/publisher/oggdemuxer.go` | Ogg page demuxer |
 | `experimental/livekit/publisher/.env.example` | All env vars documented with comments |
 | `experimental/livekit/web-client/index.html` | Browser test client |
-| `experimental/livekit/results/README.md` | Full spike results |
-| `experimental/livekit/results/BROWSER_AUDIO_TEST_RUNBOOK.md` | 7-step browser test procedure |
-| `experimental/livekit/results/SPIKE_REPORT.md` | This report |
-| `experimental/livekit/results/NEXT_STEP_DECISION.md` | Next-step decision matrix |
+| `docs/experimental/livekit-hd-spike/RESULTS_README.md` | Full spike results |
+| `docs/experimental/livekit-hd-spike/BROWSER_AUDIO_TEST_RUNBOOK.md` | 7-step browser test procedure |
+| `docs/experimental/livekit-hd-spike/SPIKE_REPORT.md` | This report |
+| `docs/experimental/livekit-hd-spike/NEXT_STEP_DECISION.md` | Next-step decision matrix |
+| `docs/experimental/livekit-hd-spike/PRODUCTION_MIGRATION_RECOMMENDATION.md` | Worker-manager recommendation (Cartesia TTS upgrade on PCMU, defer LiveKit) |
 | `/opt/ai-voice-receptionist/experimental/livekit/.env` (VPS, 0600, gitignored) | Julia voice, sonic-3.5, pcm_f32le, LiveKit Cloud creds, Cartesia key |
 | `/opt/ai-voice-receptionist/experimental/livekit/publisher/publisher-codec.bin` (VPS) | 26.6 MB spike binary (production target = this config) |
 
