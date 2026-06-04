@@ -180,4 +180,4 @@ I think this is a fair trade. The spike was well-scoped, well-documented, and di
 
 ---
 
-*End of report. Branch state: `feat/livekit-hd-spike` at commit `7e43594`, 9 commits ahead of `main`, no production changes.*
+*End of report. Branch state: `feat/livekit-hd-spike` at commit `0d793b8`, on origin. 11 commits ahead of `main`, no production changes. See `docs/experimental/livekit-hd-spike/README.md` for the spike's file index; `docs/experimental/livekit-hd-spike/SPIKE_REPORT.md` for the full technical report.*
