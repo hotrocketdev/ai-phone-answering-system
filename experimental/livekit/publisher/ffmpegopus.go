@@ -111,32 +111,51 @@ type ffmpegProcess struct {
 }
 
 // startFfmpegOpus launches ffmpeg with PCM-on-stdin, Opus-on-stdout.
-// `inputSampleRate` is the rate of the PCM arriving on stdin (e.g. 24000
-// for Cartesia HD or 48000 for synthetic tone). ffmpeg resamples to
-// the Opus native rate of 48000 internally.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - inputSampleRate: rate of the PCM arriving on stdin (e.g. 24000
+//     for Cartesia at 24 kHz, 48000 for synthetic tone). ffmpeg
+//     resamples to the Opus native rate of 48000 internally.
+//   - inputEncoding: PCM byte format. "s16le" or "f32le".
+//   - inputFormat: ffmpeg `-f` value matching the byte layout. One of
+//     "s16le" (int16) or "f32le" (float32). For f32le, ffmpeg needs
+//     "-f f32le" and the floats are in [-1, 1].
+//   - filterChain: full `-af` argument. Pass "none" to skip filters.
+//   - bitrate: Opus target bitrate in bps.
+//   - application: Opus application mode ("audio" or "voip").
+//
 // Reads stderr in a goroutine and logs non-empty lines.
-func startFfmpegOpus(ctx context.Context, inputSampleRate int) (*ffmpegProcess, error) {
+func startFfmpegOpus(ctx context.Context, inputSampleRate int, inputFormat, filterChain string, bitrate int, application string) (*ffmpegProcess, error) {
+	// ffmpeg input format. s16le = signed 16-bit LE PCM. f32le = 32-bit
+	// float LE PCM, in [-1, 1]. Both decode to s16 internally for Opus.
+	ffmpegInputFormat := inputFormat
+	if ffmpegInputFormat == "" {
+		ffmpegInputFormat = "s16le"
+	}
 	args := []string{
 		"-hide_banner",
 		"-loglevel", "error",
-		"-f", "s16le",
+		"-f", ffmpegInputFormat,
 		"-ar", fmt.Sprintf("%d", inputSampleRate),
 		"-ac", fmt.Sprintf("%d", OpusChannels),
 		"-i", "pipe:0", // PCM from stdin
-		// Highpass + anlmdn (non-local means). The highpass removes
-		// low-frequency rumble; anlmdn is ffmpeg's best no-model
-		// denoiser and is often more effective than afftdn for
-		// broadband noise from TTS sources. Strength 0.0001 is
-		// 10x the default — aggressive but still preserves speech.
-		"-af", "highpass=f=80,anlmdn=s=0.0001:p=0.004:r=0.012",
+	}
+	// Optional audio filter chain. The Step 4 investigation lets the
+	// caller vary this one variable at a time (e.g. lowpass 16k, lowpass
+	// 14k, no filter, etc.). Use "none" to skip filters entirely.
+	if filterChain != "" && filterChain != "none" {
+		args = append(args, "-af", filterChain)
+	}
+	args = append(args,
 		"-c:a", "libopus",
-		"-application", "audio",
-		"-b:a", fmt.Sprintf("%d", OpusBitrate),
+		"-application", application,
+		"-b:a", fmt.Sprintf("%d", bitrate),
 		"-vbr", "on",
 		"-compression_level", "10",
 		"-f", "opus", // Ogg Opus on stdout
 		"pipe:1",
-	}
+	)
 	cctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(cctx, "ffmpeg", args...)
 	cmd.Env = append(os.Environ(), "AV_LOG_FORCE_NOCOLOR=1")
@@ -184,13 +203,33 @@ func startFfmpegOpus(ctx context.Context, inputSampleRate int) (*ffmpegProcess, 
 	}, nil
 }
 
-// writePCM writes a PCM int16 buffer (48 kHz mono) to ffmpeg's stdin.
+// writePCM writes a PCM int16 buffer to ffmpeg's stdin as s16le bytes
+// (little-endian int16). For f32le, see writePCMf32.
 func (f *ffmpegProcess) writePCM(pcm []int16) error {
 	buf := make([]byte, len(pcm)*2)
 	for i, s := range pcm {
 		// little-endian int16
 		buf[2*i] = byte(s & 0xFF)
 		buf[2*i+1] = byte((s >> 8) & 0xFF)
+	}
+	_, err := f.stdin.Write(buf)
+	return err
+}
+
+// writePCMf32 writes a PCM int16 buffer to ffmpeg's stdin as f32le bytes
+// (little-endian float32 in [-1, 1]). Used for the pcm_f32le variant.
+func (f *ffmpegProcess) writePCMf32(pcm []int16) error {
+	buf := make([]byte, len(pcm)*4)
+	for i, s := range pcm {
+		// int16 → float32 in [-1, 1]
+		v := float32(s) / 32767.0
+		if v > 1.0 {
+			v = 1.0
+		} else if v < -1.0 {
+			v = -1.0
+		}
+		u := math.Float32bits(v)
+		binary.LittleEndian.PutUint32(buf[4*i:4*i+4], u)
 	}
 	_, err := f.stdin.Write(buf)
 	return err
@@ -227,7 +266,7 @@ func generateSinePCM48k(freq float64, durSec float64, amplitude float64) []int16
 	return out
 }
 
-// SyntheticToneStreamer feeds a synthetic 440 Hz tone to ffmpeg in
+// streamSyntheticTone feeds a synthetic 440 Hz tone to ffmpeg in
 // real-time. It is a thin wrapper that writes the sine wave to ffmpeg's
 // stdin at the correct cadence (1× real-time so the audio plays for
 // `durSec` seconds).
@@ -245,20 +284,29 @@ func streamSyntheticTone(f *ffmpegProcess, freq float64, durSec float64, amplitu
 	return nil
 }
 
-// streamCartesiaPCM writes a Cartesia HD PCM buffer (s16le, mono, at
-// the rate Cartesia returned) to ffmpeg's stdin and closes stdin so
-// ffmpeg can finalize the stream. The input sample rate MUST match
-// the rate passed to startFfmpegOpus (inputSampleRate).
+// streamCartesiaPCM writes a Cartesia HD PCM buffer (mono) to ffmpeg's
+// stdin in the requested byte format ("s16le" or "f32le") and closes
+// stdin so ffmpeg can finalize the stream. The input sample rate MUST
+// match the rate passed to startFfmpegOpus (inputSampleRate).
 //
 // This is the Step 5 path: Cartesia HD PCM -> ffmpeg Opus -> LiveKit
 // Opus -> browser. The user hears Cartesia's natural voice through
 // the HD/WebRTC path, bypassing PSTN's 3.4 kHz ceiling.
-func streamCartesiaPCM(f *ffmpegProcess, pcm []int16) error {
+func streamCartesiaPCM(f *ffmpegProcess, pcm []int16, format string) error {
 	if len(pcm) == 0 {
 		return fmt.Errorf("cartesia: empty PCM buffer")
 	}
-	if err := f.writePCM(pcm); err != nil {
-		return fmt.Errorf("write cartesia PCM: %w", err)
+	switch format {
+	case "s16le", "":
+		if err := f.writePCM(pcm); err != nil {
+			return fmt.Errorf("write cartesia PCM s16le: %w", err)
+		}
+	case "f32le":
+		if err := f.writePCMf32(pcm); err != nil {
+			return fmt.Errorf("write cartesia PCM f32le: %w", err)
+		}
+	default:
+		return fmt.Errorf("cartesia: unsupported stream format %q (use s16le or f32le)", format)
 	}
 	if err := f.closeStdin(); err != nil {
 		return fmt.Errorf("close ffmpeg stdin: %w", err)

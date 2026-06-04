@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -56,6 +57,19 @@ func main() {
 	voiceID := os.Getenv("CARTESIA_VOICE_ID")
 	modelID := os.Getenv("CARTESIA_MODEL")
 	greeting := os.Getenv("SPIKE_GREETING_TEXT")
+
+	// Sonic-3.5 optimisation investigation — STEP 2 / 3 / 4
+	// env vars. Defaults reproduce the previous (working but noisy)
+	// path. See HANDOVER_CURRENT_STATE.md 2026-06-04 entry.
+	cartesiaRate := getenvInt("SPIKE_CARTESIA_RATE", 48000)
+	cartesiaEncoding := getenv("SPIKE_CARTESIA_ENCODING", "pcm_s16le")
+	ffmpegInputFormat := cartesiaEncoding // ffmpeg -f flag mirrors the encoding
+	filterChain := getenv("SPIKE_FILTER_CHAIN", "highpass=f=80,lowpass=f=12000,anlmdn=s=0.0001:p=0.004:r=0.012")
+	bitrate := getenvInt("SPIKE_OPUS_BITRATE", 64000)
+	opusApplication := getenv("SPIKE_OPUS_APPLICATION", "audio")
+	if os.Getenv("SPIKE_NO_FILTER") == "true" {
+		filterChain = "none"
+	}
 
 	// 1. Token
 	token, err := mintToken(apiKey, apiSecret, roomName, identity)
@@ -131,7 +145,7 @@ func main() {
 		var pcm []int16
 		if cartesiaKey != "" && greeting != "" {
 			log.Printf("synthesizing via Cartesia: voice=%s model=%s rate=%d", voiceID, modelID, sampleRate)
-			pcm, err = Synthesize(cartesiaKey, greeting, voiceID, modelID, sampleRate)
+			pcm, err = Synthesize(cartesiaKey, greeting, voiceID, modelID, "pcm_s16le", sampleRate)
 			if err != nil {
 				log.Fatalf("cartesia: %v", err)
 			}
@@ -149,31 +163,32 @@ func main() {
 		}
 		provider = pcmuProv
 	case "opus":
-		// Opus path (HD follow-up): PCM (s16le, mono) → ffmpeg → Ogg Opus
-		// → demux → raw Opus packets → LiveKit.
+		// Opus path (HD follow-up): PCM (s16le or f32le, mono) → ffmpeg
+		// → Ogg Opus → demux → raw Opus packets → LiveKit.
 		//
 		// PCM source:
 		//   - If CARTESIA_API_KEY and SPIKE_GREETING_TEXT are set, use
-		//     Cartesia HTTP TTS to synthesize HD PCM (48 kHz s16le mono,
-		//     the Opus native rate — skips the ffmpeg resample step
-		//     which had audible artefacts in the first iteration).
+		//     Cartesia HTTP TTS to synthesize HD PCM at the rate +
+		//     encoding specified by SPIKE_CARTESIA_RATE +
+		//     SPIKE_CARTESIA_ENCODING.
 		//   - Otherwise fall back to a synthetic 440 Hz tone at 48 kHz
 		//     for codec-only verification.
 		if cartesiaKey != "" && greeting != "" {
-			// Cartesia HD path — Step 5 of the spike plan.
-			// 48 kHz mono s16le = Opus native rate, no resample needed.
-			const cartesiaRate = 48000
-			log.Printf("synthesizing via Cartesia HD: voice=%s model=%s rate=%d greeting=%q",
-				voiceID, modelID, cartesiaRate, greeting)
-			cartesiaPCM, err := Synthesize(cartesiaKey, greeting, voiceID, modelID, cartesiaRate)
+			// Cartesia HD path. The rate + encoding are configurable
+			// for the sonic-3.5 optimisation investigation.
+			log.Printf("synthesizing via Cartesia HD: voice=%s model=%s rate=%d encoding=%s filter=%q bitrate=%d app=%s greeting=%q",
+				voiceID, modelID, cartesiaRate, cartesiaEncoding, filterChain, bitrate, opusApplication, greeting)
+			cartesiaPCM, err := Synthesize(cartesiaKey, greeting, voiceID, modelID, cartesiaEncoding, cartesiaRate)
 			if err != nil {
 				log.Fatalf("cartesia: %v", err)
 			}
-			log.Printf("cartesia_pcm samples=%d duration=%.2fs rate=%d channels=1",
-				len(cartesiaPCM), float64(len(cartesiaPCM))/float64(cartesiaRate), cartesiaRate)
+			log.Printf("cartesia_pcm samples=%d duration=%.2fs rate=%d encoding=%s",
+				len(cartesiaPCM), float64(len(cartesiaPCM))/float64(cartesiaRate), cartesiaRate, cartesiaEncoding)
 			// Diagnostic: if SPIKE_SAVE_PCM is set, also save the raw
 			// Cartesia PCM to a WAV file so the user can listen to it
-			// directly and compare to the Opus output.
+			// directly and compare to the Opus output. The wav uses
+			// the actual synthesis sample rate; the Opus path will
+			// resample to 48k internally.
 			if wavPath := os.Getenv("SPIKE_SAVE_PCM"); wavPath != "" {
 				if err := savePCMAsWAV(cartesiaPCM, cartesiaRate, wavPath); err != nil {
 					log.Printf("WARN: save PCM as WAV: %v", err)
@@ -181,12 +196,13 @@ func main() {
 					log.Printf("cartesia_pcm_saved path=%s", wavPath)
 				}
 			}
-			ff, err := startFfmpegOpus(context.Background(), cartesiaRate)
+			ff, err := startFfmpegOpus(context.Background(), cartesiaRate, ffmpegInputFormat, filterChain, bitrate, opusApplication)
 			if err != nil {
 				log.Fatalf("ffmpeg start: %v", err)
 			}
-			log.Printf("ffmpeg_started=true pid=%d input_rate=%d", ff.cmd.Process.Pid, cartesiaRate)
-			if err := streamCartesiaPCM(ff, cartesiaPCM); err != nil {
+			log.Printf("ffmpeg_started=true pid=%d input_rate=%d input_format=%s filter=%q bitrate=%d app=%s",
+				ff.cmd.Process.Pid, cartesiaRate, ffmpegInputFormat, filterChain, bitrate, opusApplication)
+			if err := streamCartesiaPCM(ff, cartesiaPCM, ffmpegInputFormat); err != nil {
 				ff.kill()
 				log.Fatalf("stream cartesia PCM: %v", err)
 			}
@@ -217,11 +233,11 @@ func main() {
 			goto opusProviderReady
 		}
 		// Synthetic-tone fallback (no Cartesia key).
-		ff, err := startFfmpegOpus(context.Background(), OpusSampleRate)
+		ff, err := startFfmpegOpus(context.Background(), OpusSampleRate, "s16le", filterChain, bitrate, opusApplication)
 		if err != nil {
 			log.Fatalf("ffmpeg start: %v", err)
 		}
-		log.Printf("ffmpeg_started=true pid=%d input_rate=%d (synthetic tone)", ff.cmd.Process.Pid, OpusSampleRate)
+		log.Printf("ffmpeg_started=true pid=%d input_rate=%d (synthetic tone) filter=%q", ff.cmd.Process.Pid, OpusSampleRate, filterChain)
 		if err := streamSyntheticTone(ff, 440.0, 5.0, 0.3); err != nil {
 			ff.kill()
 			log.Fatalf("stream synthetic tone: %v", err)
@@ -357,6 +373,21 @@ func getenv(name, def string) string {
 		return v
 	}
 	return def
+}
+
+// getenvInt reads an env var as an int, returning def if unset or
+// unparseable.
+func getenvInt(name string, def int) int {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		log.Printf("WARN: %s=%q not an int, using default %d", name, v, def)
+		return def
+	}
+	return n
 }
 
 // ensure fmt import is used
