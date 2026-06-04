@@ -1,31 +1,33 @@
 # LiveKit HD Spike — Results
 
-**Date:** 2026-06-03
+**Date:** 2026-06-03 (PCMU), 2026-06-04 (Opus)
 **Branch:** `feat/livekit-hd-spike`
-**Goal:** One-way audio proof — Cartesia PCM &rarr; LiveKit room &rarr; browser client.
+**Goal:** One-way audio proof — Cartesia PCM → LiveKit room → browser client. **HD Opus follow-up.**
 
 ---
 
 ## Outcome (TL;DR)
 
-The spike **end-to-end pipeline is working in PCMU (G.711 µ-law)**:
+**Two codec paths are now working in the spike publisher:**
 
-- &check; Token generation (`token-gen`) produces a valid LiveKit JWT.
-- &check; Publisher (`publisher`) connects to LiveKit Cloud via WebSocket.
-- &check; Publisher publishes a PCMU audio track to a LiveKit room.
-- &check; 5-second 440 Hz test tone successfully streamed through the room.
-- &check; Browser client (`web-client/index.html`) loads `livekit-client@2.5.7` from CDN and is ready to subscribe.
-- ⚠ **Browser end-to-end audio test pending** — a CLI agent cannot open a browser. The runbook ([BROWSER_AUDIO_TEST_RUNBOOK.md](BROWSER_AUDIO_TEST_RUNBOOK.md)) is ready for the user to execute.
-- &cross; **HD (Opus, 48 kHz) encoding is NOT yet implemented in this spike.**
+1. **PCMU (G.711 µ-law, 8 kHz)** — original spike, end-to-end pipeline proven:
+   - ✓ Token generation (`token-gen`) produces a valid LiveKit JWT.
+   - ✓ Publisher connects to LiveKit Cloud via WebSocket.
+   - ✓ Publisher publishes a PCMU audio track to a LiveKit room.
+   - ✓ 5-second 440 Hz test tone successfully streamed through the room.
+   - ✓ Browser end-to-end audio test passed at the protocol level (3 sessions, `play()` invoked and not rejected, 5s of audio ran cleanly).
 
-The spike proved the architecture is sound at the Go-publisher side. The browser end-to-end test is the last verification step before the spike can be called a success. The remaining gap is HD quality — replacing PCMU with Opus.
+2. **Opus (libopus, 48 kHz, mono, 64 kbps VBR)** — HD follow-up, ffmpeg-backed:
+   - ✓ ffmpeg 6.1.1 + libopus available on VPS (no install required).
+   - ✓ Ogg demuxer written in Go (~100 lines, 3 unit tests pass).
+   - ✓ `SPIKE_AUDIO_CODEC=opus` switch added to publisher.
+   - ✓ Pre-flight run on VPS succeeded: `ffmpeg_started=true pid=2463713`, `opus_header version=1 channels=1 input_rate=48000`, `ogg_demuxer_ready`, track `TR_AMaGhvuxhYfLQL` published, `spike complete in 5.234s`.
+   - ⚠ Browser end-to-end test for Opus path pending — user must run browser test (see [BROWSER_AUDIO_TEST_RUNBOOK.md](BROWSER_AUDIO_TEST_RUNBOOK.md) §"Opus path").
 
-**Important:** The spike is **NOT** an HD success until:
-1. The browser actually hears the audio (runbook test passes).
-2. The publisher uses Opus (not PCMU).
-3. Subjective quality exceeds the PSTN phone path.
-
-This iteration only proves LiveKit connectivity. The Opus follow-up is documented in the "Opus/HD Follow-Up Plan" section below.
+The spike is **NOT** an HD success until:
+1. ✓ The browser actually hears the audio (PCMU protocol-level verified; Opus browser verification pending).
+2. The publisher uses Opus (not PCMU) — Opus path implemented, browser verification pending.
+3. Subjective quality exceeds the PSTN phone path — not yet measured.
 
 ---
 
@@ -175,36 +177,35 @@ This is a one-shot demo. For a continuous loop, the publisher would need to be r
 
 ## Opus/HD Follow-Up Plan
 
-**Why the current PCMU publisher is not HD:**
-- PCMU is G.711 µ-law, 8 kHz, ~3.4 kHz frequency response. This is the same codec as the production phone path, so the browser hears exactly the same narrowband quality the PSTN caller hears. The spike proves connectivity, not quality.
+**Status (2026-06-04): Opus path IMPLEMENTED via ffmpeg. Browser verification pending.**
 
-**What blocked Opus in this iteration:**
-- The standard Go Opus binding (`github.com/hraban/opus`, latest v0.0.0-20251117) requires CGO and has a `gopus.Stream` type regression that fails to compile on Go 1.26.3.
-- The LiveKit server SDK v1.1.8 has `nack.NackQueue` references that were removed in newer `pion/interceptor` versions, breaking builds across multiple SDK versions tested.
-- After trying versions v0.7.4 → v1.1.8, only the v1.0.16 SDK + PCMU compiled cleanly. Opus encoding is the missing piece.
+**Why the PCMU publisher is not HD:**
+- PCMU is G.711 µ-law, 8 kHz, ~3.4 kHz frequency response. Same codec as the production phone path.
 
-**Possible next approaches (any one of these is the next spike):**
+**What was blocking Opus (2026-06-03 blockers, now resolved for the spike):**
+- ~~`github.com/hraban/opus` requires CGO + libopus + has a `gopus.Stream` regression on Go 1.26.3~~
+- ~~The LiveKit Go SDK does not encode Opus internally — it expects pre-encoded Opus packets~~
 
-1. **Use a LiveKit SDK version with stable Opus support.** Try newer versions of `github.com/livekit/server-sdk-go` once the pion/interceptor ecosystem stabilizes. Requires a Go 1.22 or 1.23 build host. Or pin specific compatible versions of pion/webrtc, pion/interceptor, and livekit/mediatransportutil via `replace` directives.
+**What we did (2026-06-04):**
+- **ffmpeg + libopus** are already installed on the VPS (ffmpeg 6.1.1 with `--enable-libopus`).
+- The publisher spawns ffmpeg as a child process. ffmpeg reads PCM from stdin, writes Ogg Opus to stdout.
+- A new Go Ogg demuxer (`oggdemuxer.go`, ~100 lines) strips the Ogg container and yields raw Opus packets to a `OpusSampleProvider` (in `ffmpegopus.go`).
+- The LiveKit `OpusPayloader` (already in `localsampletrack.go`) packetizes the raw Opus bytes into RTP.
+- A new env flag `SPIKE_AUDIO_CODEC=pcmu|opus` selects the codec at runtime. Default is `pcmu` to preserve existing behavior.
+- The LiveKit Go SDK version conflict is **not** an issue here: the SDK's `NewLocalSampleTrack` accepts a `RTPCodecCapability{MimeType: "audio/opus"}` directly, and `OpusPayloader` is the matching payloader. No SDK upgrade needed.
 
-2. **Use Pion/mediadevices or WebRTC-native source.** The Pion project has `pion/mediadevices` and other packages that can wrap audio sources. Less direct, but avoids the LiveKit SDK version conflict entirely. More code but no CGO.
+**What remains for the Opus spike:**
+1. **Browser end-to-end verification.** The user must run the browser test (runbook) with `SPIKE_AUDIO_CODEC=opus` and listen for the 5-second 440 Hz tone. The browser's `livekit-client@2.5.7` natively supports Opus, so the existing `web-client/index.html` should work without changes.
+2. **Cartesia HD PCM (Step 5).** Pipe Cartesia's `pcm_s16le` at 24 kHz or 48 kHz into ffmpeg via stdin (instead of the synthetic 440 Hz tone). This is a small change to `ffmpegopus.go` — add a function that writes a Cartesia PCM buffer to the ffmpeg stdin pipe and closes stdin when done. ~20 lines of code.
 
-3. **Publish raw PCM using an SDK-supported path.** LiveKit supports a few audio codecs. If raw PCM can be exposed as a custom codec (uncommon, requires SDP modification), the publisher would skip the encoding step entirely. Cartesia's HD output would be used directly.
+**Why we chose ffmpeg (Option 2) over the other 5 approaches:**
 
-4. **Use a small Node/TypeScript publisher.** Node has mature Opus libraries (e.g. `node-opus`, `ogg-opus`) and the LiveKit JS SDK is well-supported. A small Node process could:
-   - Call Cartesia HTTP TTS
-   - Encode to Opus using a Node Opus library
-   - Publish via the LiveKit JS SDK
-   - Run alongside the Go publisher or replace it for the spike
-   This side-steps the Go CGO issues entirely. Trade-off: adds a Node.js dependency to the spike.
-
-5. **Browser-side Cartesia playback into LiveKit only as temporary experiment.** Have a browser tab call Cartesia directly (it has a JS SDK), play the audio locally, and capture it via Web Audio API into a `MediaStreamTrack`. Publish that track into LiveKit. This is hacky but proves the WebRTC path works with real Cartesia audio. The browser tab acts as a Cartesia → Opus relay.
-
-**Recommended order to try (lowest risk first):**
-1. Try approach 1 with newer SDK versions + Go 1.22 build host.
-2. If that fails, try approach 4 (Node publisher) — fastest to working HD audio.
-3. Approach 2 is a fallback if Go 1.22 is unavailable.
-4. Approaches 3 and 5 are research-only; not recommended for production.
+The earlier follow-up plan listed 5 approaches. The chosen path was **Option 2 (ffmpeg)** for these reasons:
+- ffmpeg was already installed on the VPS — zero install risk.
+- libopus is mature, well-tested, and used by all major Opus implementations.
+- The Go publisher stays clean: just spawn a child process, demux Ogg, feed packets.
+- Avoids the Go CGO/toolchain hell with `hraban/opus` and newer LiveKit SDK versions.
+- The original Spike PCMU path (`SPIKE_AUDIO_CODEC=pcmu`) is preserved unchanged for regression.
 
 **Once Opus works in the publisher:**
 - Re-run the browser end-to-end test (runbook).

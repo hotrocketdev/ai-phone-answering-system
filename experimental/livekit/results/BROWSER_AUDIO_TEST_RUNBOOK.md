@@ -1,21 +1,21 @@
 # Browser Audio Test Runbook — LiveKit HD Spike
 
-**Date:** 2026-06-03
+**Date:** 2026-06-03 (PCMU), 2026-06-04 (Opus)
 **Branch:** `feat/livekit-hd-spike`
-**Scope:** End-to-end browser subscription verification for the LiveKit room.
+**Scope:** End-to-end browser subscription verification for the LiveKit room. Covers both PCMU and Opus paths.
 
 ---
 
 ## TL;DR
 
 You (the user) need to:
-1. Open a browser to `experimental/livekit/web-client/index.html`.
+1. Open a browser to `experimental/livekit/web-client/index.html` (or `http://localhost:8765/index.html`).
 2. Generate a listener token with the `token-gen` CLI.
 3. Paste the URL + token into the browser, click Connect.
-4. Start the publisher.
+4. Start the publisher with `SPIKE_AUDIO_CODEC=pcmu` (original) **or** `SPIKE_AUDIO_CODEC=opus` (HD).
 5. Listen for the 5-second 440 Hz test tone.
 
-The spike is **PCMU only** (not HD/Opus). Hearing the test tone proves the LiveKit pipeline. It does **not** prove near-human voice quality — that is the next spike iteration.
+**PCMU** proves the LiveKit pipeline. **Opus** is the HD follow-up that proves the architecture can carry near-human voice quality.
 
 ---
 
@@ -33,6 +33,17 @@ The spike is **PCMU only** (not HD/Opus). Hearing the test tone proves the LiveK
 ---
 
 ## Step-by-step
+
+### Step 0 — Choose a codec
+
+The publisher supports two codecs via `SPIKE_AUDIO_CODEC`:
+
+| Codec | Quality | Frequency response | Pipeline | When to use |
+|---|---|---|---|---|
+| `pcmu` (default) | Narrowband | ~3.4 kHz | Pure Go, no deps | Original spike baseline |
+| `opus` (HD) | Wideband / fullband | up to 20 kHz | ffmpeg child process | HD voice test |
+
+**For HD verification (Opus), use `SPIKE_AUDIO_CODEC=opus`.** The browser's `livekit-client@2.5.7` library supports Opus natively, so the web client does not change.
 
 ### Step 1 — Start the web client
 
@@ -84,11 +95,44 @@ The status should change to "Connecting…" → "Connected to room: voxlane-hd-s
 
 ### Step 4 — Start the publisher
 
-In another terminal, from the spike root:
-
+**PCMU spike (default, original test):**
 ```bash
 cd experimental/livekit/publisher
-go run .
+go run .              # or: SPIKE_WAIT_FOR_SUBSCRIBER=true go run .
+```
+
+**Opus HD spike (HD follow-up):**
+```bash
+cd experimental/livekit/publisher
+SPIKE_AUDIO_CODEC=opus SPIKE_WAIT_FOR_SUBSCRIBER=true go run .
+```
+
+**Expected output (PCMU spike):**
+```
+token generated (room=voxlane-hd-spike identity=voxlane-publisher ttl=1h)
+connected to room=RM_… as voxlane-publisher
+spike_audio_codec=pcmu
+falling back to 5s 440 Hz test tone at 8 kHz
+track published: id=TR_… name= mime=
+spike complete in 5.19s
+```
+
+**Expected output (Opus spike):**
+```
+token generated (room=voxlane-hd-spike identity=voxlane-publisher ttl=1h)
+connected to room=RM_… as voxlane-publisher
+spike_audio_codec=opus
+ffmpeg_started=true pid=…
+opus_header version=1 channels=1 input_rate=48000 pre_skip=312 gain=0 mapping_family=0
+ogg_demuxer_ready (OpusHead + OpusTags consumed)
+track published: id=TR_… name= mime=
+spike complete in 5.23s
+```
+
+**On the VPS, use the prebuilt binary** instead of `go run`:
+```bash
+cd /opt/ai-voice-receptionist/experimental/livekit/publisher
+SPIKE_AUDIO_CODEC=opus SPIKE_WAIT_FOR_SUBSCRIBER=true ./publisher-codec.bin
 ```
 
 **Default behavior (one-shot):** the publisher immediately starts publishing the 5-second test tone. The browser should subscribe and start playing.

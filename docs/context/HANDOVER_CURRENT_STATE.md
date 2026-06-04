@@ -575,6 +575,53 @@ This iteration adds the **user-facing browser test procedure** and a small publi
 
 **Next step:** Opus/HD follow-up spike (in progress). Replacing PCMU (8 kHz, ~3.4 kHz audio bandwidth) with Opus (48 kHz, ~20 kHz audio bandwidth) is the actual HD quality work.
 
+## 2026-06-04 — Opus HD path IMPLEMENTED (ffmpeg-backed, browser verification pending)
+
+**Commit:** `36085c9` — "feat(spike): ffmpeg-backed Opus HD publisher path" (pushed)
+
+**What was done:**
+1. **Step 1 — Verified ffmpeg on VPS**: `ffmpeg 6.1.1` with `--enable-libopus` already installed. No install needed.
+2. **Step 2 — Confirmed LiveKit Opus requirements**: `OpusPayloader` (in `localsampletrack.go:475-476`) just passes raw Opus bytes through. `media.Sample.Data` must be raw Opus packets, not Ogg/WebM containers, not RTP. ffmpeg's `-f opus` muxer outputs **Ogg Opus** (starts with `OggS` capture pattern), so demuxing is required.
+3. **Step 3 — Implemented ffmpeg-backed Opus publisher**:
+   - `experimental/livekit/publisher/ffmpegopus.go` (~250 lines): ffmpeg subprocess wrapper, `OpusSampleProvider` (implements `lksdk.SampleProvider`), 48 kHz sine generator.
+   - `experimental/livekit/publisher/oggdemuxer.go` (~140 lines): minimal Ogg page demuxer with OpusHead validation.
+   - `experimental/livekit/publisher/oggdemuxer_test.go` (3 tests, all pass).
+   - `experimental/livekit/publisher/main.go`: new `SPIKE_AUDIO_CODEC=pcmu|opus` env flag. Default is `pcmu` to preserve existing behavior.
+4. **Step 4 — Pre-flight test on VPS** (`SPIKE_AUDIO_CODEC=opus ./publisher-codec.bin`):
+   ```
+   spike_audio_codec=opus
+   ffmpeg_started=true pid=2463713
+   opus_header version=1 channels=1 input_rate=48000 pre_skip=312 gain=0 mapping_family=0
+   ogg_demuxer_ready (OpusHead + OpusTags consumed)
+   track published: id=TR_AMaGhvuxhYfLQL
+   spike complete in 5.234s
+   ```
+   Track SIDs and room SIDs recorded in [results/README.md](../../experimental/livekit/results/README.md).
+5. **Tests**: 5 PCMU tests + 3 Ogg demuxer tests = **8/8 passing** (verified on both local PC and VPS).
+
+**Pipeline (Opus path):**
+```
+synthetic 440 Hz sine (or Cartesia PCM in Step 5)
+  → ffmpeg child process (libopus, application=audio, 64 kbps VBR, compression_level=10)
+  → Ogg Opus on stdout
+  → Go Ogg demuxer (new ~140 lines)
+  → raw Opus packets
+  → OpusSampleProvider (NextSample yields media.Sample at 20ms cadence)
+  → LiveKit OpusPayloader (already in SDK)
+  → RTP Opus packets to LiveKit Cloud
+  → browser (livekit-client@2.5.7 supports Opus natively)
+```
+
+**Production runtime status:** UNTOUCHED. All work on `feat/livekit-hd-spike` branch. PCMU production path on VPS still locked. `SPIKE_AUDIO_CODEC=pcmu` is the default and matches previous behavior.
+
+**What remains for the Opus spike:**
+1. **Browser end-to-end verification** (Step 6 of plan). User must run:
+   - `SPIKE_AUDIO_CODEC=opus SPIKE_WAIT_FOR_SUBSCRIBER=true ./publisher-codec.bin` on VPS
+   - Listen for 5s 440Hz tone in browser
+   - Confirm browser log shows `track subscribed: audio TR_…`
+2. **Cartesia HD PCM** (Step 5 of plan). Pipe Cartesia's `pcm_s16le` at 24 kHz or 48 kHz into ffmpeg via stdin (instead of the synthetic 440 Hz tone). ~20 lines of code change to `ffmpegopus.go`. Deferred until browser Opus test passes.
+3. **Subjective quality comparison** — not yet measured. The Opus spike will be a real HD test, not just a connectivity test.
+
 ## 2026-06-03 VPS Sync — Spike branch pulled to production server
 
 **Server:** `jorge@srv1194478` (VPS where VoxLane production runs)
