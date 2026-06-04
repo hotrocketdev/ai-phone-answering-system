@@ -793,6 +793,52 @@ Marked **done pending production migration decision** (separate from spike). No 
 
 **UNTOUCHED.** All latency instrumentation is in the spike publisher only. Production PCMU runtime on VPS is unchanged.
 
+## 2026-06-04 18:00-18:20 — Two-way conversation pipeline (code-complete, VPS-proven)
+
+**Goal (from `NEXT_STEP_DECISION.md` Option A):** server SDK subscribes to a remote Opus track, fires a first-frame reply (tone or fixed Cartesia greeting). Browser-side two-way client is a separate HTML file.
+
+**Code added (commit `5fed0b5`, branch `feat/livekit-hd-spike`):**
+
+- `experimental/livekit/conversation-worker/` — new Go module:
+  - `worker.go` (worker struct, `run()`, callbacks, `runInboundReader` per-track goroutine, `sync.Once` reply trigger, `publishOutboundTrack` / `publishTone` / `publishCartesia` / `publishPCMAsOpus`, `mintToken` with `Identity` claim)
+  - `main.go` (`spikeStartTime` + `latencyLog` + env loader)
+  - `inbound.go` (`opusSampleBuilder` wrapping `samplebuilder.New(200, &codecs.OpusPacket{}, 48000)`)
+  - `outbound.go` (channel-backed `outboundProvider` `SampleProvider`)
+  - `ffmpegopus.go` (`ffmpegProcess` + `startFfmpegOpus` + `streamPCM` + `writePCMInt16` + `writePCMFloat32` + `kill()`; strips `pcm_` prefix from input format)
+  - `ogg.go` (`oggOpusReader` OggS demuxer + `opusHead` struct + `ParseOpusHead`)
+  - `cartesia.go` (`Synthesize` HTTP TTS client + `decodeCartesiaPCM` for `s16le`/`f32le`/`mulaw`/`alaw`)
+  - `tone.go` (sine generator, 0.3 × 32767 amplitude)
+  - `go.mod` (livekit/server-sdk-go v1.0.16, livekit/protocol v1.9.5, pion/webrtc/v3 v3.2.44, pion/rtp v1.8.5, joho/godotenv v1.5.1)
+  - `.env.example` + `.gitignore`
+- `experimental/livekit/web-client/two-way.html` — new browser client using `livekit-client@2.5.7` from CDN; mic publish + alex remote audio + 32-bar AnalyserNode VU meter + event log + 4 state pills. Original one-way `index.html` is **UNTOUCHED**.
+
+**VPS test (commit `5fed0b5`, room `voxlane-conv-test-shared`):**
+
+| t | event | meaning |
+|---|---|---|
+| +  302 ms | `room_connected` | worker joined |
+| +  322 ms | `outbound_track_published` | empty reply track visible to browsers |
+| +   ~4 s | publisher joined | spike publisher (mic simulation) |
+| + 6814 ms | `inbound_track_subscribed` | LiveKit told the worker about the publisher's track |
+| + 6837 ms | `first_inbound_frame` (255 B Opus, 20 ms) | first decoded frame from publisher arrived |
+| + 6837 ms | `outbound_reply_start: mode=tone_on_first_frame` | `sync.Once` fired the reply |
+| + 6838 ms | `ffmpeg_started=true pid=2590523` | PCM → Ogg Opus encoder running |
+| + ~+1 s | `opus_header` parsed | OggOpusReader consumed `OpusHead` |
+| + 6.8 s → 12 s | 300+ inbound frames (50 fps × 20 ms) | publisher's track was streaming cleanly at the expected rate |
+| + 12 s | `track unsubscribed` + `inbound_read_rtp: err=EOF` + `inbound_reader_exit` | publisher disconnect handled cleanly |
+| + 18 s | SIGTERM | clean shutdown |
+
+Reply tone was successfully published. There was no third participant in this run to hear it, but the publish pipeline (ffmpeg → OggOpusReader → outboundProvider → LiveKit writer) ran to completion with no errors. **Manual browser user test still required** to confirm the user-facing loop.
+
+**Not done in this round:**
+- Stage 3 (OpenAI Realtime) — separate follow-up spike, gated on user instruction.
+- Production LiveKit integration — explicitly out of scope.
+- Telnyx/PCMU runtime — UNTOUCHED.
+
+**Issues fixed in this round:**
+- `mintToken` was missing `Identity` → LiveKit Cloud returned `400 identity cannot be empty`. Fixed by adding `at.SetIdentity(identity)` in `worker.go` (the `sub` JWT claim is now non-empty).
+- Worker had a `sig := make(chan struct{}); <-sig` (deadlock). Replaced with `signal.Notify` on `SIGINT` / `SIGTERM` so the worker actually exits on Ctrl+C / kill.
+
 ## 2026-06-03 VPS Sync — Spike branch pulled to production server
 
 **Server:** `jorge@srv1194478` (VPS where VoxLane production runs)

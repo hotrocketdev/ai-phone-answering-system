@@ -208,10 +208,65 @@ All commits on `feat/livekit-hd-spike`, all pushed to `origin`. Working tree on 
 ## 12. What I would do next (if asked)
 
 1. **Live regression call on production** to confirm sonic-3.5 + pcm_f32le + Julia does not regress PCMU call quality. This is the only thing missing before recommending (b) "add LiveKit as a second path".
-2. **Browser-side two-way conversation spike** (out of scope, but the natural next spike if 1 passes).
+2. **Browser-side two-way conversation spike** — see "Status update 2026-06-04" below; this spike is **code-complete on the worker side and awaiting a manual browser user test** to close out Stage 1 + Stage 2.
 3. **LiveKit SIP trunk** evaluation (out of scope, gated on product decision to migrate PSTN callers).
 
 See `NEXT_STEP_DECISION.md` for the full decision matrix and the recommended single next step.
+
+---
+
+## Status update 2026-06-04 — Two-way pipeline code-complete
+
+After the spike consolidation commits, the two-way conversation worker and browser client have been built and the pipeline has been **proven end-to-end on the VPS** (commit `5fed0b5`).
+
+### What was built
+
+`experimental/livekit/conversation-worker/` (new module, pinned to the same SDK versions as the publisher):
+- `worker.go` — `worker` struct, `run()` connects + publishes a pre-empty outbound Opus track, callbacks for `OnTrackSubscribed` / `OnTrackUnsubscribed` / `OnParticipantConnected` / `OnParticipantDisconnected`, `runInboundReader` goroutine per subscribed track, `maybeFireReply` (sync.Once) + `fireReply` switch, `publishOutboundTrack`, `publishTone` (3 s 440 Hz), `publishCartesia` (falls back to tone if `CARTESIA_API_KEY` empty), `publishPCMAsOpus` (ffmpeg → Ogg → provider), `mintToken` (with `Identity` claim so LiveKit Cloud accepts the token).
+- `main.go` — `spikeStartTime` + `latencyLog`, env loader (looks in `experimental/livekit/.env`).
+- `inbound.go` — `opusSampleBuilder` wrapping `pion/webrtc/v3/pkg/media/samplebuilder.New(200, &codecs.OpusPacket{}, 48000)`; `push` calls `sb.Push(pkt)` then `sb.Pop()`.
+- `outbound.go` — `outboundProvider` channel-backed `SampleProvider` (push / close / `NextSample` / `OnBind` / `OnUnbind` / `Close` / `CurrentAudioLevel`).
+- `ffmpegopus.go` — `ffmpegProcess` + `startFfmpegOpus` (strips `pcm_` prefix from input format; args: `-hide_banner -loglevel error -f <fmt> -ar <rate> -ac 1 -i pipe:0 [-af <chain>] -c:a libopus -application <app> -b:a <br> -vbr on -compression_level 10 -f opus pipe:1`); `streamPCM` + `writePCMInt16` + `writePCMFloat32`; `kill()`. Stderr is drained in a goroutine.
+- `ogg.go` — `oggOpusReader` (OggS page demux + lacing table) + `opusHead` struct + `ParseOpusHead`.
+- `cartesia.go` — `Synthesize` (POST `https://api.cartesia.ai/tts/bytes` with `X-API-Key` + `Cartesia-Version: 2024-06-01`); `decodeCartesiaPCM` for `pcm_s16le` / `pcm_f32le` / `pcm_mulaw` / `pcm_alaw`; `mulawToLinear` + `alawToLinear`.
+- `tone.go` — `generateTone(sampleRate, channels, freq, seconds)` returns mono int16 PCM (amplitude 0.3 × 32767).
+- `go.mod` — `livekit/server-sdk-go v1.0.16`, `livekit/protocol v1.9.5`, `pion/webrtc/v3 v3.2.44`, `pion/rtp v1.8.5`, `joho/godotenv v1.5.1`.
+- `.env.example` — LiveKit creds, Cartesia creds (Julia voice, `sonic-3.5`, `pcm_f32le`, 48 kHz), Opus encoder (64 kbit/s, `audio` application), `FILTER_CHAIN`, `REPLY_MODE` (`none` / `tone_on_first_frame` / `fixed_on_first_frame`), `REPLY_TEXT`, `WORKER_ROOM` (`voxlane-conv-spike`), `WORKER_IDENTITY` (`voxlane-conv-worker`).
+- `.gitignore` — excludes binaries and `.env`.
+
+`experimental/livekit/web-client/two-way.html` (new; the one-way `index.html` is untouched):
+- Uses `livekit-client@2.5.7` from a CDN.
+- 4-section UI: Connect (URL + token), Microphone (`createLocalAudioTrack` + `publishTrack` with `echoCancellation: false`, `noiseSuppression: false`, `autoGainControl: false`), Alex remote audio (`<audio autoplay playsinline>` + 32-bar `AnalyserNode` VU meter), Log (event log).
+- 4 state pills: mic on/off, published / not, alex track / no, alex audio level.
+
+### VPS proof (commit `5fed0b5`)
+
+Test script: `run_twoway_test.sh` — runs the conversation-worker in the background while the spike publisher simulates a "browser mic" by publishing one 5 s Cartesia greeting into the same room.
+
+Key events from the run (2026-06-04 18:16:34 → 18:16:52):
+
+| t (worker-relative) | event | meaning |
+|---|---|---|
+| +  302 ms | `room_connected` | worker joined `voxlane-conv-test-shared` |
+| +  322 ms | `outbound_track_published` | worker's empty reply track is now visible to browsers / other participants |
+| +   ~4 s | `participant connected: voxlane-conv-test-mic` | publisher (mic sim) joined |
+| + 6814 ms | `inbound_track_subscribed` | LiveKit told the worker about the publisher's track |
+| + 6837 ms | `first_inbound_frame` (255 B Opus) | the first decoded 20 ms frame from the publisher arrived |
+| + 6837 ms | `outbound_reply_start: mode=tone_on_first_frame` | `sync.Once` fired the reply |
+| + 6837 ms | `outbound_tone: freq=440Hz duration=3s` | 3 s 440 Hz test tone scheduled |
+| + 6838 ms | `ffmpeg_started=true pid=2590523` | PCM → Ogg Opus encoder running |
+| +   ~+1 s | `opus_header` parsed | OggOpusReader consumed `OpusHead` |
+| + 6.8 s → 12.0 s | 300+ `inbound_metric` frames (50 frames/s × 20 ms) | publisher's track was streaming cleanly at the expected rate |
+| + 12.0 s | `track unsubscribed` + `participant disconnected` | publisher finished its 5 s greeting and disconnected |
+| + 12.0 s | `inbound_read_rtp: err=EOF` + `inbound_reader_exit` | worker handled the disconnect cleanly |
+| + ~18 s | `worker: signal terminated` | SIGTERM from the test script; clean shutdown |
+
+The reply tone was successfully published to the room; in this run there was no third participant to hear it, but the publish pipeline (ffmpeg → OggOpusReader → outboundProvider → LiveKit writer) ran to completion with no errors.
+
+### What still needs to happen
+
+- **Manual browser user test**: open `experimental/livekit/web-client/two-way.html` in Chrome, paste the LiveKit URL + a publisher+listener pair of tokens, click *Enable microphone & publish*, talk. The worker should subscribe to the mic, log the frames, and play back a tone (or Cartesia greeting) that you hear in the same browser. This is the only remaining proof of the user-facing two-way loop.
+- **Stage 3 (OpenAI Realtime)** is still a separate follow-up spike and was not touched in this work.
 
 ---
 

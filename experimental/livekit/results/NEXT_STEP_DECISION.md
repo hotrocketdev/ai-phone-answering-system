@@ -4,6 +4,8 @@
 **Branch:** `feat/livekit-hd-spike`
 **Pre-condition:** Spike is complete and HD path is proven. Production PCMU runtime is untouched.
 
+> **Status update 2026-06-04** — Option A (two-way conversation) is now **code-complete on the worker side** (commit `5fed0b5`). VPS test run proved the full pipeline end-to-end (publisher → LiveKit Cloud → worker subscribes → reply published). The only outstanding item is a manual browser user test with `web-client/two-way.html` to confirm the user hears Alex reply. See `SPIKE_REPORT.md` § "Status update 2026-06-04".
+
 This document compares five possible next steps (A–E) along six dimensions, then recommends a single next step at the bottom.
 
 ---
