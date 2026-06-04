@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>VoxLane LiveKit Two-Way Spike — Web Client</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 30px auto; padding: 20px; }
+    h1 { margin: 0 0 8px; }
+    .meta { color: #666; font-size: 13px; margin-bottom: 20px; }
+    .status { padding: 12px 14px; border-radius: 6px; margin: 10px 0;
+              font-family: ui-monospace, monospace; font-size: 13px; }
+    .status.idle       { background: #f4f4f4; color: #333; }
+    .status.connecting { background: #fff3cd; color: #856404; }
+    .status.connected  { background: #d4edda; color: #155724; }
+    .status.error      { background: #f8d7da; color: #721c24; }
+    .row { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
+    label { min-width: 80px; font-size: 13px; color: #555; }
+    input { flex: 1; padding: 8px; font-family: ui-monospace, monospace; font-size: 12px;
+            border: 1px solid #ccc; border-radius: 4px; }
+    button { padding: 8px 16px; cursor: pointer; border: 0; border-radius: 4px;
+             background: #0a66c2; color: white; font-weight: 600; }
+    button.secondary { background: #6c757d; }
+    button.danger { background: #dc3545; }
+    button:disabled { background: #aaa; cursor: not-allowed; }
+    audio { width: 100%; margin-top: 12px; }
+    pre { background: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto;
+          font-size: 11px; max-height: 260px; overflow-y: auto; }
+    .meter { display: flex; gap: 2px; align-items: end; height: 28px; margin-top: 4px; }
+    .meter span { flex: 1; background: #28a745; min-height: 2px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 10px;
+            font-size: 11px; font-weight: 600; margin-right: 4px; }
+    .pill.on  { background: #d4edda; color: #155724; }
+    .pill.off { background: #f4f4f4; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>VoxLane LiveKit Two-Way Spike</h1>
+  <div class="meta">
+    Browser mic &rarr; LiveKit &rarr; conversation-worker &rarr; Cartesia Sonic 3.5 f32le
+    &rarr; ffmpeg Opus &rarr; LiveKit &rarr; this browser. Test phrase: speak &mdash; Alex replies once.
+  </div>
+
+  <h2>1. Connect</h2>
+  <div class="row">
+    <label>URL</label>
+    <input id="url" type="text" placeholder="wss://your-project.livekit.cloud" />
+  </div>
+  <div class="row">
+    <label>Token</label>
+    <input id="token" type="text" placeholder="paste LiveKit access token (publisher or listener token)" />
+  </div>
+  <div class="row">
+    <label></label>
+    <button id="connect-btn">Connect</button>
+    <button id="disconnect-btn" class="secondary" disabled>Disconnect</button>
+  </div>
+
+  <div id="status" class="status idle">Not connected</div>
+
+  <h2>2. Microphone</h2>
+  <div class="row">
+    <label></label>
+    <button id="mic-btn" disabled>Enable microphone &amp; publish</button>
+    <span class="pill off" id="mic-pill">mic off</span>
+    <span class="pill off" id="pub-pill">not published</span>
+  </div>
+
+  <h2>3. Alex (remote audio)</h2>
+  <audio id="remote-audio" autoplay playsinline></audio>
+  <div class="meter" id="meter" aria-label="remote audio level"></div>
+  <div style="font-size:11px;color:#666;margin-top:4px;">
+    Alex audio meter (browser-side, derived from <code>AnalyserNode</code>)
+  </div>
+  <div style="font-size:11px;color:#666;margin-top:4px;">
+    <span class="pill off" id="alex-pill">no alex track</span>
+  </div>
+
+  <h2>4. Log</h2>
+  <pre id="log"></pre>
+
+  <script type="module">
+    import {
+      Room, RoomEvent, Track, ConnectionState,
+      createLocalAudioTrack,
+    } from 'https://unpkg.com/livekit-client@2.5.7/dist/livekit-client.esm.mjs';
+
+    const $ = (id) => document.getElementById(id);
+    const logEl = $('log');
+    const statusEl = $('status');
+    const urlEl = $('url');
+    const tokenEl = $('token');
+    const connectBtn = $('connect-btn');
+    const disconnectBtn = $('disconnect-btn');
+    const micBtn = $('mic-btn');
+    const micPill = $('mic-pill');
+    const pubPill = $('pub-pill');
+    const alexPill = $('alex-pill');
+    const audioEl = $('remote-audio');
+    const meterEl = $('meter');
+
+    function setStatus(text, kind) {
+      statusEl.textContent = text;
+      statusEl.className = 'status ' + kind;
+    }
+    function setPill(el, on, onText, offText) {
+      el.textContent = on ? onText : offText;
+      el.className = 'pill ' + (on ? 'on' : 'off');
+    }
+    function log(msg) {
+      const ts = new Date().toISOString().split('T')[1].replace('Z','');
+      logEl.textContent += `[${ts}] ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    let room = null;
+    let localMicTrack = null;
+    let audioContext = null;
+    let analyser = null;
+    let meterRAF = null;
+    const meterBars = Array.from({length: 32}, () => document.createElement('span'));
+    meterBars.forEach(b => meterEl.appendChild(b));
+
+    function startMeter(stream) {
+      try {
+        audioContext = audioContext || new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 64;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          analyser.getByteFrequencyData(data);
+          let max = 0;
+          for (let i = 0; i < data.length; i++) if (data[i] > max) max = data[i];
+          const norm = max / 255;
+          for (let i = 0; i < meterBars.length; i++) {
+            const v = Math.max(0, Math.min(1, norm * (1 - Math.abs(i - meterBars.length/2) / meterBars.length)));
+            meterBars[i].style.height = (2 + v * 26) + 'px';
+          }
+          meterRAF = requestAnimationFrame(tick);
+        };
+        tick();
+        log('alex meter started');
+      } catch (e) {
+        log('alex meter failed: ' + e.message);
+      }
+    }
+    function stopMeter() {
+      if (meterRAF) cancelAnimationFrame(meterRAF);
+      meterRAF = null;
+    }
+
+    connectBtn.addEventListener('click', async () => {
+      const url = urlEl.value.trim();
+      const token = tokenEl.value.trim();
+      if (!url || !token) { setStatus('URL and token required', 'error'); return; }
+
+      setStatus('Connecting...', 'connecting');
+      log(`connect url=${url} token=${token.slice(0, 8)}...${token.slice(-4)} (len=${token.length})`);
+
+      room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        publishDefaults: { dtx: false, red: false, audioPreset: { maxBitrate: 64000 } },
+      });
+
+      room.on(RoomEvent.ConnectionStateChanged, (state) => {
+        log(`connection state: ${state}`);
+        if (state === ConnectionState.Connected) {
+          setStatus('Connected to room: ' + (room.name || '(unknown)'), 'connected');
+          connectBtn.disabled = true; disconnectBtn.disabled = false;
+          micBtn.disabled = false;
+        } else if (state === ConnectionState.Disconnected) {
+          setStatus('Disconnected', 'idle');
+          connectBtn.disabled = false; disconnectBtn.disabled = true;
+          micBtn.disabled = true;
+          setPill(micPill, false, 'mic on', 'mic off');
+          setPill(pubPill, false, 'published', 'not published');
+          setPill(alexPill, false, 'alex track', 'no alex track');
+        } else if (state === ConnectionState.Reconnecting) {
+          setStatus('Reconnecting...', 'connecting');
+        }
+      });
+
+      room.on(RoomEvent.TrackSubscribed, (track, _pub, _participant) => {
+        log(`track subscribed: ${track.kind} ${track.sid}`);
+        if (track.kind === Track.Kind.Audio) {
+          setPill(alexPill, true, 'alex track', 'no alex track');
+          const el = track.attach();
+          audioEl.srcObject = el.srcObject;
+          audioEl.play().catch((e) => log('audio.play() rejected: ' + e.message));
+          log('alex audio attached and play() invoked');
+          startMeter(el.srcObject);
+        }
+      });
+      room.on(RoomEvent.TrackUnsubscribed, (track) => {
+        log(`track unsubscribed: ${track.kind} ${track.sid}`);
+        if (track.kind === Track.Kind.Audio) {
+          track.detach(audioEl);
+          stopMeter();
+          setPill(alexPill, false, 'alex track', 'no alex track');
+        }
+      });
+      room.on(RoomEvent.ParticipantConnected, (p) => log(`participant connected: ${p.identity}`));
+      room.on(RoomEvent.ParticipantDisconnected, (p) => log(`participant disconnected: ${p.identity}`));
+      room.on(RoomEvent.Disconnected, (reason) => {
+        log('room disconnected: ' + reason);
+        setStatus('Disconnected: ' + reason, 'idle');
+      });
+      room.on(RoomEvent.MediaDevicesError, (e) => log('media devices error: ' + e.message));
+
+      try {
+        await room.connect(url, token);
+        log(`connected to room "${room.name}" as "${room.localParticipant.identity}"`);
+      } catch (e) {
+        log('connect error: ' + (e && e.message ? e.message : e));
+        setStatus('Connect failed: ' + (e && e.message ? e.message : e), 'error');
+        room = null;
+      }
+    });
+
+    disconnectBtn.addEventListener('click', async () => {
+      if (room) {
+        log('disconnecting...');
+        await room.disconnect();
+        room = null;
+      }
+      stopMeter();
+      setPill(micPill, false, 'mic on', 'mic off');
+      setPill(pubPill, false, 'published', 'not published');
+      setPill(alexPill, false, 'alex track', 'no alex track');
+      setStatus('Disconnected', 'idle');
+    });
+
+    micBtn.addEventListener('click', async () => {
+      if (!room) { setStatus('Connect first', 'error'); return; }
+      micBtn.disabled = true;
+      log('requesting microphone permission...');
+      try {
+        localMicTrack = await createLocalAudioTrack({
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        });
+        log('microphone track created');
+        setPill(micPill, true, 'mic on', 'mic off');
+        await room.localParticipant.publishTrack(localMicTrack);
+        log('microphone track published to room');
+        setPill(pubPill, true, 'published', 'not published');
+        micBtn.textContent = 'Microphone published';
+        micBtn.disabled = true;
+      } catch (e) {
+        log('mic publish failed: ' + (e && e.message ? e.message : e));
+        setPill(micPill, false, 'mic on', 'mic off');
+        setStatus('Mic permission denied or failed: ' + e.message, 'error');
+        micBtn.disabled = false;
+      }
+    });
+
+    log('LiveKit client loaded (livekit-client@2.5.7)');
+  </script>
+</body>
+</html>

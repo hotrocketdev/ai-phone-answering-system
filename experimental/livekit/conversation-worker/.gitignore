@@ -1,0 +1,19 @@
+binaries/
+*.exe
+*.bin
+*.dll
+*.so
+*.dylib
+
+# Build artifacts
+*.log
+debug/
+*.wav
+*.opus
+*.pcm
+*.raw
+
+# Local-only env files (spike runtime secrets, never committed)
+.env
+.env.local
+.env.*.local
