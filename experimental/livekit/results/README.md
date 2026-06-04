@@ -19,7 +19,7 @@
 | 7 | **Remaining issues / open decisions** | ⚠ Documented | Two-way conversation not built. No LiveKit SIP trunk. No live regression call on production PCMU. Sonic 3.5 / Julia not yet live on production runtime. See `NEXT_STEP_DECISION.md`. |
 | 8 | **Production PCMU untouched** | ✅ Verified | Production main is at `1bf8422` (fix #7 natural flow). Production binary SHA256 `24052C82…0CBAFE` unchanged. Production `.env`, systemd, Telnyx webhook all unchanged. Spike `.env` is gitignored (0600, jorge-only on VPS). |
 
-See `SPIKE_REPORT.md` for the full 12-section report and `NEXT_STEP_DECISION.md` for the recommended next step.
+See `SPIKE_REPORT.md` for the full 12-section report, `NEXT_STEP_DECISION.md` for the recommended next step, and `PRODUCTION_MIGRATION_RECOMMENDATION.md` for the worker-manager recommendation (Cartesia TTS upgrade on PCMU as a 1-day change; LiveKit migration deferred until WebRTC-direct use case exists).
 
 ---
 
