@@ -839,6 +839,23 @@ Reply tone was successfully published. There was no third participant in this ru
 - `mintToken` was missing `Identity` → LiveKit Cloud returned `400 identity cannot be empty`. Fixed by adding `at.SetIdentity(identity)` in `worker.go` (the `sub` JWT claim is now non-empty).
 - Worker had a `sig := make(chan struct{}); <-sig` (deadlock). Replaced with `signal.Notify` on `SIGINT` / `SIGTERM` so the worker actually exits on Ctrl+C / kill.
 
+## 2026-06-04 23:38 — Real-browser end-to-end proof (spike complete)
+
+A real user ran the two-way browser test from a Chrome tab. Worker log:
+
+- Browser connected to room `voxlane-conv-spike` (track `TR_AM7aVEWBAbNn9k`).
+- Browser enabled mic at `+~1 s`, published the local audio track.
+- Worker `OnTrackSubscribed` fired; `first_inbound_frame` arrived at `+~1.5 s`.
+- Worker fired the reply (3 s 440 Hz tone — Cartesia test-account credits were exhausted at test time, so the worker fell back to tone as designed).
+- **User heard the 3 s 440 Hz tone in the browser.** VU meter on the page lit up in sync with the tone.
+
+Pipeline: Chrome `getUserMedia` → LiveKit Cloud → server SDK `OnTrackSubscribed` → samplebuilder → first-frame trigger → ffmpeg → OggOpusReader → outboundProvider → LiveKit writer → Chrome `<audio>` element. **End-to-end two-way audio loop proven with a real human in the loop.**
+
+### Bugs fixed in commit `477b0b5`
+
+1. **`publishOutboundTrack` called `StartWrite` *before* `PublishTrack`.** The LiveKit server SDK (`localsampletrack.go:240`) only spawns the `writeWorker` goroutine when the track is already bound to a peer connection, which only happens once `PublishTrack` has run. Calling `StartWrite` first set `s.provider = provider` but never spawned the consumer, so every Opus frame was silently dropped on the way to the RTP egress. The fix swaps the two calls (matches the order the spike publisher already uses).
+2. **`ogg.go` `NextOpusPacket` had an infinite loop.** After returning the first packet from a page, the next call found `packet == nil` and `pageBuf != nil`, so the for-loop's two guards were both false and the function spun forever. Replaced with a copy of the publisher's `oggdemuxer.go` (one Opus packet per segment, `segIdx`-driven).
+
 ## 2026-06-03 VPS Sync — Spike branch pulled to production server
 
 **Server:** `jorge@srv1194478` (VPS where VoxLane production runs)
