@@ -154,16 +154,15 @@ func main() {
 		//
 		// PCM source:
 		//   - If CARTESIA_API_KEY and SPIKE_GREETING_TEXT are set, use
-		//     Cartesia HTTP TTS to synthesize HD PCM (24 kHz s16le mono
-		//     for natural voice), pipe into ffmpeg stdin. ffmpeg
-		//     resamples to 48 kHz and encodes to Opus.
+		//     Cartesia HTTP TTS to synthesize HD PCM (48 kHz s16le mono,
+		//     the Opus native rate — skips the ffmpeg resample step
+		//     which had audible artefacts in the first iteration).
 		//   - Otherwise fall back to a synthetic 440 Hz tone at 48 kHz
 		//     for codec-only verification.
 		if cartesiaKey != "" && greeting != "" {
 			// Cartesia HD path — Step 5 of the spike plan.
-			// 24 kHz mono s16le is Cartesia's natural voice rate and
-			// well-suited to Opus (ffmpeg resamples 24k -> 48k).
-			const cartesiaRate = 24000
+			// 48 kHz mono s16le = Opus native rate, no resample needed.
+			const cartesiaRate = 48000
 			log.Printf("synthesizing via Cartesia HD: voice=%s model=%s rate=%d greeting=%q",
 				voiceID, modelID, cartesiaRate, greeting)
 			cartesiaPCM, cerr := Synthesize(cartesiaKey, greeting, voiceID, modelID, cartesiaRate)
