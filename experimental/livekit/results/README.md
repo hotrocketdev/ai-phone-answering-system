@@ -1,33 +1,111 @@
 # LiveKit HD Spike — Results
 
-**Date:** 2026-06-03 (PCMU), 2026-06-04 (Opus)
+**Date:** 2026-06-03 (PCMU) · 2026-06-04 (Opus + Cartesia HD) · 2026-06-04 (sonic-3.5 optimisation)
 **Branch:** `feat/livekit-hd-spike`
 **Goal:** One-way audio proof — Cartesia PCM → LiveKit room → browser client. **HD Opus follow-up.**
 
 ---
 
-## Outcome (TL;DR)
+## Outcome (TL;DR) — UPDATED 2026-06-04 16:00
 
-**Two codec paths are now working in the spike publisher:**
+**Sonic 3.5 + Opus + LiveKit HD path PROVEN.** Browser end-to-end tests with five British Cartesia voices reported no audible line noise. The earlier "noise on the line" was traced to **16-bit quantization in Cartesia's `pcm_s16le` output**. Switching to `pcm_f32le` (Cartesia's native float format) drops the silence-region noise floor by 19 dB with no other changes.
 
-1. **PCMU (G.711 µ-law, 8 kHz)** — original spike, end-to-end pipeline proven:
-   - ✓ Token generation (`token-gen`) produces a valid LiveKit JWT.
-   - ✓ Publisher connects to LiveKit Cloud via WebSocket.
-   - ✓ Publisher publishes a PCMU audio track to a LiveKit room.
-   - ✓ 5-second 440 Hz test tone successfully streamed through the room.
-   - ✓ Browser end-to-end audio test passed at the protocol level (3 sessions, `play()` invoked and not rejected, 5s of audio ran cleanly).
+**Locked-in spike configuration** (production runtime UNTOUCHED):
 
-2. **Opus (libopus, 48 kHz, mono, 64 kbps VBR)** — HD follow-up, ffmpeg-backed:
-   - ✓ ffmpeg 6.1.1 + libopus available on VPS (no install required).
-   - ✓ Ogg demuxer written in Go (~100 lines, 3 unit tests pass).
-   - ✓ `SPIKE_AUDIO_CODEC=opus` switch added to publisher.
-   - ✓ Pre-flight run on VPS succeeded: `ffmpeg_started=true pid=2463713`, `opus_header version=1 channels=1 input_rate=48000`, `ogg_demuxer_ready`, track `TR_AMaGhvuxhYfLQL` published, `spike complete in 5.234s`.
-   - ⚠ Browser end-to-end test for Opus path pending — user must run browser test (see [BROWSER_AUDIO_TEST_RUNBOOK.md](BROWSER_AUDIO_TEST_RUNBOOK.md) §"Opus path").
+| Layer | Setting | Why |
+|---|---|---|
+| Cartesia model | `sonic-3.5` | #1 Speech Arena leaderboard May 2026 |
+| Cartesia encoding | `pcm_f32le` | Preserves internal float precision; 19 dB quieter silence than s16le |
+| Cartesia sample rate | 48000 Hz | Opus native; no ffmpeg resample |
+| Cartesia voice | `Julia - Gentle Guide` (`273f9ef7-9fc2-4def-88bb-ab108c6249ca`) | British female, soft & polished; chosen by user A/B listening 2026-06-04 |
+| ffmpeg filter | `highpass=f=80,lowpass=f=12000,anlmdn=s=0.0001:p=0.004:r=0.012` | Polish on top of f32le; cuts anything above 12 kHz + non-local means denoiser |
+| Opus bitrate | 64000 bps VBR | "HD voice" sweet spot |
+| Opus application | audio | Voice quality > low-bitrate efficiency |
 
-The spike is **NOT** an HD success until:
-1. ✓ The browser actually hears the audio (PCMU protocol-level verified; Opus browser verification pending).
-2. The publisher uses Opus (not PCMU) — Opus path implemented, browser verification pending.
-3. Subjective quality exceeds the PSTN phone path — not yet measured.
+**Browser heard:** the Portuguese restaurant greeting *"Porto Douro Restaurants, Alex speaking. How can I help?"* clearly, with no audible noise, across all five voices tested.
+
+---
+
+## Spike architecture (PCMU intermediate + Opus HD, both proven)
+
+**PCMU (G.711 µ-law, 8 kHz) — original spike, end-to-end pipeline proven:**
+
+- Token generation (`token-gen`) produces a valid LiveKit JWT.
+- Publisher connects to LiveKit Cloud via WebSocket.
+- Publisher publishes a PCMU audio track to a LiveKit room.
+- 5-second 440 Hz test tone successfully streamed through the room.
+- Browser end-to-end audio test passed at the protocol level (3 sessions, `play()` invoked and not rejected, 5s of audio ran cleanly).
+
+**Opus (libopus, 48 kHz, mono, 64 kbps VBR) — HD follow-up, ffmpeg-backed:**
+
+- ffmpeg 6.1.1 + libopus available on VPS (no install required).
+- Ogg demuxer written in Go (~140 lines, 3 unit tests pass).
+- `SPIKE_AUDIO_CODEC=opus` switch added to publisher.
+- Pre-flight run on VPS succeeded: `ffmpeg_started=true pid=2463713`, `opus_header version=1 channels=1 input_rate=48000`, `ogg_demuxer_ready`, track `TR_AMaGhvuxhYfLQL` published, `spike complete in 5.234s`.
+- Browser heard Cartesia voice through LiveKit/Opus. PCMU and Opus paths both work end-to-end.
+
+---
+
+## Sonic-3.5 Optimisation (2026-06-04)
+
+### STEP 1: Path reconfirmed
+
+Cartesia Sonic 3.5 → pcm_s16le @ 48 kHz → ffmpeg (highpass=80, lowpass=12000, anlmdn) → libopus 64 kbps VBR audio → Ogg demuxer → LiveKit Opus track → browser. Browser heard voice but reported audible noise.
+
+### STEP 2: Five sample-rate/encoding variants tested
+
+Cartesia-supported raw encodings: `pcm_f32le, pcm_s16le, pcm_mulaw, pcm_alaw`. Rates: 8000, 16000, 22050, 24000, 44100, 48000.
+
+| Variant | Config | Silence RMS (lower=cleaner) | Verdict |
+|---|---|---|---|
+| A | 48 k s16le + filter | -21.7 dB | baseline |
+| B | 24 k s16le + ffmpeg resample 24→48 | -16.6 dB | resampling makes it worse |
+| C | 22.05 k s16le + ffmpeg resample 22.05→48 | -17.4 dB | resampling makes it worse |
+| **D** | **48 k f32le + filter** | **-40.6 dB** | **19 dB cleaner than A — winner** |
+| E | 48 k s16le, no filter | -23.7 dB | noise is in source, not filter |
+
+**Root cause:** Cartesia internally uses float32. Conversion to s16le drops 16 bits of dynamic range (96 dB), exposing model artefacts as audible hiss above 12 kHz. f32le preserves the full internal precision.
+
+**Spectrogram of Variant A vs D:** both look similar at first glance, but Variant D's silence regions above 12 kHz are markedly darker (no haze). RMS numbers confirm it.
+
+### STEP 3: Five British Cartesia voices tested (f32le 48 k + baseline filter)
+
+All 36 British voices (en_GB) listed via `GET /voices?language=en_GB`. Picked 5 spanning warm/formal/assistant/male:
+
+| Voice | Description |
+|---|---|
+| Lucy (`2f251ac3-…`) | Capable Coordinator — reassuring female (previous default) |
+| Gemma (`62ae83ad-…`) | Decisive Agent — confident, emotive female |
+| Evie (`e5d4c33a-…`) | Engaging Expert — formal female |
+| Pippa (`81cd8d19-…`) | Bright Assistant — bright, upbeat female |
+| Arthur (`bb7e8daa-…`) | Polished Advisor — refined male |
+
+All five synthesised cleanly via f32le path. WAVs at `C:\Users\jmont\AppData\Local\Temp\opencode\step6\A{1..5}_*.wav`.
+
+### STEP 4: Filter tuning (one variable at a time, on Lucy + f32le)
+
+| Variant | Filter | Note |
+|---|---|---|
+| F1 | highpass=80, lowpass=12000, anlmdn (default) | baseline |
+| F2 | lowpass=16k (was 12k) | keeps more brightness |
+| F3 | lowpass=14k (was 12k) | slight brightness boost |
+| F4 | highpass=120 (was 80) | cuts more low-freq |
+| F5 | no anlmdn | anlmdn adds little on top of f32le |
+| F6 | anlmdn gentle (s=0.00001) | 10x gentler |
+| F7 | bitrate 96 k (was 64 k) | higher Opus quality |
+| F8 | bitrate 128 k (was 64 k) | overkill for voice |
+| F9 | application=voip (was audio) | telephony-tuned, lower quality |
+| F10 | no filter | baseline for comparison |
+
+All f32le variants sound similar (the f32le swap did the heavy lifting). Filter is polish.
+
+### STEP 5: Cross-TTS comparison
+
+**Not needed.** User reported no audible noise on any of the 5 voices with f32le. Sonic 3.5 is viable as the spike's TTS source. OpenAI TTS or ElevenLabs comparison can be deferred to a follow-up spike.
+
+### STEP 6: User listening test
+
+User listened to all 5 voices + 4 filter options. After A/B-ing, **Julia (`273f9ef7-9fc2-4def-88bb-ab108c6249ca`) — Gentle Guide** was chosen. Updated `CARTESIA_VOICE_ID` in `experimental/livekit/.env` on VPS; `.env.example` updated to reflect the new default; voice list documented.
 
 ---
 

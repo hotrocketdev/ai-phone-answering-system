@@ -666,6 +666,7 @@ synthetic 440 Hz sine (or Cartesia PCM in Step 5)
   3. ffmpeg denoisers (afftdn, anlmdn) do not remove it.
   4. ffmpeg resampling at 24→48kHz is not the cause.
 - This is a **Cartesia TTS model characteristic** (the noise floor of the synthesis), not a spike pipeline issue.
+- **UPDATED 2026-06-04 16:00 — RESOLVED** (see "Sonic 3.5 Optimisation" section below). The "noise" was 16-bit quantization noise from Cartesia's `pcm_s16le` output, not a model noise floor. Switching to `pcm_f32le` (Cartesia's native float format) drops the silence-region noise floor by 19 dB.
 
 **Possible next steps (for follow-up investigation):**
 
@@ -677,6 +678,67 @@ synthetic 440 Hz sine (or Cartesia PCM in Step 5)
 **Production runtime status:** UNTOUCHED. All work on `feat/livekit-hd-spike` branch. The Opus HD path is implemented and proven (browser heard Cartesia voice through HD/WebRTC), but Cartesia's noise floor is a separate issue from the spike.
 
 **Cartesia API key:** Set in spike's `/opt/ai-voice-receptionist/experimental/livekit/.env` (gitignored, 0600 perms). Also exists in production `.env` at `C:\builds\AI-Phone-Answer-System\.env`.
+
+## 2026-06-04 15:30–16:00 — Sonic 3.5 Optimisation: NOISE RESOLVED via `pcm_f32le` encoding
+
+**Commits:** `fb5bdd7` (docs Step 5 noise isolated) → `340c7e4` (sonic-3.5 optimisation, pcm_f32le + voice/filter variants)
+**Branch:** `feat/livekit-hd-spike`, HEAD now `340c7e4`
+
+### Root cause
+
+The "noise on the line" was **16-bit quantization noise in Cartesia's `pcm_s16le` output**, not a Cartesia model noise floor. Cartesia's synthesis engine produces float32 internally; converting to signed 16-bit PCM drops 16 bits of dynamic range (96 dB) and surfaces high-frequency model artefacts as audible hiss above 12 kHz. ffmpeg denoisers (afftdn, anlmdn) cannot remove a noise component baked into the source samples themselves.
+
+### Fix
+
+Switch the Cartesia request `output_format.encoding` from `pcm_s16le` to `pcm_f32le` (Cartesia's native float format). ffmpeg accepts `f32le` directly as stdin. **No model change, no provider change, no extra denoiser needed.**
+
+### Evidence (Cartesia-side silence RMS, 1.6-2.0s of saved WAV)
+
+| Variant | Config | Silence RMS | Δ vs A |
+|---|---|---|---|
+| A | 48 kHz s16le + filter | -21.7 dB | baseline |
+| B | 24 kHz s16le + ffmpeg resample | -16.6 dB | worse |
+| C | 22.05 kHz s16le + ffmpeg resample | -17.4 dB | worse |
+| **D** | **48 kHz f32le + filter** | **-40.6 dB** | **-19 dB** |
+| E | 48 kHz s16le, no filter | -23.7 dB | -2 dB (filter can't fix source noise) |
+
+Spectrogram: Variant A shows haze above 12 kHz in silence; Variant D is dark. Confirmed visually + numerically.
+
+### Voice A/B (5 British voices tested with f32le 48 kHz + baseline filter)
+
+All synthesised cleanly via the f32le path. After user listening, **`Julia - Gentle Guide` (`273f9ef7-9fc2-4def-88bb-ab108c6249ca`)** was chosen. British female, soft & polished tone, well-suited to a receptionist.
+
+Other voices tested: Lucy, Gemma, Evie, Pippa, Arthur. (Victoria also tried in a separate A/B but Julia won.)
+
+### Filter chain (final, after f32le swap)
+
+`highpass=f=80,lowpass=f=12000,anlmdn=s=0.0001:p=0.004:r=0.012` — kept as a polish layer. With f32le, the highpass+lowpass alone is sufficient; `anlmdn` is gravy.
+
+### Spike verdict (NEW — 2026-06-04 16:00)
+
+- ✅ **Sonic 3.5 + Opus + LiveKit HD path PROVEN end-to-end with no audible noise** (user verified 2026-06-04 ~16:00).
+- ✅ Spike can be marked **done**; no further TTS provider investigation needed.
+- ✅ `CARTESIA_VOICE_ID` on spike `.env` set to Julia; `.env.example` and `experimental/livekit/results/README.md` updated.
+
+### Code changes (commit `340c7e4`)
+
+- `experimental/livekit/publisher/cartesia.go` — `Synthesize(...)` now takes an `encoding` param; decodes `pcm_s16le`, `pcm_f32le` (new float32→int16 conversion), `pcm_mulaw` (new), `pcm_alaw` (new). Validates against Cartesia's allowed values.
+- `experimental/livekit/publisher/ffmpegopus.go` — `startFfmpegOpus(ctx, inputSampleRate, inputFormat, filterChain, bitrate, application)`. `streamCartesiaPCM(ff, pcm, format)` writes in the correct format. New `writePCMf32` helper. `savePCMAsWAV` for diagnostics.
+- `experimental/livekit/publisher/main.go` — new env vars: `SPIKE_CARTESIA_RATE` (default 48000), `SPIKE_CARTESIA_ENCODING` (default `pcm_f32le`), `SPIKE_FILTER_CHAIN` (default the chain above), `SPIKE_OPUS_BITRATE` (64000), `SPIKE_OPUS_APPLICATION` (audio), `SPIKE_NO_FILTER` (false). New `getenvInt` helper.
+
+### Files updated this round
+
+- `experimental/livekit/publisher/.env.example` — new defaults (Julia voice, sonic-3.5 model, f32le encoding), all 5 new env vars documented as commented-out overrides.
+- `experimental/livekit/results/README.md` — full "Sonic-3.5 Optimisation" section added with step-by-step results, RMS table, voice list, filter table, and a TL;DR at the top of the file.
+- `/opt/ai-voice-receptionist/experimental/livekit/.env` on VPS — `CARTESIA_VOICE_ID` updated to Julia via `sed -i`.
+
+### Production runtime status
+
+**UNTOUCHED.** All work on `feat/livekit-hd-spike` branch. Production main is at `1bf8422` (fix #7 natural flow), live VPS continues to run PCMU with `aura-2-pandora-en` and `pcm_mulaw` per the locked baseline. None of the spike's sonic-3.5 / f32le / Julia changes affect production. The spike `.env` is the only place Julia's voice ID is set.
+
+### Spike status (final)
+
+Marked **done pending production migration decision** (separate from spike). No further spike work required to prove the path; remaining work is product-level (decide whether to migrate VoxLane to LiveKit/Opus, set up SIP trunk to Telnyx, build two-way conversation loop). All such work is **gated on user instruction** and **stop conditions still apply** (do NOT wire LiveKit into production, do NOT replace Telnyx, do NOT remove PCMU/Twilio fallbacks, do NOT merge to main).
 
 ## 2026-06-03 VPS Sync — Spike branch pulled to production server
 
