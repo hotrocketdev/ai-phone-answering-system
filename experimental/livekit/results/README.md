@@ -1,8 +1,25 @@
 # LiveKit HD Spike — Results
 
-**Date:** 2026-06-03 (PCMU) · 2026-06-04 (Opus + Cartesia HD) · 2026-06-04 (sonic-3.5 optimisation)
+**Date:** 2026-06-03 (PCMU) · 2026-06-04 (Opus + Cartesia HD) · 2026-06-04 (sonic-3.5 optimisation) · 2026-06-04 (latency)
 **Branch:** `feat/livekit-hd-spike`
 **Goal:** One-way audio proof — Cartesia PCM → LiveKit room → browser client. **HD Opus follow-up.**
+
+---
+
+## Spike outcome summary (consolidation, 2026-06-04)
+
+| # | Outcome | Status | Evidence |
+|---|---|---|---|
+| 1 | **LiveKit connectivity proven** | ✅ Done | Token generation, room connect, ICE negotiated, track published. Repeated across 4 spike variants. |
+| 2 | **Browser audio proven** | ✅ Done | `livekit-client@2.5.7` web client, 3 sessions, `play()` invoked and not rejected, 5 s of audio ran cleanly. PCMU test tone + Cartesia Opus voice both heard. |
+| 3 | **Opus path proven** | ✅ Done | ffmpeg-backed libopus 64 kbps VBR, Ogg demux, raw Opus packets, `OpusSampleProvider` (20 ms cadence), LiveKit `OpusPayloader` pass-through, browser hears. |
+| 4 | **Cartesia / Sonic 3.5 through Opus proven** | ✅ Done | Sonic 3.5 model, Julia voice (`273f9ef7-9fc2-4def-88bb-ab108c6249ca`), `pcm_f32le` 48 kHz → ffmpeg Opus 64 kbps → LiveKit → browser. User confirmed: no audible line noise. |
+| 5 | **f32le Opus target latency ≈ 2.1 s first-audio-byte** | ✅ Measured | Average of 2 runs. PCMU: 1.48 s · Opus s16le: 2.06 s · Opus f32le: 2.11 s. All under typical 4-5 s PSTN answer delay. |
+| 6 | **Voice quality improved over PCMU** | ✅ Done | Opus 48 kHz fullband, ~20 kHz audio bandwidth vs PCMU ~3.4 kHz. User A/B listening on 5 British voices confirmed Julia wins for receptionist use case. |
+| 7 | **Remaining issues / open decisions** | ⚠ Documented | Two-way conversation not built. No LiveKit SIP trunk. No live regression call on production PCMU. Sonic 3.5 / Julia not yet live on production runtime. See `NEXT_STEP_DECISION.md`. |
+| 8 | **Production PCMU untouched** | ✅ Verified | Production main is at `1bf8422` (fix #7 natural flow). Production binary SHA256 `24052C82…0CBAFE` unchanged. Production `.env`, systemd, Telnyx webhook all unchanged. Spike `.env` is gitignored (0600, jorge-only on VPS). |
+
+See `SPIKE_REPORT.md` for the full 12-section report and `NEXT_STEP_DECISION.md` for the recommended next step.
 
 ---
 
