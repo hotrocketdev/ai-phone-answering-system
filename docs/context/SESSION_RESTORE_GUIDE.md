@@ -14,6 +14,8 @@ Everything spike-related is already in git. The opencode conversation history is
 3. Clone the repo and switch to the spike branch.
 4. (Optional) Copy the opencode data directory to restore conversation history.
 
+**Pre-made backup:** A full backup of opencode data + config + SSH keys + LiveKit credentials is on **E:\opencode-backup-2026-06-03\** (created 2026-06-03 ~01:00 UTC). See [Backup section](#backup-on-e-drive-2026-06-03) below.
+
 ---
 
 ## What is already in git (auto-restored by clone)
@@ -213,9 +215,40 @@ The `docs/context/HANDOVER_CURRENT_STATE.md` has the full session summary, ready
 | Spike docs (HANDOVER, PROJECT_STATUS, etc.) | Git | `git clone` |
 | Spike tests | Git | `git clone` + `go test` |
 | Spike env template | Git (`experimental/livekit/{publisher,}/.env.example`) | `git clone` |
-| Spike runtime `.env` with LiveKit creds | VPS (`/opt/ai-voice-receptionist/experimental/livekit/.env`) | Already on VPS |
-| Go 1.23.4 install | VPS (`$HOME/go`) | Already on VPS |
+| Spike runtime `.env` with LiveKit creds | VPS (`/opt/ai-voice-receptionist/experimental/livekit/.env`) AND E:\opencode-backup-2026-06-03\spike-env\.env | Recreate locally or copy from backup |
+| Go 1.23.4 install | VPS (`$HOME/go`) | Already on VPS, or install locally |
 | Production runtime | VPS (env, binary, services) | Unchanged |
-| Opencode conversation history | Local data dir (`%LOCALAPPDATA%\opencode\`) | Manual copy |
-| Local working tree (uncommitted) | Local | Safe to discard |
+| Opencode conversation history | E:\opencode-backup-2026-06-03\opencode-data\ (`C:\Users\jmont\.local\share\opencode\`) | Copy from backup |
+| Opencode user config | E:\opencode-backup-2026-06-03\opencode-userconfig\ (`C:\Users\jmont\.config\opencode\`) | Copy from backup |
+| SSH keys for VPS | E:\opencode-backup-2026-06-03\ssh\ (`C:\Users\jmont\.ssh\`) | Copy from backup |
+| Local working tree (uncommitted) | Local | Safe to discard (none spike-related) |
+
+---
+
+## Backup on E: drive (2026-06-03)
+
+A pre-made backup of all session-related state is on **E:\opencode-backup-2026-06-03\** (created 2026-06-03 ~01:00 UTC, ~240 MB total).
+
+**Contents:**
+
+| Subdir | Size | Source | What it restores |
+|---|---|---|---|
+| `opencode-data/` | ~191 MB | `C:\Users\jmont\.local\share\opencode\` | OpenCode runtime data: `opencode.db` (SQLite conversation history), `snapshot/`, `storage/`, `repos/`, `tool-output/`, `log/`, `auth.json` |
+| `opencode-userconfig/` | ~49 MB | `C:\Users\jmont\.config\opencode\` | OpenCode user-level config + node_modules |
+| `opencode-appdata-config/` | <1 KB | `C:\Users\jmont\AppData\Roaming\opencode\` | Desktop OpenCode app config |
+| `ssh/` | ~3 KB | `C:\Users\jmont\.ssh\` | SSH keys for VPS + GitHub access |
+| `spike-env/.env` | <1 KB | `experimental\livekit\.env` | LiveKit Cloud credentials (NEVER commit) |
+| `MANIFEST.md` | ~7 KB | this manifest | Full restore instructions |
+
+**To restore from this backup on a new PC, see `MANIFEST.md` in the backup directory itself.** It has step-by-step copy commands.
+
+**Security note:** This backup contains sensitive material — SSH private keys, LiveKit API secret, OpenCode conversation history. Treat as confidential. Store on an encrypted drive if possible. Do not commit to git. Do not share publicly.
+
+**Removal after successful migration:**
+```bash
+# On old PC, after verifying the new PC is working
+rmdir /S /Q "E:\opencode-backup-2026-06-03"
+```
+
+Or keep the backup on E: drive for future migrations.
 | Todo list state | Opencode memory | Restored with conversation history |
