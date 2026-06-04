@@ -19,6 +19,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -122,6 +123,12 @@ func startFfmpegOpus(ctx context.Context, inputSampleRate int) (*ffmpegProcess, 
 		"-ar", fmt.Sprintf("%d", inputSampleRate),
 		"-ac", fmt.Sprintf("%d", OpusChannels),
 		"-i", "pipe:0", // PCM from stdin
+		// Highpass + anlmdn (non-local means). The highpass removes
+		// low-frequency rumble; anlmdn is ffmpeg's best no-model
+		// denoiser and is often more effective than afftdn for
+		// broadband noise from TTS sources. Strength 0.0001 is
+		// 10x the default — aggressive but still preserves speech.
+		"-af", "highpass=f=80,anlmdn=s=0.0001:p=0.004:r=0.012",
 		"-c:a", "libopus",
 		"-application", "audio",
 		"-b:a", fmt.Sprintf("%d", OpusBitrate),
@@ -257,6 +264,46 @@ func streamCartesiaPCM(f *ffmpegProcess, pcm []int16) error {
 		return fmt.Errorf("close ffmpeg stdin: %w", err)
 	}
 	return nil
+}
+
+// savePCMAsWAV writes a mono int16 PCM buffer to a 16-bit PCM WAV
+// file. Used for diagnostic purposes: saving the raw Cartesia PCM
+// so the user can listen to it directly (bypassing Opus, ffmpeg,
+// LiveKit, and the browser). Set SPIKE_SAVE_PCM=/path/to/file.wav
+// in the spike env to enable.
+//
+// Format: RIFF/WAVE, fmt chunk (PCM, 1 channel, sample rate,
+// 16-bit), data chunk.
+func savePCMAsWAV(pcm []int16, sampleRate int, path string) error {
+	const bitsPerSample = 16
+	const numChannels = 1
+	byteRate := sampleRate * numChannels * bitsPerSample / 8
+	blockAlign := numChannels * bitsPerSample / 8
+	dataSize := len(pcm) * 2
+	riffSize := 36 + dataSize
+
+	buf := make([]byte, 44+dataSize)
+	// RIFF header
+	copy(buf[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(buf[4:8], uint32(riffSize))
+	copy(buf[8:12], "WAVE")
+	// fmt chunk
+	copy(buf[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(buf[16:20], 16) // fmt chunk size
+	binary.LittleEndian.PutUint16(buf[20:22], 1)  // PCM format
+	binary.LittleEndian.PutUint16(buf[22:24], uint16(numChannels))
+	binary.LittleEndian.PutUint32(buf[24:28], uint32(sampleRate))
+	binary.LittleEndian.PutUint32(buf[28:32], uint32(byteRate))
+	binary.LittleEndian.PutUint16(buf[32:34], uint16(blockAlign))
+	binary.LittleEndian.PutUint16(buf[34:36], uint16(bitsPerSample))
+	// data chunk
+	copy(buf[36:40], "data")
+	binary.LittleEndian.PutUint32(buf[40:44], uint32(dataSize))
+	// PCM samples
+	for i, s := range pcm {
+		binary.LittleEndian.PutUint16(buf[44+2*i:46+2*i], uint16(s))
+	}
+	return os.WriteFile(path, buf, 0644)
 }
 
 // mediaSample alias removed — we use github.com/pion/webrtc/v3/pkg/media.Sample directly.

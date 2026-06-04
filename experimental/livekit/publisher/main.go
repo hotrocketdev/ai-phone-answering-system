@@ -165,12 +165,22 @@ func main() {
 			const cartesiaRate = 48000
 			log.Printf("synthesizing via Cartesia HD: voice=%s model=%s rate=%d greeting=%q",
 				voiceID, modelID, cartesiaRate, greeting)
-			cartesiaPCM, cerr := Synthesize(cartesiaKey, greeting, voiceID, modelID, cartesiaRate)
-			if cerr != nil {
-				log.Fatalf("cartesia: %v", cerr)
+			cartesiaPCM, err := Synthesize(cartesiaKey, greeting, voiceID, modelID, cartesiaRate)
+			if err != nil {
+				log.Fatalf("cartesia: %v", err)
 			}
 			log.Printf("cartesia_pcm samples=%d duration=%.2fs rate=%d channels=1",
 				len(cartesiaPCM), float64(len(cartesiaPCM))/float64(cartesiaRate), cartesiaRate)
+			// Diagnostic: if SPIKE_SAVE_PCM is set, also save the raw
+			// Cartesia PCM to a WAV file so the user can listen to it
+			// directly and compare to the Opus output.
+			if wavPath := os.Getenv("SPIKE_SAVE_PCM"); wavPath != "" {
+				if err := savePCMAsWAV(cartesiaPCM, cartesiaRate, wavPath); err != nil {
+					log.Printf("WARN: save PCM as WAV: %v", err)
+				} else {
+					log.Printf("cartesia_pcm_saved path=%s", wavPath)
+				}
+			}
 			ff, err := startFfmpegOpus(context.Background(), cartesiaRate)
 			if err != nil {
 				log.Fatalf("ffmpeg start: %v", err)
