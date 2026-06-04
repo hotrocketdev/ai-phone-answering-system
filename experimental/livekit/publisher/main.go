@@ -149,16 +149,70 @@ func main() {
 		}
 		provider = pcmuProv
 	case "opus":
-		// Opus path (HD follow-up): 48 kHz mono PCM → ffmpeg → Ogg Opus
+		// Opus path (HD follow-up): PCM (s16le, mono) → ffmpeg → Ogg Opus
 		// → demux → raw Opus packets → LiveKit.
 		//
-		// For the spike we use a synthetic 440 Hz tone. Cartesia HD PCM
-		// is a follow-up (Step 5 of the spike plan).
-		ff, err := startFfmpegOpus(context.Background())
+		// PCM source:
+		//   - If CARTESIA_API_KEY and SPIKE_GREETING_TEXT are set, use
+		//     Cartesia HTTP TTS to synthesize HD PCM (24 kHz s16le mono
+		//     for natural voice), pipe into ffmpeg stdin. ffmpeg
+		//     resamples to 48 kHz and encodes to Opus.
+		//   - Otherwise fall back to a synthetic 440 Hz tone at 48 kHz
+		//     for codec-only verification.
+		if cartesiaKey != "" && greeting != "" {
+			// Cartesia HD path — Step 5 of the spike plan.
+			// 24 kHz mono s16le is Cartesia's natural voice rate and
+			// well-suited to Opus (ffmpeg resamples 24k -> 48k).
+			const cartesiaRate = 24000
+			log.Printf("synthesizing via Cartesia HD: voice=%s model=%s rate=%d greeting=%q",
+				voiceID, modelID, cartesiaRate, greeting)
+			cartesiaPCM, cerr := Synthesize(cartesiaKey, greeting, voiceID, modelID, cartesiaRate)
+			if cerr != nil {
+				log.Fatalf("cartesia: %v", cerr)
+			}
+			log.Printf("cartesia_pcm samples=%d duration=%.2fs rate=%d channels=1",
+				len(cartesiaPCM), float64(len(cartesiaPCM))/float64(cartesiaRate), cartesiaRate)
+			ff, err := startFfmpegOpus(context.Background(), cartesiaRate)
+			if err != nil {
+				log.Fatalf("ffmpeg start: %v", err)
+			}
+			log.Printf("ffmpeg_started=true pid=%d input_rate=%d", ff.cmd.Process.Pid, cartesiaRate)
+			if err := streamCartesiaPCM(ff, cartesiaPCM); err != nil {
+				ff.kill()
+				log.Fatalf("stream cartesia PCM: %v", err)
+			}
+			// The opus provider + ffmpeg process are wired up below.
+			demuxer := NewOggOpusReader(ff.stdout)
+			opusProv := NewOpusSampleProvider(demuxer)
+			provider = opusProv
+			// Parse OpusHead + OpusTags inline so we fail fast on
+			// a bad ffmpeg output.
+			headPkt, err := demuxer.NextOpusPacket()
+			if err != nil {
+				ff.kill()
+				log.Fatalf("ogg: read OpusHead: %v", err)
+			}
+			head, err := ParseOpusHead(headPkt)
+			if err != nil {
+				ff.kill()
+				log.Fatalf("ogg: parse OpusHead: %v", err)
+			}
+			log.Printf("opus_header version=%d channels=%d input_rate=%d pre_skip=%d gain=%d mapping_family=%d",
+				head.Version, head.ChannelCount, head.InputSampleRate, head.PreSkip, head.OutputGain, head.MappingFamily)
+			if _, err := demuxer.NextOpusPacket(); err != nil {
+				ff.kill()
+				log.Fatalf("ogg: read OpusTags: %v", err)
+			}
+			log.Printf("ogg_demuxer_ready (OpusHead + OpusTags consumed, cartesia_path=true)")
+			// Provider is set; skip the synthetic-tone branch below.
+			goto opusProviderReady
+		}
+		// Synthetic-tone fallback (no Cartesia key).
+		ff, err := startFfmpegOpus(context.Background(), OpusSampleRate)
 		if err != nil {
 			log.Fatalf("ffmpeg start: %v", err)
 		}
-		log.Printf("ffmpeg_started=true pid=%d", ff.cmd.Process.Pid)
+		log.Printf("ffmpeg_started=true pid=%d input_rate=%d (synthetic tone)", ff.cmd.Process.Pid, OpusSampleRate)
 		if err := streamSyntheticTone(ff, 440.0, 5.0, 0.3); err != nil {
 			ff.kill()
 			log.Fatalf("stream synthetic tone: %v", err)
@@ -190,6 +244,7 @@ func main() {
 		// If the publisher is interrupted, ff is leaked but Go's
 		// process group cleanup will reap it.
 	}
+opusProviderReady:
 
 	// 5. Track
 	var trackMimeType string

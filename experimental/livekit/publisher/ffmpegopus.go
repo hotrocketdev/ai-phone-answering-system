@@ -110,13 +110,16 @@ type ffmpegProcess struct {
 }
 
 // startFfmpegOpus launches ffmpeg with PCM-on-stdin, Opus-on-stdout.
+// `inputSampleRate` is the rate of the PCM arriving on stdin (e.g. 24000
+// for Cartesia HD or 48000 for synthetic tone). ffmpeg resamples to
+// the Opus native rate of 48000 internally.
 // Reads stderr in a goroutine and logs non-empty lines.
-func startFfmpegOpus(ctx context.Context) (*ffmpegProcess, error) {
+func startFfmpegOpus(ctx context.Context, inputSampleRate int) (*ffmpegProcess, error) {
 	args := []string{
 		"-hide_banner",
 		"-loglevel", "error",
 		"-f", "s16le",
-		"-ar", fmt.Sprintf("%d", OpusSampleRate),
+		"-ar", fmt.Sprintf("%d", inputSampleRate),
 		"-ac", fmt.Sprintf("%d", OpusChannels),
 		"-i", "pipe:0", // PCM from stdin
 		"-c:a", "libopus",
@@ -228,6 +231,27 @@ func streamSyntheticTone(f *ffmpegProcess, freq float64, durSec float64, amplitu
 	pcm := generateSinePCM48k(freq, durSec, amplitude)
 	if err := f.writePCM(pcm); err != nil {
 		return fmt.Errorf("write synthetic PCM: %w", err)
+	}
+	if err := f.closeStdin(); err != nil {
+		return fmt.Errorf("close ffmpeg stdin: %w", err)
+	}
+	return nil
+}
+
+// streamCartesiaPCM writes a Cartesia HD PCM buffer (s16le, mono, at
+// the rate Cartesia returned) to ffmpeg's stdin and closes stdin so
+// ffmpeg can finalize the stream. The input sample rate MUST match
+// the rate passed to startFfmpegOpus (inputSampleRate).
+//
+// This is the Step 5 path: Cartesia HD PCM -> ffmpeg Opus -> LiveKit
+// Opus -> browser. The user hears Cartesia's natural voice through
+// the HD/WebRTC path, bypassing PSTN's 3.4 kHz ceiling.
+func streamCartesiaPCM(f *ffmpegProcess, pcm []int16) error {
+	if len(pcm) == 0 {
+		return fmt.Errorf("cartesia: empty PCM buffer")
+	}
+	if err := f.writePCM(pcm); err != nil {
+		return fmt.Errorf("write cartesia PCM: %w", err)
 	}
 	if err := f.closeStdin(); err != nil {
 		return fmt.Errorf("close ffmpeg stdin: %w", err)
