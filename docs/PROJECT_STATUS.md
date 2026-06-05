@@ -4,6 +4,16 @@
 **Audit type**: Full project recovery audit  
 **Commits analyzed**: 13 (637761c → 855b63e)
 
+> **2026-06-05 — MANAGER DECISION (CORRECTION)**
+>
+> The LiveKit HD spike recommendation (`docs/experimental/livekit-hd-spike/PRODUCTION_MIGRATION_RECOMMENDATION.md`) was too conservative. The project owner has corrected the long-term direction:
+>
+> > **Manager decision: PCMU is MVP fallback only. Future-proof HD path remains active priority. LiveKit/WebRTC/Opus should be developed as premium path, not abandoned.**
+>
+> The new North Star is `docs/context/FUTURE_PROOF_HD_VOICE_ARCHITECTURE.md`. LiveKit/WebRTC/Opus is the premium HD path, not a deferred curiosity. PCMU remains the fallback for normal phone-number callers only.
+>
+> Production PCMU runtime, Telnyx webhook, and Twilio fallback all remain untouched.
+
 ---
 
 ## Current Runtime Update — 2026-06-01

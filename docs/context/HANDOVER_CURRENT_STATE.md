@@ -2,6 +2,20 @@
 
 Last updated: 2026-05-31
 
+> **2026-06-05 — MANAGER DECISION (CORRECTION)**
+>
+> The previous spike recommendation (`docs/experimental/livekit-hd-spike/PRODUCTION_MIGRATION_RECOMMENDATION.md`) was too conservative. The project owner has corrected the long-term direction:
+>
+> > **Manager decision: PCMU is MVP fallback only. Future-proof HD path remains active priority. LiveKit/WebRTC/Opus should be developed as premium path, not abandoned.**
+>
+> The new North Star is `docs/context/FUTURE_PROOF_HD_VOICE_ARCHITECTURE.md` (created 2026-06-05). Summary:
+>
+> - PCMU/Telnyx = stable MVP fallback for normal phone-number callers
+> - LiveKit/WebRTC/Opus = premium HD path for browser/app-originated calls (this is the future product direction)
+> - G.722 = tested, technically viable, not enough
+> - Cartesia Sonic 3.5 / Julia = promising TTS, decision pending the comparison in § 7 of the new doc
+> - Production PCMU runtime, Telnyx webhook, and Twilio fallback all remain untouched
+>
 > **2026-06-05 note on path references below**: All `.md` files previously under `experimental/livekit/results/` and `experimental/telnyx/` were moved to `docs/experimental/livekit-hd-spike/` and `docs/experimental/telnyx/` respectively. The historical path references in this document (e.g. `experimental/livekit/results/SPIKE_REPORT.md`) reflect where the files *were* at the time of the entry and are intentionally left unchanged to preserve the timeline. For the current location of any spike file, see `docs/experimental/livekit-hd-spike/README.md` (file index) or `docs/experimental/livekit-hd-spike/SPIKE_REPORT.md` § 6 ("Files in this spike").
 
 ## Short Summary

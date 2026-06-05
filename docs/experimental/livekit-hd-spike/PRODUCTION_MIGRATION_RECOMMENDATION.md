@@ -5,6 +5,18 @@
 **Branch:** `feat/livekit-hd-spike` (ready for review)
 **Audience:** Worker Manager
 
+> **⚠️ MANAGER DECISION (2026-06-05) — SUPERSEDED BY `docs/context/FUTURE_PROOF_HD_VOICE_ARCHITECTURE.md`**
+>
+> The recommendation in this document ("ship the Cartesia TTS upgrade on PCMU as the only production change; defer LiveKit indefinitely") is **too conservative for the long-term product goal**. The project owner has corrected it:
+>
+> > **Manager decision: PCMU is MVP fallback only. Future-proof HD path remains active priority. LiveKit/WebRTC/Opus should be developed as premium path, not abandoned.**
+>
+> The corrected architecture is in `docs/context/FUTURE_PROOF_HD_VOICE_ARCHITECTURE.md` (13 sections, supersedes this document). LiveKit/WebRTC/Opus is now the **premium HD path**, not a deferred curiosity. PCMU remains the **fallback for normal phone-number callers** only.
+>
+> The Cartesia TTS upgrade on PCMU (sonic-3.5 + Julia + pcm_f32le) is still a worthwhile 1-day ship — it improves the fallback path while the HD path is built. But it is no longer the only production change to consider.
+>
+> This document is **preserved for history** and is **not deleted**. It is no longer the recommended plan.
+
 ---
 
 ## TL;DR (read this first)
