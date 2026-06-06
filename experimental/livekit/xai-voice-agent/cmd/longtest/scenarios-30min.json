@@ -1,0 +1,111 @@
+[
+  {
+    "category": "normal_booking",
+    "user": "Hi, I'd like to book a table for 4 people at 7pm tomorrow please.",
+    "expect_fn": "availability.check"
+  },
+  {
+    "category": "booking_change",
+    "user": "Actually, can we change that to 8pm instead? And make it 6 people."
+  },
+  {
+    "category": "uk_phone",
+    "user": "My number is 07917 715734, and the name is George.",
+    "expect_fn": "booking.create"
+  },
+  {
+    "category": "outdoor_seating",
+    "user": "Can we sit outside if the weather's nice?",
+    "expect_fn": "availability.check"
+  },
+  {
+    "category": "manager_callback",
+    "user": "Actually, can you have the manager call me back in 10 minutes? My name's Sarah."
+  },
+  {
+    "category": "unknown_opening_hours",
+    "user": "What time do you close on Sundays?",
+    "expect_fn": "manager.escalate"
+  },
+  {
+    "category": "dietary",
+    "user": "One of us is gluten-free. Can you accommodate that?",
+    "expect_fn": "manager.escalate"
+  },
+  {
+    "category": "interruption",
+    "user": "Wait — actually, no, I changed my mind. Make it Tuesday instead of tomorrow."
+  },
+  {
+    "category": "change_of_mind",
+    "user": "Sorry, on second thought, can you just hold off for now? I'll call back later."
+  },
+  {
+    "category": "repeat_clarify",
+    "user": "Sorry, could you repeat that? I missed the time."
+  },
+  {
+    "category": "multi_intent",
+    "user": "Do you have a kids menu? And is there parking nearby?",
+    "expect_fn": "manager.escalate"
+  },
+  {
+    "category": "long_pause_marker",
+    "user": "Hold on a sec… [10s silence] … sorry, my other line was ringing. Yes, tomorrow at 7 is fine."
+  },
+  {
+    "category": "background_noise_marker",
+    "user": "[coughs] Sorry about that. Can I also bring a birthday cake? Is that ok?"
+  },
+  {
+    "category": "edge_short",
+    "user": "Yes."
+  },
+  {
+    "category": "edge_typo_morph",
+    "user": "Can I book for 4 at 7pm tomorow?",
+    "expect_fn": "availability.check"
+  },
+  {
+    "category": "edge_no_verb",
+    "user": "Tomorrow, 7pm, 4 people."
+  },
+  {
+    "category": "edge_unrelated",
+    "user": "Do you guys deliver?"
+  },
+  {
+    "category": "edge_late_night",
+    "user": "What about 11pm tonight for 2 people?"
+  },
+  {
+    "category": "edge_double_booking",
+    "user": "Book me twice — 6pm for 2 and 7pm for 4, both tonight, same name."
+  },
+  {
+    "category": "edge_angry",
+    "user": "I've been trying to get through for 20 minutes. This is ridiculous."
+  },
+  {
+    "category": "edge_thanks_only",
+    "user": "Thanks, that's all I needed. Bye."
+  },
+  {
+    "category": "edge_personal_info",
+    "user": "My email is george@example.com if you need to send the confirmation.",
+    "expect_fn": "booking.create"
+  },
+  {
+    "category": "edge_repeat_caller",
+    "user": "It's George again — I booked earlier today, just wanted to add a note about a window seat please."
+  },
+  {
+    "category": "edge_walk_in",
+    "user": "I just walked in — any tables free right now for 2?",
+    "expect_fn": "availability.check"
+  },
+  {
+    "category": "edge_vague",
+    "user": "Do you have anything next weekend?"
+  }
+]

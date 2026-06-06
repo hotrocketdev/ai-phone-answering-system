@@ -1039,37 +1039,10 @@ The user improvised a 10-person booking call: party size, time, name, phone numb
 
 | Outcome | Action | Status 2026-06-06 |
 |---|---|---|
-| **A. Plan D passes** (Eve sounds British, VAD tuned, quality "incredible/human-like", cost ~$3/hr) | Promote Plan D to primary; ship in production worker mode `xai-voice-agent`; build product features on top (§7) | **CHOSEN 2026-06-06** — browser test passes, Eve is British, no hallucination, phone number captured cleanly. Ship. |
+| **A. Plan D passes** (Eve sounds British, VAD tuned, quality "incredible/human-like", cost ~$3/hr) | Promote Plan D to primary; ship in production worker mode `xai-voice-agent`; build product features on top (§7) | **CHOSEN 2026-06-06** — browser test passes, Eve is British, no hallucination, phone number captured cleanly. **GATED on 30-min validation** (see §13). |
 | **B. Plan D fails on accent** (Eve drifts American in production) | Fall back to Plan B (xAI STT/LLM + Cartesia voice); keep existing Cartesia integration | Not needed — accent confirmed British |
 | **C. Plan D fails on xAI** (API errors, pricing shifts, tools unreliable) | Fall back to Plan A (gpt-4o-mini + Cartesia); the existing stitched chain is already in production | Not needed — API stable for ~30 min test |
-| **D. More testing needed** | Extend spike with 30-min production-style call; compare against Plan A baseline | **NEXT** — see §12.9 "xAI fully on all the tech" full-stack test plan |
-
-### 12.9 Next: "xAI fully on all the tech" full-stack test plan
-
-The browser test (§12.8) validated xAI Voice Agent via LiveKit only. The production stack is more:
-
-| Production layer | Current spike | Production target | Test gap |
-|---|---|---|---|
-| Customer transport | LiveKit browser | Telnyx SIP → PSTN | Not tested — spike is LiveKit-only |
-| Audio codec | Opus 48kHz | PCMU (G.711) 8kHz | Not tested — no G.711 ↔ Opus transcoding |
-| STT | xAI Voice Agent (combined) | xAI STT or OpenAI Whisper (standalone) | Not tested standalone |
-| LLM | grok-voice-latest (Voice Agent LLM) | grok-3 / grok-4 (explicit) | Not tested standalone |
-| TTS | Eve (Voice Agent TTS) | xAI TTS or Cartesia Sonic 3.5 | Not tested standalone |
-| Function calling | not tested | `booking.create`, `availability.check` | Not tested |
-| Production call flow | not tested | Telnyx → SIP → g711 → PCM16 → STT → LLM → TTS → g711 → Telnyx | Not tested |
-
-**Plan A — LiveKit extension** (1-2 hours): extend the harness to support `xai-text-out` mode (text-only response, used by existing production worker pipeline) and add 9-utterance transcript CSV output + per-utterance latency. Tests xAI Voice Agent's LLM behaviour, instruction following, and interruption recovery more thoroughly.
-
-**Plan B — Production-path integration** (4-8 hours): build a Telnyx-SIP-aware Go binary that takes G.711 PCMU 8kHz in, decodes to PCM16, calls xAI STT (`grok-2-audio` or `whisper-large-v3-turbo`), then xAI LLM (`grok-3`), then xAI TTS (Eve), then encodes back to G.711 PCMU, then sends to Telnyx. Tests the **actual production path** with xAI replacing OpenAI and Cartesia.
-
-**Plan C — Comparative A/B** (2-3 hours): run the same 9-utterance suite against three pipelines side-by-side and capture quality + latency + cost:
-1. xAI Voice Agent (current spike, baseline)
-2. xAI STT/LLM + Cartesia TTS (Plan B)
-3. OpenAI Whisper + gpt-4o-mini + Cartesia Sonic 3.5 (Plan A, current production)
-
-**Recommendation:** Plan B is the closest to "test xAI fully on all the tech" but requires the most work. Plan C gives the manager the data they need to decide whether Plan B is worth the engineering investment vs sticking with the simpler Plan A.
-
-**User direction needed:** which plan to run, and whether to commit the harness first or after the full test.
+| **D. More testing needed** | Extend spike with 30-min production-style call; compare against Plan A baseline | **IN PROGRESS 2026-06-07** — see §13 |
 
 ### 12.5 Spike team and contacts
 
@@ -1085,3 +1058,115 @@ The browser test (§12.8) validated xAI Voice Agent via LiveKit only. The produc
 **Decision approved by worker manager (2026-06-06):** Plan D as primary, Plan B as fallback, Plan A as safety fallback, Telnyx/PCMU production path untouched.
 **Owner:** VoxLane engineering
 **Contact:** spike-team
+
+---
+
+## 13. 30-minute production-style validation (Plan D gating step) — IN PROGRESS 2026-06-07
+
+**Manager directive (2026-06-06):** "Run a longer realistic test of Plan D before production promotion."
+
+### 13.1 What this test is
+A 30-minute mixed conversation via the existing LiveKit browser harness
+(`xai-voice-agent`) and a real human speaker (the user). The harness logs all
+events with `METRIC` prefixes; the metrics analyzer parses the log and produces
+a pass/fail report that gates the production promotion step (matrix row A in §12.4).
+
+### 13.2 What this test is NOT
+- Not a unit test. Real voice + real VAD + real function-calling.
+- Not the existing 9-utterance browser test from §12.8 (which was ~3 min).
+- Not an automated text-only loop. (Text-only loop in `cmd/longtest/` was tried
+  and showed model instability: "I'm Grok" defaults, occasional off-topic
+  hallucinations like "Law of Cosines" responses to booking queries. Not a
+  viable substitute for real voice.)
+- Not a comparative A/B vs Plan A. That is §12.9 Plan C, separate scope.
+
+### 13.3 Scenarios (13 categories, ~30 min)
+Documented in full in
+`experimental/livekit/xai-voice-agent/THIRTY_MIN_SCENARIOS.md`:
+
+1. Normal booking flow (T+0:00-2:00)
+2. Booking change (T+2:00-4:00)
+3. UK phone number capture (T+4:00-6:00)
+4. Outdoor seating (T+6:00-8:00)
+5. Manager callback (T+8:00-10:00)
+6. Unknown opening hours (T+10:00-12:00)
+7. Dietary requirement (T+12:00-14:00)
+8. Interruption (T+14:00-16:00)
+9. Change of mind (T+16:00-18:00)
+10. Repeat / clarify (T+18:00-20:00)
+11. Multi-intent (T+20:00-22:00)
+12. Long pause (T+22:00-25:00)
+13. Background noise (T+25:00-27:00)
+14. Walk-in / late-night / edge cases (T+27:00-30:00)
+
+### 13.4 Test harness + deploy steps
+Documented in `experimental/livekit/xai-voice-agent/DEPLOY_30MIN.md`:
+- Push new Linux binary (`xai-voice-agent-linux`, 19.2 MB) to VPS
+- Mint 2h LiveKit token
+- Open browser test page with token
+- Start harness on VPS, log to `/tmp/xai-voice-agent.log`
+- User runs 30-min scenario
+- Stop harness, pull log, run analyzer
+
+### 13.5 What gets measured (20-item manager report)
+The analyzer (`cmd/analyze/main.go`) produces a markdown report with:
+
+1. Run completed yes/no
+2. Duration
+3. Turns (total, with function calls, with transcripts)
+4. Success/fail
+5. Latency (avg, p50, p95, worst)
+6. VAD cutoffs (latency distribution heuristic)
+7. Interruption handling (browser verdict)
+8. Phone number capture
+9. Function calling (count, unique names)
+10. Hallucination detection (regex for "Grok" / "Law of Cosines" / off-topic)
+11. Accent consistency (browser verdict)
+12. Audio bytes (total, avg per turn)
+13. Errors (count, first error line)
+14. Cost estimate (Plan D @ $3/hr)
+15. Recommended next step
+16. Production untouched confirmation
+17. Files changed in this iteration
+18. Tests run summary
+19. Commit SHA
+20. Verdict (PASS / FAIL with classification A-G)
+
+### 13.6 Decision gate
+- **PASS** if avg latency < 2.0s, no hallucinations, 100% function-call success
+  on booking scenarios, no audio drops, accent consistent, all phone numbers
+  captured → promote to production worker mode (additive
+  `LIVEKIT_WORKER_MODE=xai-voice-agent`).
+- **FAIL** classified A-G (VAD, Tool, Hallucination, Latency, Audio-Accent,
+  xAI-Stability, LiveKit-Bridge).
+
+### 13.7 Status (2026-06-07)
+- **Done:** structured METRIC logging added to `xai_client.go` (turn_start,
+  turn_end, transcript, function_call, error, session_connect, session_end)
+- **Done:** scenarios file (`cmd/longtest/scenarios-30min.json`, 25 entries)
+- **Done:** restaurant instructions file (`cmd/longtest/instructions.txt`,
+  1.3 KB)
+- **Done:** automated WSS-only validator built (`cmd/longtest/main.go`,
+  5.7 MB Linux) — useful for debugging, **not** a substitute for the browser test
+- **Done:** metrics analyzer built (`cmd/analyze/main.go`, 2.1 MB Linux) —
+  produces 20-item markdown report from METRIC log
+- **Done:** deploy + scenario docs (`DEPLOY_30MIN.md`, `THIRTY_MIN_SCENARIOS.md`)
+- **Pending:** user to run the 30-min browser test on VPS, pull log, run analyzer
+- **Pending:** production promotion (gated on PASS)
+
+### 13.8 Files added in this iteration (commit pending)
+- `experimental/livekit/xai-voice-agent/xai_client.go` (modified, +METRIC logging)
+- `experimental/livekit/xai-voice-agent/cmd/longtest/main.go` (new, WSS validator)
+- `experimental/livekit/xai-voice-agent/cmd/longtest/scenarios-30min.json` (new)
+- `experimental/livekit/xai-voice-agent/cmd/longtest/instructions.txt` (new)
+- `experimental/livekit/xai-voice-agent/cmd/analyze/main.go` (new, log analyzer)
+- `experimental/livekit/xai-voice-agent/DEPLOY_30MIN.md` (new, deploy guide)
+- `experimental/livekit/xai-voice-agent/THIRTY_MIN_SCENARIOS.md` (new, script)
+
+### 13.9 Production untouched
+- Production gateway (pid 1796461) running, untouched
+- Production .env untouched
+- Production systemd untouched
+- Telnyx production webhook untouched
+- Tailscale untouched
+- No VPS, no .env, no secrets, no binaries, no WAVs, no debug logs committed

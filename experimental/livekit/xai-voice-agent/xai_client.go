@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -106,6 +107,15 @@ type xaiClient struct {
 	closeOnce sync.Once
 	closed    chan struct{}
 
+	// Per-session metrics (atomic so callbacks from any goroutine are safe).
+	turnCounter     int64
+	turnStartMs     int64 // wall-clock millis when current turn started; 0 = no turn in progress
+	turnAudioBytes  int64
+	connectStartMs  int64
+	functionCallCnt int64
+	transcriptCnt   int64
+	errorCnt        int64
+
 	// Callbacks set by the caller.
 	OnAudioDelta      func(pcm []int16) // PCM16 24kHz mono chunk
 	OnTranscript      func(role, text string) // user or assistant transcript (final)
@@ -134,10 +144,12 @@ func newXaiClient(cfg *config) (*xaiClient, error) {
 		return nil, fmt.Errorf("xAI WSS dial failed (status=%d): %w", status, err)
 	}
 	c := &xaiClient{
-		cfg:    cfg,
-		conn:   conn,
-		closed: make(chan struct{}),
+		cfg:            cfg,
+		conn:           conn,
+		closed:         make(chan struct{}),
+		connectStartMs: time.Now().UnixMilli(),
 	}
+	log.Printf("METRIC session_connect turnCounter=0 audio_bytes=0 url=%s model=%s", xaiRealtimeURL, cfg.xaiModel)
 	// Configure session
 	if err := c.sendSessionUpdate(); err != nil {
 		_ = conn.Close()
@@ -265,6 +277,7 @@ func (c *xaiClient) ReadEvents(ctx context.Context) error {
 func (c *xaiClient) handleEvent(ev *xaiEvent, data []byte) {
 	switch ev.Type {
 	case "response.output_audio.delta":
+		atomic.AddInt64(&c.turnAudioBytes, int64(len(ev.Delta)*3/4)) // base64 -> bytes approx
 		if ev.Delta == "" {
 			return
 		}
@@ -292,8 +305,12 @@ func (c *xaiClient) handleEvent(ev *xaiEvent, data []byte) {
 		}
 	case "response.output_audio_transcript.done":
 		// Final transcript is in the top-level `transcript` field.
-		if ev.Transcript != "" && c.OnTranscript != nil {
-			c.OnTranscript("assistant", ev.Transcript)
+		if ev.Transcript != "" {
+			atomic.AddInt64(&c.transcriptCnt, 1)
+			log.Printf("METRIC transcript turn_id=%d role=assistant bytes=%d", atomic.LoadInt64(&c.turnCounter), len(ev.Transcript))
+			if c.OnTranscript != nil {
+				c.OnTranscript("assistant", ev.Transcript)
+			}
 		}
 	case "response.output_text.done":
 		// For text-only responses (no audio), capture the text.
@@ -313,6 +330,8 @@ func (c *xaiClient) handleEvent(ev *xaiEvent, data []byte) {
 			CallID    string `json:"call_id"`
 		}
 		if err := json.Unmarshal(data, &top); err == nil && c.OnFunctionCall != nil {
+			atomic.AddInt64(&c.functionCallCnt, 1)
+			log.Printf("METRIC function_call turn_id=%d name=%s args=%s", atomic.LoadInt64(&c.turnCounter), top.Name, top.Arguments)
 			var args map[string]any
 			if err := json.Unmarshal([]byte(top.Arguments), &args); err != nil {
 				log.Printf("xai: bad function_call arguments JSON: %v (raw=%s)", err, top.Arguments)
@@ -323,23 +342,40 @@ func (c *xaiClient) handleEvent(ev *xaiEvent, data []byte) {
 		var item struct {
 			Transcript string `json:"transcript"`
 		}
-		if err := json.Unmarshal(ev.Item, &item); err == nil && c.OnTranscript != nil {
-			c.OnTranscript("user", item.Transcript)
+		if err := json.Unmarshal(ev.Item, &item); err == nil && item.Transcript != "" {
+			atomic.AddInt64(&c.transcriptCnt, 1)
+			log.Printf("METRIC transcript turn_id=%d role=user bytes=%d", atomic.LoadInt64(&c.turnCounter), len(item.Transcript))
+			if c.OnTranscript != nil {
+				c.OnTranscript("user", item.Transcript)
+			}
 		}
 	case "input_audio_buffer.speech_started":
+		atomic.AddInt64(&c.turnCounter, 1)
+		atomic.StoreInt64(&c.turnStartMs, time.Now().UnixMilli())
+		log.Printf("METRIC turn_start turn_id=%d event=speech_started", atomic.LoadInt64(&c.turnCounter))
 		if c.OnSpeechStarted != nil {
 			c.OnSpeechStarted()
 		}
 	case "input_audio_buffer.speech_stopped":
+		log.Printf("METRIC turn_event turn_id=%d event=speech_stopped", atomic.LoadInt64(&c.turnCounter))
 		if c.OnSpeechEnded != nil {
 			c.OnSpeechEnded()
 		}
 	case "response.done":
+		turnID := atomic.LoadInt64(&c.turnCounter)
+		if c.turnStartMs > 0 {
+			latencyMs := time.Now().UnixMilli() - c.turnStartMs
+			log.Printf("METRIC turn_end turn_id=%d latency_ms=%d audio_bytes=%d", turnID, latencyMs, atomic.LoadInt64(&c.turnAudioBytes))
+			c.turnStartMs = 0
+			atomic.StoreInt64(&c.turnAudioBytes, 0)
+		}
 		if c.OnResponseDone != nil {
 			c.OnResponseDone()
 		}
 	case "error":
 		if ev.Error != nil {
+			atomic.AddInt64(&c.errorCnt, 1)
+			log.Printf("METRIC error turn_id=%d code=%s type=%s msg=%q", atomic.LoadInt64(&c.turnCounter), ev.Error.Code, ev.Error.Type, ev.Error.Message)
 			log.Printf("xai error: %s %s — %s", ev.Error.Type, ev.Error.Code, ev.Error.Message)
 			if c.OnError != nil {
 				c.OnError(errors.New(ev.Error.Message))
@@ -362,6 +398,13 @@ func (c *xaiClient) writeJSON(v any) error {
 
 func (c *xaiClient) Close() {
 	c.closeOnce.Do(func() {
+		elapsedMs := time.Now().UnixMilli() - c.connectStartMs
+		log.Printf("METRIC session_end turns=%d function_calls=%d transcripts=%d errors=%d duration_ms=%d",
+			atomic.LoadInt64(&c.turnCounter),
+			atomic.LoadInt64(&c.functionCallCnt),
+			atomic.LoadInt64(&c.transcriptCnt),
+			atomic.LoadInt64(&c.errorCnt),
+			elapsedMs)
 		close(c.closed)
 		if c.conn != nil {
 			_ = c.conn.WriteMessage(websocket.CloseMessage,
