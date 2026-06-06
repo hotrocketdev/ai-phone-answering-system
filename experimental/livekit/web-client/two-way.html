@@ -39,16 +39,20 @@
     Browser mic &rarr; LiveKit &rarr; conversation-worker &rarr; Cartesia Sonic 3.5 f32le
     &rarr; ffmpeg Opus &rarr; LiveKit &rarr; this browser. Test phrase: speak &mdash; Alex replies once.
   </div>
+  <div class="status idle" style="background:#fff8e1;color:#856404;">
+    <strong>Tip:</strong> Use <strong>headphones</strong> or mute your speakers.
+    The mic picks up Alex's reply from open speakers and Whisper transcribes
+    the echo as a new utterance, which causes garbled / repeated replies.
+  </div>
 
   <h2>1. Connect</h2>
   <div class="row">
     <label>URL</label>
-    <input id="url" type="text" placeholder="wss://your-project.livekit.cloud" />
+    <input id="url" type="text" placeholder="wss://your-project.livekit.cloud" value="wss://ai-voice-assistant-314hy5b3.livekit.cloud" />
   </div>
   <div class="row">
     <label>Token</label>
     <input id="token" type="text" placeholder="paste LiveKit access token (publisher or listener token)" />
-  </div>
   <div class="row">
     <label></label>
     <button id="connect-btn">Connect</button>
