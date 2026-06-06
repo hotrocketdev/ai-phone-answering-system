@@ -1,0 +1,54 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "availability.check",
+      "description": "Check table availability for a given date, time, and party size",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "date":       { "type": "string", "description": "ISO date YYYY-MM-DD" },
+          "party_size": { "type": "integer" },
+          "time":       { "type": "string", "description": "24h HH:MM" }
+        },
+        "required": ["date", "party_size", "time"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "manager.escalate",
+      "description": "Escalate a call to the manager (callback, complaint, special request)",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "reason": { "type": "string" },
+          "name":   { "type": "string" },
+          "phone":  { "type": "string" },
+          "notes":  { "type": "string" }
+        },
+        "required": ["reason", "phone"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "booking.create",
+      "description": "Create a confirmed booking (only after all 5 fields captured)",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "party_size": { "type": "integer" },
+          "date":       { "type": "string" },
+          "time":       { "type": "string" },
+          "name":       { "type": "string" },
+          "phone":      { "type": "string" },
+          "notes":      { "type": "string" }
+        },
+        "required": ["party_size", "date", "time", "name", "phone"]
+      }
+    }
+  }
+]

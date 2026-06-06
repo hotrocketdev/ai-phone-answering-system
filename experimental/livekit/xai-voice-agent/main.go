@@ -32,6 +32,8 @@ package main
 import (
 	"context"
 	"flag"
+	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -64,6 +66,7 @@ func main() {
 	threshold := flag.Float64("vad-threshold", defaultVadThreshold, "xAI server VAD threshold (0.0-1.0)")
 	opusBitrate := flag.Int("opus-bitrate", defaultOpusBitrate, "outbound Opus bitrate to LiveKit (bps)")
 	instructions := flag.String("instructions", defaultInstructions, "system prompt for the agent")
+	toolsFile := flag.String("tools", "", "path to JSON file with xAI tools (function-calling schema)")
 	noLiveKit := flag.Bool("no-livekit", false, "skip LiveKit; read audio from stdin, write audio to stdout (smoke test only)")
 	autoMsg := flag.String("auto-msg", "", "smoke-test only: send this single message and exit after response.done")
 	flag.Parse()
@@ -94,6 +97,15 @@ func main() {
 		instructions: *instructions,
 		noLiveKit:    *noLiveKit,
 		autoMsg:      *autoMsg,
+	}
+
+	if *toolsFile != "" {
+		tools, err := loadToolsFile(*toolsFile)
+		if err != nil {
+			log.Fatalf("load tools: %v", err)
+		}
+		cfg.tools = tools
+		log.Printf("loaded %d tools from %s", len(tools), *toolsFile)
 	}
 
 	if cfg.xaiAPIKey == "" {
@@ -148,6 +160,7 @@ type config struct {
 	vadThreshold float64
 	opusBitrate  int
 	instructions string
+	tools        []xaiTool
 	noLiveKit    bool
 	autoMsg      string
 }
@@ -159,4 +172,23 @@ func getenv(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// loadToolsFile reads a JSON file with the xAI tools array. Expected format:
+//
+//	[
+//	  { "type": "function", "function": { "name": "...", "description": "...",
+//	    "parameters": { ... } } },
+//	  ...
+//	]
+func loadToolsFile(path string) ([]xaiTool, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var tools []xaiTool
+	if err := json.Unmarshal(b, &tools); err != nil {
+		return nil, fmt.Errorf("parse tools JSON: %w", err)
+	}
+	return tools, nil
 }

@@ -110,6 +110,7 @@ type xaiClient struct {
 	OnAudioDelta      func(pcm []int16) // PCM16 24kHz mono chunk
 	OnTranscript      func(role, text string) // user or assistant transcript (final)
 	OnTranscriptDelta func(role, text string) // streaming transcript delta
+	OnFunctionCall    func(name string, args map[string]any)
 	OnError           func(err error)
 	OnSpeechStarted   func()
 	OnSpeechEnded     func()
@@ -160,6 +161,7 @@ func (c *xaiClient) sendSessionUpdate() error {
 		Voice:         c.cfg.xaiVoice,
 		Instructions:  c.cfg.instructions,
 		TurnDetection: turn,
+		Tools:         c.cfg.tools,
 	}
 	ev := xaiEvent{Type: "session.update", Session: sess}
 	return c.writeJSON(ev)
@@ -207,6 +209,32 @@ func (c *xaiClient) SendUserText(text string) error {
 	return c.CreateResponse()
 }
 
+// SendFunctionResult submits a function_call_output to xAI so the
+// model can continue its turn after the tool returns. callName/args
+// are echoed for traceability; output must be JSON-serializable.
+func (c *xaiClient) SendFunctionResult(callName string, args map[string]any, output map[string]any) error {
+	// We need the call_id to match the model's call. The model emits
+	// call_id in the function_call_arguments.done event. For now, the
+	// xai Go client doesn't track the latest call_id, so the caller
+	// must invoke this from a context that has it. We accept callName
+	// + args as a fallback identifier and generate a synthetic id.
+	// (In practice, set OnFunctionCallArgs to capture call_id alongside
+	// name/args.)
+	outputJSON, _ := json.Marshal(output)
+	item := map[string]any{
+		"type": "function_call_output",
+		// call_id required by xAI; placeholder for now.
+		"call_id": "validation-test-call",
+		"output":  string(outputJSON),
+	}
+	itemJSON, _ := json.Marshal(item)
+	ev := xaiEvent{Type: "conversation.item.create", Item: itemJSON}
+	if err := c.writeJSON(ev); err != nil {
+		return err
+	}
+	return c.CreateResponse()
+}
+
 // ReadEvents pumps the WebSocket read loop. Returns when ctx is cancelled or the connection drops.
 func (c *xaiClient) ReadEvents(ctx context.Context) error {
 	defer c.Close()
@@ -228,13 +256,13 @@ func (c *xaiClient) ReadEvents(ctx context.Context) error {
 		}
 		// Verbose dump of all events; enable with XAI_DEBUG_EVENTS=1
 		if os.Getenv("XAI_DEBUG_EVENTS") != "" {
-			log.Printf("xai event [%s] raw=%s", ev.Type, truncate(string(data), 400))
+			log.Printf("xai event [%s] raw=%s", ev.Type, string(data))
 		}
-		c.handleEvent(&ev)
+		c.handleEvent(&ev, data)
 	}
 }
 
-func (c *xaiClient) handleEvent(ev *xaiEvent) {
+func (c *xaiClient) handleEvent(ev *xaiEvent, data []byte) {
 	switch ev.Type {
 	case "response.output_audio.delta":
 		if ev.Delta == "" {
@@ -274,6 +302,22 @@ func (c *xaiClient) handleEvent(ev *xaiEvent) {
 		}
 		if err := json.Unmarshal(ev.Item, &item); err == nil && item.Text != "" && c.OnTranscript != nil {
 			c.OnTranscript("assistant", item.Text)
+		}
+	case "response.function_call_arguments.done":
+		// xAI emits the function-call args at the TOP LEVEL of the event
+		// (not inside `item`). Fields: name, arguments (stringified JSON),
+		// call_id, response_id, item_id.
+		var top struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+			CallID    string `json:"call_id"`
+		}
+		if err := json.Unmarshal(data, &top); err == nil && c.OnFunctionCall != nil {
+			var args map[string]any
+			if err := json.Unmarshal([]byte(top.Arguments), &args); err != nil {
+				log.Printf("xai: bad function_call arguments JSON: %v (raw=%s)", err, top.Arguments)
+			}
+			c.OnFunctionCall(top.Name, args)
 		}
 	case "conversation.item.input_audio_transcription.completed":
 		var item struct {

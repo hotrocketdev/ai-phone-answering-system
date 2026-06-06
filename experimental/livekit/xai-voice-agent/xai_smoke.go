@@ -65,6 +65,22 @@ func runSmokeTest(ctx context.Context, cfg *config) error {
 		// be reported via OnTranscript when the response.done fires.
 		// (No-op for the smoke test: the final transcript is enough.)
 	}
+	xai.OnFunctionCall = func(name string, args map[string]any) {
+		log.Printf("xai function_call [%s]: %v", name, args)
+		// For the validation test, also send a synthetic function_call_output
+		// back so the model can finish its turn. In production, the actual
+		// tool would be invoked here.
+		go func() {
+			output := map[string]any{
+				"available": true,
+				"tables":    []string{"indoor", "patio"},
+				"notes":     "function result for validation test",
+			}
+			if err := xai.SendFunctionResult(name, args, output); err != nil {
+				log.Printf("send function result: %v", err)
+			}
+		}()
+	}
 	xai.OnError = func(err error) {
 		log.Printf("xai error: %v", err)
 	}
