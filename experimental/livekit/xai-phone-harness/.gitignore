@@ -1,0 +1,19 @@
+# --- Secrets / env ---------------------------------------------------------
+.env
+.env.*
+*.pem
+*.key
+
+# --- Logs (reference them in reports, do NOT commit) -----------------------
+*.log
+logs/
+**/logs/
+
+# --- Audio / debug artifacts ----------------------------------------------
+*.wav
+*.pcmu
+*.pcm
+*.raw
+test-inputs/
+output.wav
+output.pcmu
