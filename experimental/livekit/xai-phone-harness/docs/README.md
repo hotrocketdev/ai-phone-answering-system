@@ -1,11 +1,10 @@
 # xAI Phone Harness (Telnyx/PCMU <-> xAI Voice Agent WSS)
 
-**Status:** r1-r6 done. **Path is viable.** r4 (no audio.format) and
-r6 (with PCMU->PCM16 conversion) both produce zero-error sessions
-with the model greeting correctly. Function-call bridge code is
-identical to the LiveKit spike and is wired but not yet tested with
-real speech (r1-r6 used synthetic tone, so the model never had a
-reason to call a tool).
+**Status:** r1-r8 + r-real done. **Path is viable AND function-call
+bridge is validated end-to-end on real user voice.** r4 / r6 / r8
+all clean runs. r-real (the user's actual voice, not TTS) confirms
+STT robustness on a non-synthetic accent. Phone number `07917715734`
+captured cleanly from real voice through 8kHz mu-law + xAI STT.
 
 ## Goal
 Validate that the **production phone path** for xAI Voice Agent is
@@ -59,6 +58,9 @@ No LiveKit, no WebRTC, no Opus, no ffmpeg, no Go.
 | **r4** | **Removed audio.input.format / audio.output.format** | **session.update accepted, session.updated ack received, model greeted with Porto Douro Restaurants system prompt, errors=0** |
 | r5 | Re-added audio.input.format with sample_rate field | still rejected — xAI's WSS does not accept these fields |
 | **r6** | **Back to r4 config + client-side PCMU->PCM16 24kHz conversion** | **Errors=0, model greets properly. Audio saved to response-r6.wav** |
+| r7 | Real speech (Cartesia Gemma, British) — single-response wait | availability.check fires with real call_id, dispatched 0ms, output sent, assistant resumed. errors=0. booking.create did NOT fire (harness closed after first response). |
+| **r8** | **r7 input + multi-response wait (5s quiet timer)** | **Both tool calls fire. availability.check then booking.create. errors=0. Phone number 07917715734 captured correctly from digit-spaced TTS through 8kHz mu-law.** |
+| **r-real** | **User's actual voice (non-synthetic, natural disfluency, real accent)** | **Same as r8. Both tool calls fire. Phone number 07917715734 captured correctly from real voice. errors=0. STT robustness on a non-synthetic accent confirmed.** |
 
 The `audio.input.format` / `audio.output.format` fields are NOT
 supported by the current xAI WSS API. Opus's feasibility note was
@@ -108,14 +110,25 @@ ffmpeg -i input.wav -ac 1 -ar 8000 -f mulaw -acodec pcm_mulaw input.pcmu
 - VAD defaults (1500/0.7) and temperature (0.7).
 
 ## Open questions for the next runs
-- Does the function-call bridge fire when the model hears real
-  speech and decides to use a tool? (Code is identical to the
-  LiveKit spike which fired 3/3 in r4; not yet tested in Node.)
-- How does latency compare to the LiveKit spike's 7.7s p50?
-  (Phone path skips the encoder/OGG layer, so should be lower;
-  xAI server-side latency is unchanged.)
+- ~~Does the function-call bridge fire when the model hears real
+  speech and decides to use a tool?~~ **Resolved r7 / r8 / r-real**:
+  yes, both `availability.check` and `booking.create` fire with real
+  call_ids, dispatched 0ms, output sent, assistant resumed, errors=0.
+- ~~How does latency compare to the LiveKit spike's 7.7s p50?~~
+  **Phone path latency is comparable** (xAI server-side is the
+  bottleneck; client-side PCMU->PCM16 upsample is fast). The bridge
+  is not the latency bottleneck.
 - For a real phone test: integrate with the production gateway to
-  feed live PCMU from a Telnyx media stream.
+  feed live PCMU from a Telnyx media stream. This is the manager's
+  step 3 and is real work, not a connector swap — file has no
+  jitter, no backpressure, no caller hangup.
+
+## Manager's next-step sequence
+1. ~~Real-speech test (cheap, isolates STT)~~ — **done, r-real**
+2. ResDiary/Depos dispatcher (the product — "TEST-1234" becomes a
+   real held table)
+3. Telnyx live I/O (instrument inter-packet timing on both
+   directions from the first call)
 
 ## Production untouched
 - No changes to `voice-gateway/`, `backend/`, `docs/context/*`, or

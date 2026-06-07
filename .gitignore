@@ -41,3 +41,6 @@ logs/
 # Temp
 tmp/
 temp/
+
+# User-supplied audio (real-speech test recordings)
+artifacts/
