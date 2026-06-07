@@ -38,6 +38,8 @@ var (
 	reError     = regexp.MustCompile(`METRIC error (?:turn_id=(\d+) )?(?:code=(\S+) )?(?:type=(\S+) )?msg=(.*)`)
 	reLoopEnd   = regexp.MustCompile(`METRIC loop_end turns=(\d+) function_calls=(\d+) transcripts=(\d+) errors=(\d+)`)
 	reSessionEnd = regexp.MustCompile(`METRIC session_end turns=(\d+) function_calls=(\d+) transcripts=(\d+) errors=(\d+) duration_ms=(\d+)`)
+	reAssistant  = regexp.MustCompile(`xai transcript \[assistant\]: (.+)$`)
+	reUserSTT    = regexp.MustCompile(`xai transcript \[user\]: (.+)$`)
 )
 
 func main() {
@@ -147,17 +149,41 @@ func parse(path string, s *sessionSummary) error {
 			s.Transcripts, _ = strconv.Atoi(m[3])
 			s.Errors, _ = strconv.Atoi(m[4])
 			s.DurationMs, _ = strconv.ParseInt(m[5], 10, 64)
+		case reAssistant.MatchString(line):
+			m := reAssistant.FindStringSubmatch(line)
+			text := strings.TrimSpace(m[1])
+			if text != "" {
+				// Attach to the last turn sample (most recent turn_end).
+				if len(s.TurnSamples) > 0 {
+					last := &s.TurnSamples[len(s.TurnSamples)-1]
+					if last.asst == "" {
+						last.asst = text
+						last.asstChars = len(text)
+					}
+				}
+				s.AssistantSamples = append(s.AssistantSamples, text)
+				s.DistinctAssts[truncate(text, 60)]++
+			}
+		case reUserSTT.MatchString(line):
+			m := reUserSTT.FindStringSubmatch(line)
+			text := strings.TrimSpace(m[1])
+			if text != "" {
+				s.UserSamples = append(s.UserSamples, text)
+			}
 		}
 	}
 	if s.DurationMs == 0 && !s.Started.IsZero() && !s.Ended.IsZero() {
 		s.DurationMs = s.Ended.Sub(s.Started).Milliseconds()
 	}
-	// Derive Transcripts from TurnSamples if not set by session_end.
+	// Derive Transcripts from TurnSamples (or AssistantSamples) if not set by session_end.
 	if s.Transcripts == 0 {
 		for _, sm := range s.TurnSamples {
 			if sm.asstChars > 0 {
 				s.Transcripts++
 			}
+		}
+		if s.Transcripts == 0 {
+			s.Transcripts = len(s.AssistantSamples)
 		}
 	}
 	return sc.Err()
@@ -176,6 +202,7 @@ type sessionSummary struct {
 	TurnSamples      []sample
 	Functions        map[string]int
 	AssistantSamples []string
+	UserSamples      []string
 	ErrorMessages    []string
 	FirstErrorLine   string
 	DistinctAssts    map[string]int
@@ -303,13 +330,23 @@ func report(s *sessionSummary) {
 	}
 
 	fmt.Println()
-	fmt.Println("## Sample assistant responses (first 10)")
-	max := 10
-	if len(s.AssistantSamples) < max {
-		max = len(s.AssistantSamples)
+	fmt.Println("## Assistant responses (all)")
+	if len(s.AssistantSamples) == 0 {
+		fmt.Println("- (none)")
+	} else {
+		for i, asst := range s.AssistantSamples {
+			fmt.Printf("%d. %q\n", i+1, asst)
+		}
 	}
-	for i := 0; i < max; i++ {
-		fmt.Printf("- %q\n", truncate(s.AssistantSamples[i], 200))
+
+	fmt.Println()
+	fmt.Println("## User transcripts (all)")
+	if len(s.UserSamples) == 0 {
+		fmt.Println("- (none)")
+	} else {
+		for i, u := range s.UserSamples {
+			fmt.Printf("%d. %q\n", i+1, u)
+		}
 	}
 
 	fmt.Println()
@@ -353,7 +390,7 @@ func verdict(s *sessionSummary) verdictInfo {
 	if len(s.Latencies) > 0 {
 		_, _, p95, _ := stats(s.Latencies)
 		if p95 > 5000 {
-			return verdictInfo{"FAIL", fmt.Sprintf("p95 latency %dms > 5s", p95), "tune VAD / silence; rerun"}
+			return verdictInfo{"FAIL", fmt.Sprintf("p95 latency %.0fms > 5s", p95), "tune VAD / silence; rerun"}
 		}
 	}
 	if hallu := detectHallucination(s); hallu != "none" {

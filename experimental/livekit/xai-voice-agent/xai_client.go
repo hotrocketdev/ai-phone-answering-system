@@ -77,6 +77,7 @@ type xaiSessionCfg struct {
 	Instructions  string      `json:"instructions"`
 	TurnDetection *xaiTurnDet `json:"turn_detection"`
 	Tools         []xaiTool   `json:"tools,omitempty"`
+	Temperature   *float64    `json:"temperature,omitempty"`
 }
 
 type xaiTurnDet struct {
@@ -169,11 +170,15 @@ func (c *xaiClient) sendSessionUpdate() error {
 	turn.CreateResponse = &createResp
 	turn.InterruptResponse = &createResp
 
+	// Lower temperature (0.2) to reduce hallucination while keeping voice natural.
+	temp := 0.2
+
 	sess := &xaiSessionCfg{
 		Voice:         c.cfg.xaiVoice,
 		Instructions:  c.cfg.instructions,
 		TurnDetection: turn,
 		Tools:         c.cfg.tools,
+		Temperature:   &temp,
 	}
 	ev := xaiEvent{Type: "session.update", Session: sess}
 	return c.writeJSON(ev)
