@@ -247,15 +247,27 @@ async function main() {
   // testing.
   xai.commitAudio();
 
-  // Wait for the response to complete. The WSS session stays open
-  // for further turns if more audio arrives; for the harness we
-  // close after one full round-trip.
+  // Wait for responses. After a function call is dispatched and
+  // function_call_output is sent, the model continues speaking (a
+  // second response with potentially more tool calls like
+  // booking.create). We need to capture that second response too.
+  // Strategy: wait for a quiet period (5s with no response_done) OR
+  // up to 60s total.
   await new Promise((resolve) => {
     let done = false;
     const finish = () => { if (!done) { done = true; resolve(); } };
-    xai.once('response_done', finish);
-    // Safety timeout: 30s for a single response.
-    setTimeout(() => { log('METRIC response_timeout'); finish(); }, 30000);
+    let quietTimer = null;
+    const onResponse = () => {
+      // Reset the quiet timer each time a response completes.
+      if (quietTimer) clearTimeout(quietTimer);
+      quietTimer = setTimeout(() => {
+        log('METRIC response_quiet_5s');
+        finish();
+      }, 5000);
+    };
+    xai.on('response_done', onResponse);
+    // Safety timeout: 60s total.
+    setTimeout(() => { log('METRIC response_timeout'); finish(); }, 60000);
   });
 
   // Save the assistant audio to WAV.
