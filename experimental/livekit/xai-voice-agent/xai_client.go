@@ -117,6 +117,11 @@ type xaiClient struct {
 	transcriptCnt   int64
 	errorCnt        int64
 
+	// Most recent call_id from a function_call_arguments.done event. SendFunctionResult
+	// uses this to send the matching function_call_output back. atomic.Value stores
+	// a string; Load/Store are concurrency-safe.
+	latestCallID atomic.Value
+
 	// Callbacks set by the caller.
 	OnAudioDelta      func(pcm []int16) // PCM16 24kHz mono chunk
 	OnTranscript      func(role, text string) // user or assistant transcript (final)
@@ -170,8 +175,9 @@ func (c *xaiClient) sendSessionUpdate() error {
 	turn.CreateResponse = &createResp
 	turn.InterruptResponse = &createResp
 
-	// Lower temperature (0.2) to reduce hallucination while keeping voice natural.
-	temp := 0.2
+	// Temperature 0.7 balances naturalness and reliability. r4 (temp 0.2)
+	// sounded mechanical; 9/9 PASS test used -1.0 (server default).
+	temp := 0.7
 
 	sess := &xaiSessionCfg{
 		Voice:         c.cfg.xaiVoice,
@@ -229,19 +235,25 @@ func (c *xaiClient) SendUserText(text string) error {
 // SendFunctionResult submits a function_call_output to xAI so the
 // model can continue its turn after the tool returns. callName/args
 // are echoed for traceability; output must be JSON-serializable.
+//
+// The call_id is read from c.latestCallID, which is set by the
+// response.function_call_arguments.done event handler. Callers should
+// invoke this from the OnFunctionCall callback (or shortly after) so
+// the call_id is fresh.
 func (c *xaiClient) SendFunctionResult(callName string, args map[string]any, output map[string]any) error {
-	// We need the call_id to match the model's call. The model emits
-	// call_id in the function_call_arguments.done event. For now, the
-	// xai Go client doesn't track the latest call_id, so the caller
-	// must invoke this from a context that has it. We accept callName
-	// + args as a fallback identifier and generate a synthetic id.
-	// (In practice, set OnFunctionCallArgs to capture call_id alongside
-	// name/args.)
+	callID := ""
+	if v := c.latestCallID.Load(); v != nil {
+		if s, ok := v.(string); ok {
+			callID = s
+		}
+	}
+	if callID == "" {
+		return fmt.Errorf("SendFunctionResult: no call_id available (model has not called any function in this session)")
+	}
 	outputJSON, _ := json.Marshal(output)
 	item := map[string]any{
-		"type": "function_call_output",
-		// call_id required by xAI; placeholder for now.
-		"call_id": "validation-test-call",
+		"type":    "function_call_output",
+		"call_id": callID,
 		"output":  string(outputJSON),
 	}
 	itemJSON, _ := json.Marshal(item)
@@ -334,14 +346,17 @@ func (c *xaiClient) handleEvent(ev *xaiEvent, data []byte) {
 			Arguments string `json:"arguments"`
 			CallID    string `json:"call_id"`
 		}
-		if err := json.Unmarshal(data, &top); err == nil && c.OnFunctionCall != nil {
-			atomic.AddInt64(&c.functionCallCnt, 1)
-			log.Printf("METRIC function_call turn_id=%d name=%s args=%s", atomic.LoadInt64(&c.turnCounter), top.Name, top.Arguments)
-			var args map[string]any
-			if err := json.Unmarshal([]byte(top.Arguments), &args); err != nil {
-				log.Printf("xai: bad function_call arguments JSON: %v (raw=%s)", err, top.Arguments)
+		if err := json.Unmarshal(data, &top); err == nil {
+			c.latestCallID.Store(top.CallID)
+			if c.OnFunctionCall != nil {
+				atomic.AddInt64(&c.functionCallCnt, 1)
+				log.Printf("METRIC function_call turn_id=%d name=%s args=%s", atomic.LoadInt64(&c.turnCounter), top.Name, top.Arguments)
+				var args map[string]any
+				if err := json.Unmarshal([]byte(top.Arguments), &args); err != nil {
+					log.Printf("xai: bad function_call arguments JSON: %v (raw=%s)", err, top.Arguments)
+				}
+				c.OnFunctionCall(top.Name, args)
 			}
-			c.OnFunctionCall(top.Name, args)
 		}
 	case "conversation.item.input_audio_transcription.completed":
 		var item struct {

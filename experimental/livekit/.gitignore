@@ -1,0 +1,44 @@
+# --- Secrets / env ---------------------------------------------------------
+*.env
+.env
+.env.*
+*.pem
+*.key
+*token*
+*secret*
+*credentials*
+
+# --- Logs (reference them in reports, do NOT commit) -----------------------
+*.log
+logs/
+**/logs/
+
+# --- Audio / debug artifacts ----------------------------------------------
+*.wav
+*.ogg
+*.opus
+*.pcm
+*.raw
+debug-audio/
+**/debug-audio/
+
+# --- Binaries / build output ----------------------------------------------
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+xai-voice-agent.exe
+xai-voice-agent-linux
+xai-analyze-linux
+xai-longtest-linux
+xai-probe.exe
+xai-llm-eval.exe
+xai-pcmu-test.exe
+/bin/
+/dist/
+__debug_bin*
+*-output.txt
+*-smoke*.txt
+*-debug.txt
+*smoke*.txt
