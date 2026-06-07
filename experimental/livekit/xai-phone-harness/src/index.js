@@ -27,7 +27,7 @@ import path from 'node:path';
 import { argv } from 'node:process';
 import { XaiClient } from './xai-client.js';
 import { dispatchToolCall } from './tools.js';
-import { tonePcmu, pcm16ToPcmu, pcmuToPcm16, pcm24kToPcm8k } from './pcmu-codec.js';
+import { tonePcmu, pcm16ToPcmu, pcmuToPcm16, pcm8kToPcm24k, pcm24kToPcm8k } from './pcmu-codec.js';
 import { log } from './log.js';
 
 function parseArgs() {
@@ -57,51 +57,59 @@ const RESTAURANT_INSTRUCTIONS = `You are Alex, the receptionist at Porto Douro R
 
 function loadTools(pathOrNull) {
   if (!pathOrNull) {
+    // Tool format mirrors the LiveKit spike (xai-voice-agent/tools-booking.json):
+    // { type: "function", function: { name, description, parameters } } — NESTED.
     return [
       {
         type: 'function',
-        name: 'availability.check',
-        description: 'Check whether a table is available at a given date and time.',
-        parameters: {
-          type: 'object',
-          properties: {
-            date: { type: 'string', description: 'ISO date (YYYY-MM-DD) or natural-language date like "tomorrow".' },
-            time: { type: 'string', description: '24-hour time HH:MM.' },
-            party_size: { type: 'integer', description: 'Number of guests.' },
+        function: {
+          name: 'availability.check',
+          description: 'Check whether a table is available at a given date and time.',
+          parameters: {
+            type: 'object',
+            properties: {
+              date: { type: 'string', description: 'ISO date (YYYY-MM-DD) or natural-language date like "tomorrow".' },
+              time: { type: 'string', description: '24-hour time HH:MM.' },
+              party_size: { type: 'integer', description: 'Number of guests.' },
+            },
+            required: ['date', 'time', 'party_size'],
           },
-          required: ['date', 'time', 'party_size'],
         },
       },
       {
         type: 'function',
-        name: 'booking.create',
-        description: 'Confirm a table booking with the caller on the line.',
-        parameters: {
-          type: 'object',
-          properties: {
-            date: { type: 'string' },
-            time: { type: 'string' },
-            party_size: { type: 'integer' },
-            name: { type: 'string' },
-            phone: { type: 'string' },
-            notes: { type: 'string' },
+        function: {
+          name: 'booking.create',
+          description: 'Confirm a table booking with the caller on the line.',
+          parameters: {
+            type: 'object',
+            properties: {
+              date: { type: 'string' },
+              time: { type: 'string' },
+              party_size: { type: 'integer' },
+              name: { type: 'string' },
+              phone: { type: 'string' },
+              notes: { type: 'string' },
+            },
+            required: ['date', 'time', 'party_size', 'name', 'phone'],
           },
-          required: ['date', 'time', 'party_size', 'name', 'phone'],
         },
       },
       {
         type: 'function',
-        name: 'manager.escalate',
-        description: 'Take a message for the manager to call back.',
-        parameters: {
-          type: 'object',
-          properties: {
-            topic: { type: 'string' },
-            message: { type: 'string' },
-            caller_name: { type: 'string' },
-            caller_phone: { type: 'string' },
+        function: {
+          name: 'manager.escalate',
+          description: 'Take a message for the manager to call back.',
+          parameters: {
+            type: 'object',
+            properties: {
+              topic: { type: 'string' },
+              message: { type: 'string' },
+              caller_name: { type: 'string' },
+              caller_phone: { type: 'string' },
+            },
+            required: ['message'],
           },
-          required: ['message'],
         },
       },
     ];
@@ -141,7 +149,8 @@ async function main() {
 
   log('xai-phone-harness starting');
   log(`  model=${args.model} voice=${args.voice} temperature=${args.temperature}`);
-  log(`  input format=audio/pcmu (8 kHz) output format=audio/pcm (24 kHz)`);
+  log(`  input: PCMU 8kHz (G.711 mu-law) -> decode -> upsample -> PCM16 24kHz to xAI`);
+  log(`  output: PCM16 24kHz from xAI -> write WAV + downsample to PCMU 8kHz`);
 
   const tools = loadTools(args.tools);
   log(`  loaded ${tools.length} tools`);
@@ -153,8 +162,10 @@ async function main() {
     tools,
     instructions: RESTAURANT_INSTRUCTIONS,
     temperature: args.temperature,
-    inputFormat: { type: 'audio/pcmu' },
-    outputFormat: { type: 'audio/pcm' },
+    // xAI does not accept audio.input.format / audio.output.format
+    // in session.update (r3-r5 of the spike). The default is
+    // PCM16 24 kHz, which we get by decoding + upsampling the PCMU
+    // 8 kHz input client-side.
   });
 
   // Function-call bridge: receive the model's tool call, dispatch to
@@ -191,6 +202,13 @@ async function main() {
 
   await xai.connect();
 
+  // Wait for session.updated before sending audio. The xai client
+  // exposes this via the `_sessionReady` flag through the next-tick
+  // promise; we just sleep 300ms which is enough for xAI to ack the
+  // session.update and accept subsequent input_audio_buffer.append.
+  log('waiting 300ms for session.updated ack from xAI');
+  await new Promise((r) => setTimeout(r, 300));
+
   // Decide the input.
   let pcmu;
   if (args.input) {
@@ -205,10 +223,20 @@ async function main() {
     pcmu = Buffer.alloc(8000, 0xff);
   }
 
-  // Stream PCMU in 100 ms chunks (800 bytes each at 8 kHz).
-  const chunk = 800;
-  for (let i = 0; i < pcmu.length; i += chunk) {
-    xai.appendAudio(pcmu.subarray(i, i + chunk));
+  // Decode PCMU -> PCM16 8 kHz -> upsample to PCM16 24 kHz. xAI's
+  // WSS expects PCM16 audio at 24 kHz (the default). We do the
+  // G.711 mu-law decode + 3x upsample client-side; the alternative
+  // of declaring audio.input.format = audio/pcmu was rejected by
+  // the server (r3-r5 of the spike).
+  log('decoding PCMU -> PCM16 8kHz -> upsampling to 24kHz');
+  const pcm8k = pcmuToPcm16(pcmu);
+  const pcm24k = pcm8kToPcm24k(pcm8k);
+  log('converted', pcmu.length, 'bytes PCMU ->', pcm24k.length, 'bytes PCM16 24 kHz');
+
+  // Stream PCM16 24 kHz in 100 ms chunks (4800 bytes each at 24 kHz).
+  const chunk = 4800;
+  for (let i = 0; i < pcm24k.length; i += chunk) {
+    xai.appendAudio(pcm24k.subarray(i, i + chunk));
     // Pace ourselves at real-time so xAI's VAD has time to detect.
     await new Promise((r) => setTimeout(r, 100));
   }

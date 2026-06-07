@@ -70,21 +70,29 @@ export class XaiClient extends EventEmitter {
   }
 
   _sendSessionUpdate() {
+    // r6: back to r4 working config. The audio.input.format and
+    // audio.output.format fields are NOT accepted by the current
+    // xAI WSS API (server returns "invalid_event"). xAI's VAD and
+    // audio processing work fine on PCM16 24kHz, which is the
+    // default. We convert PCMU -> PCM16 24kHz in the harness (see
+    // pcmu-codec.js) and send the result as the default format.
     const session = {
       voice: this.voice,
       model: this.model,
-      audio: {
-        input: { format: this.inputFormat },
-        output: { format: this.outputFormat },
-      },
       instructions: this.instructions,
+      turn_detection: {
+        type: 'server_vad',
+        threshold: 0.7,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 1500,
+      },
       tools: this.tools.length ? this.tools : undefined,
-      tool_choice: this.tools.length ? 'auto' : undefined,
     };
     if (typeof this.temperature === 'number') {
       session.temperature = this.temperature;
     }
     this._send({ type: 'session.update', session });
+    log('xai: sent session.update', JSON.stringify({ voice: session.voice, model: session.model, tools_count: (session.tools || []).length, has_turn_detection: !!session.turn_detection }));
   }
 
   _send(ev) {
