@@ -1,0 +1,20 @@
+{
+  "name": "xai-phone-worker",
+  "version": "0.1.0",
+  "description": "Production worker: Telnyx media stream (PCM16 24 kHz) <-> xAI Voice Agent WSS. Replaces the xai-phone-harness spike for production deployment. Stub dispatcher to be replaced with ResDiary + Depos + manager escalation.",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test:smoke": "node src/smoke.js",
+    "test:dispatcher": "node src/dispatcher.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0"
+  }
+}

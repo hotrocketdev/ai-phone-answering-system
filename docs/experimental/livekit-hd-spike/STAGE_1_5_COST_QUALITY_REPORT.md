@@ -1,4 +1,4 @@
-# Stage 1.5 — Cost & Quality Decision Report
+﻿# Stage 1.5 â€” Cost & Quality Decision Report
 
 **Status:** Spike work in progress (Plan D primary)
 **Date:** 2026-06-06
@@ -15,19 +15,19 @@ A modern AI receptionist is not a chatbot. It is a real-time, multi-intent, know
 
 1. **Handle a booking conversation end-to-end.** Capture name, party size, date, time, special requests, dietary needs, phone number. Confirm with a one-sentence summary before closing. Hold the slot in a calendar.
 2. **Answer on-script questions accurately.** Hours, address, parking, menu, dietary flags, dress code, reservation policy, cancellation policy, kids / accessibility / pet policy, gift cards, private events. Pulled from a per-tenant knowledge base, never invented.
-3. **Handle multi-intent callers.** A caller might say "I want to book for four on Friday, but first — can I talk to the manager about a private event for 30 people?" The agent must capture **both** intents, hold the booking context, and either answer the second question or escalate to the manager with full context.
-4. **Stay on-script when the caller goes off-script.** "Are you open Christmas Day?", "Do you have a vegan menu?", "Can you split the bill six ways?", "What's your cancellation policy?" — answer from knowledge base, not from the LLM's imagination.
+3. **Handle multi-intent callers.** A caller might say "I want to book for four on Friday, but first â€” can I talk to the manager about a private event for 30 people?" The agent must capture **both** intents, hold the booking context, and either answer the second question or escalate to the manager with full context.
+4. **Stay on-script when the caller goes off-script.** "Are you open Christmas Day?", "Do you have a vegan menu?", "Can you split the bill six ways?", "What's your cancellation policy?" â€” answer from knowledge base, not from the LLM's imagination.
 5. **Escalate gracefully when the AI cannot answer.** Take a structured message (caller name, callback number, intent, summary) and either transfer the call (Telnyx) or schedule a callback. Never leave a caller stranded.
 6. **Recover from mid-conversation changes.** "Actually make that six, not four." "Move it to 8pm." "Add a high-chair." Update the booking state, re-confirm.
 7. **Sound human.** Warm, unhurried, conversational. Short sentences. No scripted phrases. No "How may I assist you today?"
 
-**This is the bar every serious competitor (Vapi, Retell, PolyAI) hits.** It is achievable with the stack described in this report. It is NOT achievable with a vanilla "talk to an LLM" setup — it requires **function calling, a knowledge base, and an escalation path** as first-class features.
+**This is the bar every serious competitor (Vapi, Retell, PolyAI) hits.** It is achievable with the stack described in this report. It is NOT achievable with a vanilla "talk to an LLM" setup â€” it requires **function calling, a knowledge base, and an escalation path** as first-class features.
 
 ### The Stage 1.5 problem (and the manager-approved solution)
 
 The Stage 1.5 spike was set up to use OpenAI's Realtime API (`gpt-realtime-2`) for VAD, STT, and LLM, with Cartesia Sonic 3.5 for TTS. Live testing on 2026-06-06 showed two material problems blocking production:
 
-1. **Cost.** Per-token pricing on the Realtime model comes out to roughly **$7-13/hour** depending on whether the model still generates audio output tokens internally (it often does, even when we suppress them). The published pricing has been corrected away from the earlier "$35/hour flat" draft claim — see §3 for the corrected, provisional figures. Even at the optimistic end ($7/hr), we are **1.5-3x more expensive** than the cheapest competitor stack (Vapi, Retell, Bland, Synthflow), who sell at $0.05-0.10/minute.
+1. **Cost.** Per-token pricing on the Realtime model comes out to roughly **$7-13/hour** depending on whether the model still generates audio output tokens internally (it often does, even when we suppress them). The published pricing has been corrected away from the earlier "$35/hour flat" draft claim â€” see Â§3 for the corrected, provisional figures. Even at the optimistic end ($7/hr), we are **1.5-3x more expensive** than the cheapest competitor stack (Vapi, Retell, Bland, Synthflow), who sell at $0.05-0.10/minute.
 2. **Quality.** `gpt-realtime-2` produces terse, mechanical prose and has weak instruction following. Live calls during testing produced short, robotic responses and the agent repeatedly went off-script when the user asked something unexpected. The user's own words: *"She sounds mechanical. If I don't say exactly what she expects she goes off the rails."* This is below the competitor UX bar.
 
 ### Primary recommendation: Plan D (xAI Voice Agent + Eve, end-to-end)
@@ -35,18 +35,18 @@ The Stage 1.5 spike was set up to use OpenAI's Realtime API (`gpt-realtime-2`) f
 Switch the entire voice stack to **xAI Grok Voice Agent API** with the **Eve** voice (confirmed British English by direct user testing 2026-06-06). This is the **leading target architecture** for VoxLane HD voice. xAI is a single vendor that handles VAD + STT + LLM + TTS in one realtime WSS connection, with sub-second time-to-first-audio, #1 benchmark on Big Bench Audio, and a native LiveKit plugin for the production worker.
 
 **Fallbacks (preserved, not deleted):**
-- **Plan B** (xAI STT/LLM + Cartesia TTS) — if Eve's UK accent drifts in production
-- **Plan A** (gpt-4o-mini + Cartesia) — if xAI integration, pricing, or tools fail
-- **Production fallback** (Telnyx/PCMU) — **untouched**, runs in production today
+- **Plan B** (xAI STT/LLM + Cartesia TTS) â€” if Eve's UK accent drifts in production
+- **Plan A** (gpt-4o-mini + Cartesia) â€” if xAI integration, pricing, or tools fail
+- **Production fallback** (Telnyx/PCMU) â€” **untouched**, runs in production today
 
 **Net effect (provisional, until measured in the spike):**
 - **Cost:** drops from $7-13/hr current to **~$3/hr** with Plan D (2.3-4.3x cheaper)
 - **Voice quality:** major improvement (Eve is the most natural-sounding of all candidates tested; user feedback: *"incredible, really natural and human like"*)
 - **Conversation:** major improvement (Grok 4.3 has strong instruction following; function-calling tools for KB and escalation come for free with the Voice Agent API)
 - **Code change:** moderate (~120 lines net for the new Go WebSocket client in an isolated harness; LiveKit xAI plugin already supports the production path in Python if/when we want it)
-- **Risk:** medium — xAI is a newer vendor, but the only new risk vs. Plan A is the LiveKit xAI plugin (Python only) or rolling our own minimal Go WebSocket client. Both are well-trodden paths.
+- **Risk:** medium â€” xAI is a newer vendor, but the only new risk vs. Plan A is the LiveKit xAI plugin (Python only) or rolling our own minimal Go WebSocket client. Both are well-trodden paths.
 
-**All cost figures in this document are provisional.** They will be re-validated with real production-style calls before any production cost commitment. See §3.5 for the validation step.
+**All cost figures in this document are provisional.** They will be re-validated with real production-style calls before any production cost commitment. See Â§3.5 for the validation step.
 
 ---
 
@@ -56,25 +56,25 @@ Switch the entire voice stack to **xAI Grok Voice Agent API** with the **Eve** v
 - **LiveKit cloud** for transport
 - **OpenAI Realtime API** (`gpt-realtime-2`) for server-side VAD, STT (Whisper), LLM
 - **Cartesia Sonic 3.5** for TTS (HTTP `/tts/bytes`, streaming, voice `273f9ef7-9fc2-4def-88bb-ab108c6249ca`)
-- **ffmpeg** for PCM16 24kHz → Opus 48kHz 96 kbps encoding to LiveKit
+- **ffmpeg** for PCM16 24kHz â†’ Opus 48kHz 96 kbps encoding to LiveKit
 - **Browser test page** (`two-way.html`) for end-to-end testing
 
 ### Worker modes implemented
-- `stitched` (Stage 1) — Silero VAD, Whisper REST, gpt-4o-mini, Cartesia. **In production today.**
-- `realtime` (Stage 1.5) — Realtime API for VAD/STT/LLM/TTS. Audio output broken on this account, abandoned.
-- `realtime-cartesia` (Stage 1.5) — Realtime API for VAD/STT/LLM, Cartesia for TTS. **Currently running on spike VPS.**
+- `stitched` (Stage 1) â€” Silero VAD, Whisper REST, gpt-4o-mini, Cartesia. **In production today.**
+- `realtime` (Stage 1.5) â€” Realtime API for VAD/STT/LLM/TTS. Audio output broken on this account, abandoned.
+- `realtime-cartesia` (Stage 1.5) â€” Realtime API for VAD/STT/LLM, Cartesia for TTS. **Currently running on spike VPS.**
 
 ### What works
-- LiveKit transport (browser mic → worker → browser speaker)
+- LiveKit transport (browser mic â†’ worker â†’ browser speaker)
 - Greeting pipeline (Realtime VAD, Whisper transcript, Cartesia Sonic 3.5 TTS)
 - Opus encoding to LiveKit
 - Sentence buffering for Cartesia streaming (flush on `. ! ? \n`, 200-char cap, 2s safety-net)
 
 ### What is broken or weak
-- **Realtime audio output not delivered** — Realtime API never sends `response.output_audio.delta` events on this account. Forced the pivot to Cartesia.
-- **Realtime LLM produces terse, mechanical prose** — gpt-realtime-2 is optimized for speed, not expressiveness. Live calls sound flat.
-- **Realtime LLM has weak instruction following** — agent goes off-script on unexpected user input. Critical issue for a receptionist product.
-- **Realtime session cost is prohibitive** — see §3.
+- **Realtime audio output not delivered** â€” Realtime API never sends `response.output_audio.delta` events on this account. Forced the pivot to Cartesia.
+- **Realtime LLM produces terse, mechanical prose** â€” gpt-realtime-2 is optimized for speed, not expressiveness. Live calls sound flat.
+- **Realtime LLM has weak instruction following** â€” agent goes off-script on unexpected user input. Critical issue for a receptionist product.
+- **Realtime session cost is prohibitive** â€” see Â§3.
 
 ---
 
@@ -91,7 +91,7 @@ OpenAI's Realtime API is billed per-1M-tokens, NOT a flat hourly rate. The previ
 | Text input | $4 |
 | Text output | $24 |
 
-**Important caveat:** these are list prices. The **actual** cost depends on real usage (audio tokenization rate, conversation length, how often the model generates audio output tokens internally even when we discard them). The numbers below are best-effort estimates and must be validated against the OpenAI usage dashboard before any production cost commitment. See §3.4.
+**Important caveat:** these are list prices. The **actual** cost depends on real usage (audio tokenization rate, conversation length, how often the model generates audio output tokens internally even when we discard them). The numbers below are best-effort estimates and must be validated against the OpenAI usage dashboard before any production cost commitment. See Â§3.4.
 
 ### 3.2 Current stack (gpt-realtime-2 + Cartesia Sonic 3.5)
 
@@ -142,7 +142,7 @@ Assumptions for a 1-minute receptionist call with ~50% speech, ~50% silence:
 | Optimistic (no audio output) | $7.40/hr | $4.20/hr | $3.20/hr | 1.76x cheaper |
 | Pessimistic (audio output generated) | $13.10/hr | $4.20/hr | $8.90/hr | 3.12x cheaper |
 
-**Revised bottom line:** switching the LLM saves **$3-9/hour** in direct API cost, a **1.76-3.12x reduction** (not 8.3x as the previous draft claimed). The cost saving is meaningful but smaller than initially stated. **The quality argument remains the primary driver** (gpt-4o-mini is more natural, has better instruction following, and supports reliable function calling — see §4 and §7).
+**Revised bottom line:** switching the LLM saves **$3-9/hour** in direct API cost, a **1.76-3.12x reduction** (not 8.3x as the previous draft claimed). The cost saving is meaningful but smaller than initially stated. **The quality argument remains the primary driver** (gpt-4o-mini is more natural, has better instruction following, and supports reliable function calling â€” see Â§4 and Â§7).
 
 ### 3.5 Validation step (required before production cost commitment)
 
@@ -162,14 +162,14 @@ The numbers above assume specific audio tokenization rates and conversation patt
 
 | Competitor | Reported cost per minute | Implied margin |
 |---|---|---|
-| Vapi | $0.05–0.10 | 60-80% |
-| Retell AI | $0.07–0.10 | 50-70% |
+| Vapi | $0.05â€“0.10 | 60-80% |
+| Retell AI | $0.07â€“0.10 | 50-70% |
 | Bland | $0.09 | 50-60% |
 | Synthflow | $0.08 | 50-60% |
 
 At $4.20/hour ($0.07/min), VoxLane is in the same cost band as Vapi/Retell. At $7-13/hour, we are 1.5-3x more expensive than the cheapest competitor, which materially hurts margin and price competitiveness.
 
-### 3.7 xAI / Grok stack — the cheap end of the market (April 2026)
+### 3.7 xAI / Grok stack â€” the cheap end of the market (April 2026)
 
 xAI launched its full voice stack in April 2026, including a real-time Voice Agent API and standalone TTS/STT APIs. This is a serious option for VoxLane and changes the cost picture.
 
@@ -187,13 +187,13 @@ xAI launched its full voice stack in April 2026, including a real-time Voice Age
 
 **xAI Voice Agent capabilities (per xAI docs and benchmarks):**
 
-- **#1 on Big Bench Audio** (audio reasoning benchmark) — verified by Artificial Analysis
-- **Time-to-first-audio: <1 second** — 5x faster than closest competitor
+- **#1 on Big Bench Audio** (audio reasoning benchmark) â€” verified by Artificial Analysis
+- **Time-to-first-audio: <1 second** â€” 5x faster than closest competitor
 - **Multilingual**: auto-detects language, dozens of languages, native-level prosody
 - **5 stock voices**: Ara, Eve, Leo, Rex, Sal (Ara=professional, Eve=warm female British, Leo=calm male, Rex=energetic male, Sal=neutral)
 - **80+ voices in the Voice Library** for variety, plus **Custom Voice cloning** (1 min of natural speech, two-stage verification)
 - **Function calling**: web search, X search, collections, remote MCP tools, custom functions
-- **LiveKit integration**: official `livekit.plugins.xai.realtime.RealtimeModel` in Python and Node.js (no Go SDK — we will use a minimal Go WSS client for the spike, then either port to Python or extend our worker)
+- **LiveKit integration**: official `livekit.plugins.xai.realtime.RealtimeModel` in Python and Node.js (no Go SDK â€” we will use a minimal Go WSS client for the spike, then either port to Python or extend our worker)
 - **Proven at scale**: powers Grok Voice for millions in Tesla vehicles and Starlink support
 - **API compatibility**: OpenAI Realtime API schema (so any OpenAI-Realtime-style client we already have maps cleanly)
 
@@ -201,7 +201,7 @@ xAI launched its full voice stack in April 2026, including a real-time Voice Age
 
 | Stack | Per minute | Per hour | Saving vs. current |
 |---|---|---|---|
-| Our current (gpt-realtime-2 + Cartesia) | $0.12-0.22 | $7-13 | — |
+| Our current (gpt-realtime-2 + Cartesia) | $0.12-0.22 | $7-13 | â€” |
 | Plan A (Whisper + gpt-4o-mini + Cartesia) | $0.07 | $4.20 | 1.76-3.12x cheaper |
 | **Plan D (xAI Voice Agent, all-in-one)** | **$0.05** | **$3.00** | **2.3-4.3x cheaper** |
 | Plan B (xAI STT/LLM + Cartesia TTS) | $0.063 | $3.80 | 1.8-3.4x cheaper |
@@ -225,7 +225,7 @@ xAI Voice Agent at $0.05/min is **30% cheaper than Plan A's $0.07/min stack**, a
 
 LiveKit has a native xAI plugin (`livekit.plugins.xai`) so integration is mostly a config change. We should run a 30-minute xAI Voice Agent test, compare latency, naturalness, and cost to our proposed gpt-4o-mini + Cartesia stack, and pick the winner.
 
-**Critical caveat — all xAI pricing above is from the public pricing page as of June 2026 and must be validated with a 30-minute production-style test before any production cost commitment.** Real token / audio usage may differ from the published rates, and xAI pricing has changed materially twice in 2026 already (Grok 4.1 Fast retired May 2026).
+**Critical caveat â€” all xAI pricing above is from the public pricing page as of June 2026 and must be validated with a 30-minute production-style test before any production cost commitment.** Real token / audio usage may differ from the published rates, and xAI pricing has changed materially twice in 2026 already (Grok 4.1 Fast retired May 2026).
 
 ### 3.8 Should we keep Cartesia or switch to xAI TTS?
 
@@ -244,18 +244,18 @@ Cartesia Sonic 3.5 is already integrated into our worker and producing natural-s
 - Cartesia integration is **done, tested, and in production today** (Stage 1 stitched chain).
 - Switching TTS means: new integration, new voice ID, new audio format handling, new prompt tuning, retest the full pipeline.
 - Cartesia Sonic 3.5 voice quality is **excellent** (subjective but consistently well-reviewed).
-- xAI Grok TTS quality is **unknown to us** — would need to evaluate samples and run a test.
+- xAI Grok TTS quality is **unknown to us** â€” would need to evaluate samples and run a test.
 
 **Pragmatic recommendation: keep Cartesia Sonic 3.5 for now.** Reasons:
 
-1. **The integration work is already done** — we'd be re-doing working code.
-2. **The voice is natural** — we have user confirmation it sounds good.
-3. **The cost difference is small at MVP scale** — 100 hours/month of calls = $275/month saved by switching, not worth the risk of regression.
-4. **Switching TTS is a separate decision from the LLM switch** — the LLM switch is the must-do for quality. The TTS switch is an optional optimization.
+1. **The integration work is already done** â€” we'd be re-doing working code.
+2. **The voice is natural** â€” we have user confirmation it sounds good.
+3. **The cost difference is small at MVP scale** â€” 100 hours/month of calls = $275/month saved by switching, not worth the risk of regression.
+4. **Switching TTS is a separate decision from the LLM switch** â€” the LLM switch is the must-do for quality. The TTS switch is an optional optimization.
 
 **When to reconsider:** once we hit >500 hours/month of paid calls, the $1,375/month saving from switching to xAI TTS justifies the integration work. Mark this as a future task, not a current one.
 
-### 3.9 xAI en-GB support — investigation (UPDATED 2026-06-06)
+### 3.9 xAI en-GB support â€” investigation (UPDATED 2026-06-06)
 
 **User verification:** The xAI **Eve** voice is a **British English** voice, confirmed by direct testing in the xAI Voice Agent playground. The other 4 stock voices (Ara, Leo, Rex, Sal) appear to be American or non-specific; **Eve is the one we want.**
 
@@ -264,17 +264,17 @@ This is significant. The en-GB concern from earlier research is largely resolved
 **Implications:**
 
 - We can ship **xAI Voice Agent with Eve voice** as the end-to-end production stack, without needing a Custom Voice clone.
-- Saves the £500-2000 one-time cost of voice talent + clone setup.
+- Saves the Â£500-2000 one-time cost of voice talent + clone setup.
 - Simplifies the architecture to a single xAI vendor.
-- The Eve voice is described in xAI's docs as "warm and approachable" — well-suited to a receptionist persona.
+- The Eve voice is described in xAI's docs as "warm and approachable" â€” well-suited to a receptionist persona.
 
 **Caveats (to verify in production):**
 
-- Eve's accent is consistent for UK-specific words ("schedule", "aluminium", "lieutenant", etc.) — needs spot-check.
+- Eve's accent is consistent for UK-specific words ("schedule", "aluminium", "lieutenant", etc.) â€” needs spot-check.
 - The VAD turn-taking we observed in testing (cutting off mid-digit on phone numbers) is tunable via config (silence_duration_ms: 1500-2000).
-- xAI pricing has changed twice in 2026 already — confirm at procurement time.
+- xAI pricing has changed twice in 2026 already â€” confirm at procurement time.
 
-### 3.10 Hybrid paths — the four candidate stacks, ranked
+### 3.10 Hybrid paths â€” the four candidate stacks, ranked
 
 The manager's decision (2026-06-06): **Plan D (xAI Voice Agent + Eve) is the primary target for this sprint. Plans B, A, and the Telnyx/PCMU production path remain as fallbacks until Plan D proves itself in VoxLane.**
 
@@ -285,32 +285,32 @@ The manager's decision (2026-06-06): **Plan D (xAI Voice Agent + Eve) is the pri
 | Plan B (fallback) | xAI Grok 4.3 | xAI Grok STT | Cartesia Sonic 3.5 | $0.063 | $3.80 | Use if Eve accent drifts |
 | Plan A (safety fallback) | gpt-4o-mini | Whisper | Cartesia Sonic 3.5 | $0.07 | $4.20 | Use if xAI fails |
 | Plan C (Q3 upgrade) | xAI Grok 4.3 | xAI Grok STT | xAI TTS (UK custom voice) | ~$0.013 | ~$0.78 | After >500 hrs/mo paid traffic |
-| Production fallback | gpt-4o-mini (Stage 1) | Whisper | Cartesia | — | — | Telnyx/PCMU untouched |
+| Production fallback | gpt-4o-mini (Stage 1) | Whisper | Cartesia | â€” | â€” | Telnyx/PCMU untouched |
 
-**Per-call cost at 1000 hrs/month (provisional, see §3.5):**
+**Per-call cost at 1000 hrs/month (provisional, see Â§3.5):**
 
 | Path | Per month | vs. current | vs. Plan D |
 |---|---|---|---|
-| Current | $7,000-13,000 | — | $4,000-10,000 more |
-| **Plan D (xAI Voice Agent, Eve)** | **$3,000** | **$4-10k saved** | — |
+| Current | $7,000-13,000 | â€” | $4,000-10,000 more |
+| **Plan D (xAI Voice Agent, Eve)** | **$3,000** | **$4-10k saved** | â€” |
 | Plan B (xAI LLM/STT + Cartesia) | $3,800 | $3-9k saved | $800 more |
 | Plan A (gpt-4o-mini + Cartesia) | $4,200 | $3-9k saved | $1,200 more |
 | Plan C (xAI everything + UK custom voice) | $780 | $6-12k saved | $2,220 less |
 
-### Plan D — why it wins
+### Plan D â€” why it wins
 
-- **Single vendor (xAI)** — simplest architecture, one bill, one support relationship
-- **Sub-second time-to-first-audio** (xAI benchmark) — fastest in the market
-- **Native LiveKit plugin** — drop-in via `livekit.plugins.xai.realtime.RealtimeModel` (Python, Node.js)
-- **OpenAI Realtime API compatible** — our existing Go WSS client patterns map directly
-- **Built-in tools** (web search, X search, MCP, custom functions) — no separate API wiring for §7 features
+- **Single vendor (xAI)** â€” simplest architecture, one bill, one support relationship
+- **Sub-second time-to-first-audio** (xAI benchmark) â€” fastest in the market
+- **Native LiveKit plugin** â€” drop-in via `livekit.plugins.xai.realtime.RealtimeModel` (Python, Node.js)
+- **OpenAI Realtime API compatible** â€” our existing Go WSS client patterns map directly
+- **Built-in tools** (web search, X search, MCP, custom functions) â€” no separate API wiring for Â§7 features
 - **Multilingual ready** (20+ languages with native intonation per locale)
-- **#1 on Big Bench Audio** (audio reasoning benchmark) — verified by Artificial Analysis
-- **Eve voice is confirmed British** (user testing 2026-06-06) — no Custom Voice clone needed for MVP
+- **#1 on Big Bench Audio** (audio reasoning benchmark) â€” verified by Artificial Analysis
+- **Eve voice is confirmed British** (user testing 2026-06-06) â€” no Custom Voice clone needed for MVP
 - **Effort: 1-2 days** (spike harness + worker mode + browser test)
-- **Risk: medium** — xAI is newer, VAD turn-taking observed in playground needs production tuning (`silence_duration_ms: 1500-2000`)
+- **Risk: medium** â€” xAI is newer, VAD turn-taking observed in playground needs production tuning (`silence_duration_ms: 1500-2000`)
 
-### Plan C — Q3 2026 upgrade path
+### Plan C â€” Q3 2026 upgrade path
 
 If we later want to drop Eve and use a custom UK voice clone, Plan C becomes the cheapest stack at $0.78/hr (4x cheaper than Plan D at scale). This requires:
 
@@ -318,9 +318,9 @@ If we later want to drop Eve and use a custom UK voice clone, Plan C becomes the
 
 | Source | Cost | Time | Quality |
 |---|---|---|---|
-| Record yourself / team member | £0 | 1 hour | Variable — fine for MVP |
-| License a UK voice actor | £500-2000 | 1-3 days | Professional, consistent |
-| Use an existing UK voice sample (with rights) | £0-500 | 1 hour | Variable |
+| Record yourself / team member | Â£0 | 1 hour | Variable â€” fine for MVP |
+| License a UK voice actor | Â£500-2000 | 1-3 days | Professional, consistent |
+| Use an existing UK voice sample (with rights) | Â£0-500 | 1 hour | Variable |
 
 **Plan C is recommended only after >500 hrs/month of paid traffic** (when the cost savings justify the voice-talent effort). Mark as future task, not current.
 
@@ -334,8 +334,8 @@ Tested with the 4-utterance suite (greeting, "can I book a table?", "do you have
 
 | Issue | Observation | Severity |
 |---|---|---|
-| Voice naturalness | "Sounds a bit mechanical" — Realtime model produces terse prose, which streams through to short, flat TTS. Sonic 3.5 voice is good; LLM is the bottleneck. | High |
-| Off-rails behavior | "If I don't say exactly what she expects she goes off the rails" — gpt-realtime-2 has weak instruction following. Restaurant receptionist needs to handle unpredictable caller questions. | Critical |
+| Voice naturalness | "Sounds a bit mechanical" â€” Realtime model produces terse prose, which streams through to short, flat TTS. Sonic 3.5 voice is good; LLM is the bottleneck. | High |
+| Off-rails behavior | "If I don't say exactly what she expects she goes off the rails" â€” gpt-realtime-2 has weak instruction following. Restaurant receptionist needs to handle unpredictable caller questions. | Critical |
 | Latency (greeting only) | 0.6-2.2s per Cartesia sentence. End-to-end not measured. | TBD |
 
 ### Why competitors sound better
@@ -343,7 +343,7 @@ Tested with the 4-utterance suite (greeting, "can I book a table?", "do you have
 Direct competitors all use Chat Completions (not Realtime) for the LLM, with a tuned system prompt. Common pattern across Vapi/Retell/Bland:
 
 - **Whisper STT** (same as us)
-- **gpt-4o-mini or gpt-4o LLM** (not Realtime) — better prose, better instruction following
+- **gpt-4o-mini or gpt-4o LLM** (not Realtime) â€” better prose, better instruction following
 - **Cartesia Sonic 3.5 / ElevenLabs TTS** (same as us)
 - **Strong system prompt** with persona, conversation rules, refusal patterns
 
@@ -357,7 +357,7 @@ The voice quality of Cartesia Sonic 3.5 is comparable across the industry. The d
 
 1. Add `XAI_API_KEY` to spike `.env` (the spike is in `/opt/ai-voice-receptionist/experimental/livekit/.env`, not prod).
 2. Build a minimal Go WSS client in `experimental/livekit/xai-voice-agent/` that talks to `wss://api.x.ai/v1/realtime?model=grok-voice-latest`.
-3. Wire the harness to a LiveKit room (same pattern as our existing `conversation-worker` — read mic from LiveKit, send audio to xAI, receive audio from xAI, publish back to LiveKit).
+3. Wire the harness to a LiveKit room (same pattern as our existing `conversation-worker` â€” read mic from LiveKit, send audio to xAI, receive audio from xAI, publish back to LiveKit).
 4. Configure session: `voice: "eve"`, the Alex system prompt below, VAD with `silence_duration_ms: 1500` (production-tuned, not the playground default of 200).
 5. Keep the existing `realtime-cartesia` and `stitched` worker modes in code (do not delete).
 6. System prompt:
@@ -367,9 +367,9 @@ You are Alex, a warm, calm restaurant receptionist. Reply naturally and briefly.
 ```
 
 ### What stays the same (all spike infrastructure preserved)
-- All production code (gateway, PCMU, Telnyx adapter) — **untouched**
+- All production code (gateway, PCMU, Telnyx adapter) â€” **untouched**
 - All LiveKit plumbing (cloud, browser test page, token gen)
-- All audio encoding (ffmpeg PCM16 → Opus 48kHz 96kbps)
+- All audio encoding (ffmpeg PCM16 â†’ Opus 48kHz 96kbps)
 - All ffmpeg demuxer/muxer code (the OGG fixes from the spike carry over)
 - Cartesia TTS integration (kept as fallback for Plan B and Plan A)
 - Whisper STT (kept for Plan A)
@@ -381,8 +381,8 @@ You are Alex, a warm, calm restaurant receptionist. Reply naturally and briefly.
 - New directory: `experimental/livekit/xai-voice-agent/` with a Go WSS client (isolated harness)
 - New worker mode: `LIVEKIT_WORKER_MODE=xai-voice-agent` (additive, alongside the existing 3)
 - New `.env` vars: `XAI_API_KEY`, `XAI_VOICE=eve`, `XAI_MODEL=grok-voice-latest`, `XAI_VAD_SILENCE_MS=1500`
-- `worker.go` — add a 4th dispatch arm for `xai-voice-agent` (~30 lines)
-- `main.go` — add `xai-voice-agent` to mode validator (~3 lines)
+- `worker.go` â€” add a 4th dispatch arm for `xai-voice-agent` (~30 lines)
+- `main.go` â€” add `xai-voice-agent` to mode validator (~3 lines)
 
 ### Risk
 
@@ -405,7 +405,7 @@ The Cartesia voice ID currently in use is `273f9ef7-9fc2-4def-88bb-ab108c6249ca`
 
 ## 7. Product-capability architecture (what the agent can do, not just how it sounds)
 
-The LLM swap in §5 is necessary but not sufficient. To hit the bar in §1, the worker also needs three first-class features:
+The LLM swap in Â§5 is necessary but not sufficient. To hit the bar in Â§1, the worker also needs three first-class features:
 
 ### 7.1 Function calling (tool use)
 
@@ -432,7 +432,7 @@ Each restaurant tenant has a structured knowledge base that is injected into the
 - **Menu data** (structured): items, prices, dietary flags (V / VG / GF / nut / dairy), allergens.
 - **FAQ** (curated Q&A): common off-script questions with authoritative answers.
 
-The worker must NEVER let the LLM invent any of these. If the agent is asked something not in the knowledge base, the correct response is `lookup_knowledge` → empty result → "I want to make sure I give you the right information — let me have the manager call you back. What's a good number?"
+The worker must NEVER let the LLM invent any of these. If the agent is asked something not in the knowledge base, the correct response is `lookup_knowledge` â†’ empty result â†’ "I want to make sure I give you the right information â€” let me have the manager call you back. What's a good number?"
 
 For larger knowledge bases (full menu, long FAQ), use a small **RAG** layer: embed the question, retrieve the top-3 chunks, inject them into the prompt. Keep retrieval fast (pgvector, sqlite-vec, or in-memory). Cost is negligible.
 
@@ -440,9 +440,9 @@ For larger knowledge bases (full menu, long FAQ), use a small **RAG** layer: emb
 
 The agent must be able to hand off to a human in three ways:
 
-1. **Live transfer** — if a manager is on another line (Telnyx call parking or SIP REFER), the worker dials them and bridges the call. Caller context (intent, summary, slot held) is whispered to the manager via TTS.
-2. **Scheduled callback** — collect name + number + preferred window, persist to a callback queue, manager calls back later. Worker confirms the callback window verbally.
-3. **Message-only** — caller does not want a callback but wants to leave info (e.g. feedback, a question for the chef). Persist as a message, manager reads later.
+1. **Live transfer** â€” if a manager is on another line (Telnyx call parking or SIP REFER), the worker dials them and bridges the call. Caller context (intent, summary, slot held) is whispered to the manager via TTS.
+2. **Scheduled callback** â€” collect name + number + preferred window, persist to a callback queue, manager calls back later. Worker confirms the callback window verbally.
+3. **Message-only** â€” caller does not want a callback but wants to leave info (e.g. feedback, a question for the chef). Persist as a message, manager reads later.
 
 All three use the same `take_message` / `transfer_to_manager` / `schedule_callback` tools.
 
@@ -455,7 +455,7 @@ The agent must be able to call external APIs in real time to answer questions th
 > Caller: "Can I use the outdoor seating tomorrow?"
 >
 > Agent (silent, calls `lookup_weather(date=tomorrow, location=restaurant.address)`):
->  Agent: "Sure, the outdoor is open tomorrow — but heads up, the forecast is light rain from 2pm. Want me to keep an indoor table as a backup in case?"
+>  Agent: "Sure, the outdoor is open tomorrow â€” but heads up, the forecast is light rain from 2pm. Want me to keep an indoor table as a backup in case?"
 
 That single response is worth more than a dozen scripted phrases. It requires the LLM to:
 1. Recognise the caller's intent (outdoor seating + tomorrow).
@@ -463,7 +463,7 @@ That single response is worth more than a dozen scripted phrases. It requires th
 3. Call `lookup_weather` with the right arguments.
 4. Read the response and incorporate it into a natural, helpful reply.
 
-**Tool surface (extend §7.1 with these):**
+**Tool surface (extend Â§7.1 with these):**
 
 | Tool | Purpose | External service | Cost per call |
 |---|---|---|---|
@@ -574,7 +574,7 @@ Function calling and knowledge base are tiny cost additions; the dominant cost i
 2. **This week (spike):**
    - Add `XAI_API_KEY` to spike `.env` (user to provide).
    - Build `experimental/livekit/xai-voice-agent/` harness: Go WSS client to xAI Voice Agent API, wired to LiveKit.
-   - Run the 9-utterance test suite from §12.2 in browser. Capture latency, accent, VAD, phone-number handling, off-script behaviour.
+   - Run the 9-utterance test suite from Â§12.2 in browser. Capture latency, accent, VAD, phone-number handling, off-script behaviour.
    - Quick comparison runs of Plan A (gpt-4o-mini + Cartesia) and Plan B (xAI LLM/STT + Cartesia) if time permits; otherwise document as fallback architectures.
    - Update `SPIKE_REPORT.md` and `RESULTS_README.md` with measured cost + latency + quality numbers.
 3. **Next 2-3 weeks (product features on top of Plan D):**
@@ -596,31 +596,31 @@ Function calling and knowledge base are tiny cost additions; the dominant cost i
 
 This is the strongest call I can make. Here is why:
 
-### 9.1 Quality — the deal-breaker
+### 9.1 Quality â€” the deal-breaker
 
-The current `gpt-realtime-2` model produces **terse, mechanical prose** and has **weak instruction following**. Live testing on 2026-06-06 confirmed this: Alex sounds robotic, goes off-script on unexpected user input, and fails the bar set by Vapi, Retell, and every other serious competitor in this market. We cannot ship a receptionist product that fails on basic conversation. **This alone justifies the switch** — cost is a secondary consideration.
+The current `gpt-realtime-2` model produces **terse, mechanical prose** and has **weak instruction following**. Live testing on 2026-06-06 confirmed this: Alex sounds robotic, goes off-script on unexpected user input, and fails the bar set by Vapi, Retell, and every other serious competitor in this market. We cannot ship a receptionist product that fails on basic conversation. **This alone justifies the switch** â€” cost is a secondary consideration.
 
-### 9.2 Cost — also a deal-breaker
+### 9.2 Cost â€” also a deal-breaker
 
-At our current spend rate, our cost is **$7-13/hour** depending on audio-output token usage. **Plan D brings this to $3.00/hour — a 2.3-4.3x reduction.** At 1000 hours of calls per month, that's **$4,000-10,000/month saved** — enough to fund a senior engineer or a marketing team.
+At our current spend rate, our cost is **$7-13/hour** depending on audio-output token usage. **Plan D brings this to $3.00/hour â€” a 2.3-4.3x reduction.** At 1000 hours of calls per month, that's **$4,000-10,000/month saved** â€” enough to fund a senior engineer or a marketing team.
 
 The longer we stay on gpt-realtime-2, the more we lose on two axes at once: customers leave because the voice is mechanical, and we bleed margin on every call we do keep. There is no scenario where the current stack wins.
 
-### 9.3 Plan D — the strongest option (now viable because Eve is British)
+### 9.3 Plan D â€” the strongest option (now viable because Eve is British)
 
 With **Eve confirmed as a British voice**, we can ship **xAI Voice Agent end-to-end** without needing a Custom Voice clone. Plan D:
 
 - **Cost: $3.00/hr** (cheapest "production-ready" path)
 - **Effort: 1-2 days** (drop-in via LiveKit `livekit.plugins.xai.realtime.RealtimeModel`)
 - **Architecture: single vendor (xAI), one bill, one integration**
-- **Voice: Eve (British)** — confirmed natural and warm per user testing 2026-06-06
+- **Voice: Eve (British)** â€” confirmed natural and warm per user testing 2026-06-06
 - **Latency: sub-second time-to-first-audio** (xAI benchmark, 5x faster than closest competitor)
 - **Quality: #1 on Big Bench Audio benchmark** (verified by Artificial Analysis)
-- **Built-in tools:** web search, X search, MCP, custom functions — no separate API wiring for §7 features
+- **Built-in tools:** web search, X search, MCP, custom functions â€” no separate API wiring for Â§7 features
 - **Multilingual ready** (20+ languages with native intonation per locale)
-- **Risk: low-medium** — xAI is newer, but Eve being British removes the main blocker
+- **Risk: low-medium** â€” xAI is newer, but Eve being British removes the main blocker
 
-### 9.4 Plan D vs Plan B vs Plan A — the three real choices
+### 9.4 Plan D vs Plan B vs Plan A â€” the three real choices
 
 | | Plan A (gpt-4o-mini + Cartesia) | Plan B (xAI LLM/STT + Cartesia) | **Plan D (xAI end-to-end, Eve)** |
 |---|---|---|---|
@@ -637,36 +637,36 @@ With **Eve confirmed as a British voice**, we can ship **xAI Voice Agent end-to-
 
 **If the team is risk-averse, ship Plan A first (2-3 hours) and migrate to Plan D next sprint.** Either is better than staying on gpt-realtime-2.
 
-### 9.5 Cartesia voice — kept as a fallback, not the primary
+### 9.5 Cartesia voice â€” kept as a fallback, not the primary
 
 With Eve confirmed as British, the case for Cartesia weakens. But we keep it as a **fallback** in case Eve's UK pronunciation turns out to be inconsistent in production. If Plan D ships and Eve's UK accent holds, we can deprecate Cartesia in Q3 2026. If Eve's accent drifts, we revert to Plan B (xAI LLM + STT + Cartesia voice).
 
 ### 9.6 xAI Voice Agent is now the Q2 stack, not the Q3 stack
 
-We previously said xAI Voice Agent was a Q3 2026 decision. **With Eve confirmed British, it is a Q2 2026 decision — ship it this sprint.** The risk we worried about (US accent) is resolved. The remaining risk (vendor maturity, pricing stability) is acceptable for a startup moving fast.
+We previously said xAI Voice Agent was a Q3 2026 decision. **With Eve confirmed British, it is a Q2 2026 decision â€” ship it this sprint.** The risk we worried about (US accent) is resolved. The remaining risk (vendor maturity, pricing stability) is acceptable for a startup moving fast.
 
 ### 9.7 Product features are the differentiator
 
-The LLM swap is **necessary but not sufficient**. The bar you set in §1 — multi-intent handling, knowledge base, manager escalation, real-time lookups, conversational flexibility — is what wins deals. **Weeks 2-4 of the plan in §8 deliver those features** and are where the real competitive moat comes from. The LLM swap is the foundation; the features are the building.
+The LLM swap is **necessary but not sufficient**. The bar you set in Â§1 â€” multi-intent handling, knowledge base, manager escalation, real-time lookups, conversational flexibility â€” is what wins deals. **Weeks 2-4 of the plan in Â§8 deliver those features** and are where the real competitive moat comes from. The LLM swap is the foundation; the features are the building.
 
 ### 9.8 What I am asking for
 
-**Approval to proceed with Plan D (xAI Voice Agent with Eve voice) and the product-feature work as outlined in §8 and §10.** I will:
+**Approval to proceed with Plan D (xAI Voice Agent with Eve voice) and the product-feature work as outlined in Â§8 and Â§10.** I will:
 
 - Validate Plan D with a 30-minute production-style test (latency, accent consistency, VAD config) before committing.
 - Fall back to Plan B (xAI LLM + STT + Cartesia voice) if Eve's accent drifts in production.
 - Not touch the production gateway, prod `.env`, prod systemd, or Telnyx production webhook.
 - Keep all work on `feat/livekit-hd-spike` and inside `experimental/livekit/`.
 - Commit only after live testing confirms the change works.
-- Update this report with measured cost + latency + quality numbers after the validation step in §3.5.
+- Update this report with measured cost + latency + quality numbers after the validation step in Â§3.5.
 
 **If approved, I estimate a 1-2 week sprint to ship Plan D + first set of product features (function calling + knowledge base).** Full product (manager escalation, real-time lookups, multi-tenant) in 4 weeks.
 
 ---
 
-## 10. Detailed effort estimate — what changes, what stays
+## 10. Detailed effort estimate â€” what changes, what stays
 
-### 10.1 Plan D (xAI Voice Agent with Eve voice) — RECOMMENDED
+### 10.1 Plan D (xAI Voice Agent with Eve voice) â€” RECOMMENDED
 
 **Time estimate: 1-2 days of focused work + 30 min testing**
 
@@ -681,12 +681,12 @@ The LLM swap is **necessary but not sufficient**. The bar you set in §1 — mul
 | `realtime.go` | Mark as deprecated | 0 | 5 min |
 | `ogg.go`, `continuous_ffmpeg.go`, `outbound.go` | No change | 0 | 0 |
 | `go.mod`, `go.sum` | Add `github.com/livekit/plugins-xai` dependency | +2 | 5 min |
-| Build for Linux | `GOOS=linux GOARCH=amd64 go build ...` | — | 30 sec |
-| Copy to VPS, restart worker | `scp` + start script | — | 30 sec |
-| Test 4-utterance suite | Speak, capture latency, confirm voice + accent | — | 30 min |
+| Build for Linux | `GOOS=linux GOARCH=amd64 go build ...` | â€” | 30 sec |
+| Copy to VPS, restart worker | `scp` + start script | â€” | 30 sec |
+| Test 4-utterance suite | Speak, capture latency, confirm voice + accent | â€” | 30 min |
 | **Total** | | **~120 lines net** | **~6-8 hours** |
 
-**Risk:** low-medium. xAI is a new vendor for us, but the LiveKit plugin abstracts the integration. The main risk is the VAD turn-taking we observed in testing — tunable via `silence_duration_ms: 1500-2000`. If the accent drifts, fall back to Plan B (keep Cartesia voice).
+**Risk:** low-medium. xAI is a new vendor for us, but the LiveKit plugin abstracts the integration. The main risk is the VAD turn-taking we observed in testing â€” tunable via `silence_duration_ms: 1500-2000`. If the accent drifts, fall back to Plan B (keep Cartesia voice).
 
 **Validation step (required before committing to Plan D as production):**
 
@@ -696,7 +696,7 @@ The LLM swap is **necessary but not sufficient**. The bar you set in §1 — mul
 - If Eve's UK accent holds and quality is "incredible / human-like" (as in the user's playground test), commit to Plan D.
 - If accent drifts, fall back to Plan B.
 
-### 10.2 Plan A (gpt-4o-mini + Cartesia TTS) — alternative, lower risk
+### 10.2 Plan A (gpt-4o-mini + Cartesia TTS) â€” alternative, lower risk
 
 **Time estimate: 2-4 hours of focused work + 30 min testing**
 
@@ -711,14 +711,14 @@ The LLM swap is **necessary but not sufficient**. The bar you set in §1 — mul
 | `cartesia.go` | No change (already used by stitched mode) | 0 | 0 |
 | `cartesia_stream.go` | Wire into stitched mode (currently only used by realtime-cartesia) | 30 | 30 min |
 | `ogg.go`, `continuous_ffmpeg.go`, `outbound.go` | No change | 0 | 0 |
-| Build for Linux | `GOOS=linux GOARCH=amd64 go build ...` | — | 30 sec |
-| Copy to VPS, restart worker | `scp` + start script | — | 30 sec |
-| Test 4-utterance suite | Speak, capture latency, confirm quality | — | 30 min |
+| Build for Linux | `GOOS=linux GOARCH=amd64 go build ...` | â€” | 30 sec |
+| Copy to VPS, restart worker | `scp` + start script | â€” | 30 sec |
+| Test 4-utterance suite | Speak, capture latency, confirm quality | â€” | 30 min |
 | **Total** | | **~100 lines net** | **~2-3 hours** |
 
 **Risk:** very low. Stitched mode is in production today. The system-prompt change is the only meaningful variable. If the new prompt produces worse results, we roll back to the old prompt (one file change).
 
-### 10.3 Plan B (xAI LLM + xAI STT + Cartesia TTS) — middle ground
+### 10.3 Plan B (xAI LLM + xAI STT + Cartesia TTS) â€” middle ground
 
 If we want xAI's cost advantage on LLM and STT but keep Cartesia's UK voice (in case Eve's accent drifts in production):
 
@@ -734,16 +734,16 @@ If we want xAI's cost advantage on LLM and STT but keep Cartesia's UK voice (in 
 | `worker.go`, `main.go` | No change (mode is still `stitched`) | 0 | 0 |
 | `realtime.go` | Mark as deprecated; leave code in place but no callers | 0 | 5 min |
 | `ogg.go`, `continuous_ffmpeg.go`, `outbound.go` | No change | 0 | 0 |
-| Build for Linux | `GOOS=linux GOARCH=amd64 go build ...` | — | 30 sec |
-| Copy to VPS, restart worker | `scp` + start script | — | 30 sec |
-| Test 4-utterance suite | Speak, capture latency, confirm quality | — | 30 min |
+| Build for Linux | `GOOS=linux GOARCH=amd64 go build ...` | â€” | 30 sec |
+| Copy to VPS, restart worker | `scp` + start script | â€” | 30 sec |
+| Test 4-utterance suite | Speak, capture latency, confirm quality | â€” | 30 min |
 | **Total** | | **~150 lines net** | **~6-8 hours** |
 
 ### 10.4 What stays exactly the same (all three plans)
 
-- All production code (gateway, PCMU, Telnyx adapter) — **untouched**.
+- All production code (gateway, PCMU, Telnyx adapter) â€” **untouched**.
 - All LiveKit plumbing (LiveKit cloud, browser test page, token gen).
-- All audio encoding (ffmpeg PCM16 → Opus 48kHz 96kbps).
+- All audio encoding (ffmpeg PCM16 â†’ Opus 48kHz 96kbps).
 - All ffmpeg demuxer/muxer code (the OGG fixes from the spike carry over).
 - Browser test page (`two-way.html`).
 - Cartesia TTS integration (kept as fallback for Plans A and B; unused in Plan D).
@@ -763,7 +763,7 @@ If we want xAI's cost advantage on LLM and STT but keep Cartesia's UK voice (in 
 | Tests + prompt iteration | 3-5 days | All above | Adversarial scenarios, multi-intent, edge cases |
 | **Total** | **~3-4 weeks** | | |
 
-### 10.6 Plan C (xAI everything + UK custom voice) — Q3 2026
+### 10.6 Plan C (xAI everything + UK custom voice) â€” Q3 2026
 
 If we later decide to switch to xAI Voice Agent end-to-end with a UK custom voice (a hypothetical fallback if Plan D's Eve voice drifts), the change is bigger:
 
@@ -776,9 +776,9 @@ If we later decide to switch to xAI Voice Agent end-to-end with a UK custom voic
 | `vad.go` | Remove (xAI bundles VAD) | Code reduction |
 | `realtime_pipeline.go` | Rewrite to use xAI plugin | ~50% of worker rewritten |
 | `.env` | Replace OpenAI/Cartesia keys with xAI key, add UK custom voice ID | |
-| Voice talent session + xAI Custom Voice setup | One-time | £500-2000 for professional UK voice recording |
+| Voice talent session + xAI Custom Voice setup | One-time | Â£500-2000 for professional UK voice recording |
 
-**Effort:** 1-2 days of code changes, 1 day of testing, 1-2 weeks for voice talent + clone setup. **Recommended only after >500 hrs/month of paid traffic.** See §9.5.
+**Effort:** 1-2 days of code changes, 1 day of testing, 1-2 weeks for voice talent + clone setup. **Recommended only after >500 hrs/month of paid traffic.** See Â§9.5.
 
 ---
 
@@ -794,19 +794,19 @@ For evaluation:
 - **xAI Voice Agent Playground** (full voice agent, browser mic): https://console.x.ai/playground/voice/agent
 - **LiveKit xAI partnership blog** (with demo recordings): https://livekit.com/blog/xai-livekit-partnership-grok-voice-agent-api
 
-The 5 stock voices — **Eve is confirmed British** (per user verification 2026-06-06):
+The 5 stock voices â€” **Eve is confirmed British** (per user verification 2026-06-06):
 
-- **Eve** — warm and approachable, **British English** (recommended for virtual assistants / receptionist — our pick for Alex)
-- **Ara** — clear and professional (recommended for customer support)
-- **Leo** — calm and authoritative male (good for narration)
-- **Rex** — energetic male (game NPCs, entertainment)
-- **Sal** — neutral and versatile (IVR, general TTS)
+- **Eve** â€” warm and approachable, **British English** (recommended for virtual assistants / receptionist â€” our pick for Alex)
+- **Ara** â€” clear and professional (recommended for customer support)
+- **Leo** â€” calm and authoritative male (good for narration)
+- **Rex** â€” energetic male (game NPCs, entertainment)
+- **Sal** â€” neutral and versatile (IVR, general TTS)
 
 **For our receptionist use case, Eve is the voice.** Confirmed British, warm, and natural. Verify the accent holds in production API calls (not just playground) during the 30-minute validation test before committing.
 
 
 
-## Appendix A — Per-minute cost formula
+## Appendix A â€” Per-minute cost formula
 
 ```
 cost_per_minute = realtime_session_per_min + cartesia_per_min
@@ -819,7 +819,7 @@ proposed_cost_per_minute = whisper_per_min + llm_per_min + cartesia_per_min
                          = 0.066
 ```
 
-## Appendix B — Latency budget (target <2s end-to-end)
+## Appendix B â€” Latency budget (target <2s end-to-end)
 
 | Stage | Time | Notes |
 |---|---|---|
@@ -833,7 +833,7 @@ proposed_cost_per_minute = whisper_per_min + llm_per_min + cartesia_per_min
 
 Achievable with streaming throughout. Stage 1 stitched measured 2.4-2.7s without streaming; with streaming Cartesia + streaming Chat Completions, target is <2s.
 
-## Appendix C — Code change preview
+## Appendix C â€” Code change preview
 
 `.env` change:
 ```diff
@@ -852,7 +852,7 @@ Achievable with streaming throughout. Stage 1 stitched measured 2.4-2.7s without
 + const systemPrompt = `You are Alex, the receptionist at a small family-run restaurant.
 +   - Speak in short, natural sentences (1-2 sentences, max 25 words).
 +   - Ask one question at a time. Never stack questions.
-+   - Stay in character at all times. If asked about topics unrelated to the restaurant (politics, code, AI), politely redirect: "I can help with bookings, hours, and the menu — what would you like to know?"
++   - Stay in character at all times. If asked about topics unrelated to the restaurant (politics, code, AI), politely redirect: "I can help with bookings, hours, and the menu â€” what would you like to know?"
 +   - Never invent menu items, hours, or bookings. If you don't know, say "Let me check and call you back."
 +   - Always confirm: name, party size, date, time before finalising a booking.
 +   - End every booking with a one-sentence summary: "So that's a table for [N] on [date] at [time] under [name]. Is that right?"
@@ -879,7 +879,7 @@ This section is the live tracker for the Plan D spike work. Updated as we ship e
 
 | Variable | Where | Required | Status |
 |---|---|---|---|
-| `XAI_API_KEY` | `/opt/ai-voice-receptionist/experimental/livekit/.env` | yes | **MISSING** — user to provide |
+| `XAI_API_KEY` | `/opt/ai-voice-receptionist/experimental/livekit/.env` | yes | **MISSING** â€” user to provide |
 | `XAI_VOICE` | spike `.env` | yes | default `eve` |
 | `XAI_MODEL` | spike `.env` | yes | default `grok-voice-latest` |
 | `XAI_VAD_SILENCE_MS` | spike `.env` | yes | default `1500` (production-tuned) |
@@ -919,22 +919,22 @@ For each utterance, record:
 | # | Item | Status |
 |---|---|---|
 | 1 | Report cleaned (Plan D primary, fallbacks preserved, stale claims removed) | **DONE** 2026-06-06 |
-| 2 | XAI_API_KEY available | **DONE** — user provided 2026-06-06, added to `xai-voice-agent.env` |
+| 2 | XAI_API_KEY available | **DONE** â€” user provided 2026-06-06, added to `xai-voice-agent.env` |
 | 3 | xAI Voice Agent API available | **YES** (verified via docs.x.ai 2026-06-06) |
 | 4 | Eve voice selectable via API | **YES** (5 stock voices: ara, eve, leo, rex, sal) |
-| 5 | LiveKit integration path confirmed | **YES** for Python/Node; **NO Go SDK** — minimal Go WSS client for the spike |
-| 6 | Pricing verified (provisional) | **YES** — Voice Agent $3/hr; TTS $15/1M chars; STT $0.10-0.20/hr |
-| 7 | VAD/silence config available | **YES** — `turn_detection: {type: server_vad, threshold, prefix_padding_ms, silence_duration_ms}` |
-| 8 | Function/tool support | **YES** — XSearch, WebSearch, FileSearch (provider tools) + custom functions |
-| 9 | API behaviour matches playground | **YES** (smoke test 2026-06-06) — see §12.6 |
-| 10 | Plan D implemented in harness | **DONE 2026-06-06** — WSS client + LiveKit bridge + OGG muxer/demuxer ported from `conversation-worker`; race condition in inbound track handler fixed (waits on `inboundFFmpegReady` channel) |
-| 11 | Browser heard xAI | **YES 2026-06-06** — user confirmed Eve is British, natural, on-script, **passes** |
-| 12 | Test utterances completed (9/9) | **9/9 done via browser 2026-06-06** — user improvised a real 10-person booking call with follow-up questions; all turns worked; one minor interruption-confusion resolved mid-turn |
-| 13 | Fallback path preserved (Plan A, Plan B, production Telnyx) | **YES** — code not deleted, .env not modified |
-| 14 | Production untouched (gateway, .env, systemd, Telnyx webhook) | **YES** — spike is in `/opt/ai-voice-receptionist/experimental/livekit/`; VPS harness killed after test |
-| 15 | Files changed | `docs\experimental\livekit-hd-spike\STAGE_1_5_COST_QUALITY_REPORT.md` (rewritten, §12 updated); `experimental\livekit\xai-voice-agent\{go.mod,go.sum,main.go,xai_client.go,xai_livekit.go,xai_smoke.go,xai_ogg.go,BUILD.md,xai-voice-agent.env,web-client\two-way.html}` (new or modified) |
-| 16 | Tests run | `go build` ✓ (windows + linux amd64); `--help` ✓; missing-key error path ✓; smoke test ✓ (314,880 bytes Eve audio, transcript captured); browser test ✓ (9/9 turns, all audible, Eve natural) |
-| 17 | Commit SHA | **TBD** — pending manager sign-off on §12 update and "fully on all the tech" full-stack test plan |
+| 5 | LiveKit integration path confirmed | **YES** for Python/Node; **NO Go SDK** â€” minimal Go WSS client for the spike |
+| 6 | Pricing verified (provisional) | **YES** â€” Voice Agent $3/hr; TTS $15/1M chars; STT $0.10-0.20/hr |
+| 7 | VAD/silence config available | **YES** â€” `turn_detection: {type: server_vad, threshold, prefix_padding_ms, silence_duration_ms}` |
+| 8 | Function/tool support | **YES** â€” XSearch, WebSearch, FileSearch (provider tools) + custom functions |
+| 9 | API behaviour matches playground | **YES** (smoke test 2026-06-06) â€” see Â§12.6 |
+| 10 | Plan D implemented in harness | **DONE 2026-06-06** â€” WSS client + LiveKit bridge + OGG muxer/demuxer ported from `conversation-worker`; race condition in inbound track handler fixed (waits on `inboundFFmpegReady` channel) |
+| 11 | Browser heard xAI | **YES 2026-06-06** â€” user confirmed Eve is British, natural, on-script, **passes** |
+| 12 | Test utterances completed (9/9) | **9/9 done via browser 2026-06-06** â€” user improvised a real 10-person booking call with follow-up questions; all turns worked; one minor interruption-confusion resolved mid-turn |
+| 13 | Fallback path preserved (Plan A, Plan B, production Telnyx) | **YES** â€” code not deleted, .env not modified |
+| 14 | Production untouched (gateway, .env, systemd, Telnyx webhook) | **YES** â€” spike is in `/opt/ai-voice-receptionist/experimental/livekit/`; VPS harness killed after test |
+| 15 | Files changed | `docs\experimental\livekit-hd-spike\STAGE_1_5_COST_QUALITY_REPORT.md` (rewritten, Â§12 updated); `experimental\livekit\xai-voice-agent\{go.mod,go.sum,main.go,xai_client.go,xai_livekit.go,xai_smoke.go,xai_ogg.go,BUILD.md,xai-voice-agent.env,web-client\two-way.html}` (new or modified) |
+| 16 | Tests run | `go build` âœ“ (windows + linux amd64); `--help` âœ“; missing-key error path âœ“; smoke test âœ“ (314,880 bytes Eve audio, transcript captured); browser test âœ“ (9/9 turns, all audible, Eve natural) |
+| 17 | Commit SHA | **TBD** â€” pending manager sign-off on Â§12 update and "fully on all the tech" full-stack test plan |
 | 18 | Recommended path after test | **Plan D primary** (smoke test + browser test confirm Eve + xAI Voice Agent work end-to-end). Next: full Telnyx-SIP integration test to validate "xAI across all the tech". |
 
 ### 12.6 Smoke test results (2026-06-06, xAI Voice Agent end-to-end)
@@ -945,15 +945,15 @@ For each utterance, record:
 
 | Capability | Result |
 |---|---|
-| WSS connection to `wss://api.x.ai/v1/realtime?model=grok-voice-latest` | ✓ Connected via Cloudflare (104.18.18.80:443), TLS handshake OK |
-| Session config (voice=eve, server VAD threshold=0.7, silence=1500ms) | ✓ `session.created`, `session.updated` events received |
-| Conversation creation | ✓ `conversation.created` event received |
-| Send user text (`input_text` content) | ✓ `conversation.item.added` event confirms item |
-| LLM response | ✓ `response.created`, `response.output_item.added`, `response.content_part.added` events |
-| Audio output (PCM16 24kHz mono) | ✓ **314,880 bytes of audio captured** = 6.56 seconds of speech |
-| Transcript streaming | ✓ `response.output_audio_transcript.delta` events stream partial text |
-| Transcript final | ✓ `response.output_audio_transcript.done` event with full text in top-level `transcript` field |
-| Response completion | ✓ `response.done` event received within ~3.5 seconds wall clock |
+| WSS connection to `wss://api.x.ai/v1/realtime?model=grok-voice-latest` | âœ“ Connected via Cloudflare (104.18.18.80:443), TLS handshake OK |
+| Session config (voice=eve, server VAD threshold=0.7, silence=1500ms) | âœ“ `session.created`, `session.updated` events received |
+| Conversation creation | âœ“ `conversation.created` event received |
+| Send user text (`input_text` content) | âœ“ `conversation.item.added` event confirms item |
+| LLM response | âœ“ `response.created`, `response.output_item.added`, `response.content_part.added` events |
+| Audio output (PCM16 24kHz mono) | âœ“ **314,880 bytes of audio captured** = 6.56 seconds of speech |
+| Transcript streaming | âœ“ `response.output_audio_transcript.delta` events stream partial text |
+| Transcript final | âœ“ `response.output_audio_transcript.done` event with full text in top-level `transcript` field |
+| Response completion | âœ“ `response.done` event received within ~3.5 seconds wall clock |
 
 **Assistant response captured (text + audio):**
 
@@ -963,8 +963,8 @@ For each utterance, record:
 
 | Stage | Time |
 |---|---|
-| Send text → first audio delta | ~700ms |
-| First audio delta → response.done | ~2.8s |
+| Send text â†’ first audio delta | ~700ms |
+| First audio delta â†’ response.done | ~2.8s |
 | **End-to-end** | **~3.5s** for 6.56s of speech |
 
 **Audio file analysis (`xai-smoke-output.wav`):**
@@ -974,11 +974,11 @@ For each utterance, record:
 - Header valid: RIFF/WAVE/PCM/data
 - Eve voice (requested `voice: "eve"`; user should listen to confirm accent)
 
-**Verdict:** xAI Voice Agent end-to-end works in the VoxLane context. Eve is selectable. The response is natural, brief, and on-script. British accent confirmed by user via browser test 2026-06-06 — see §12.8.
+**Verdict:** xAI Voice Agent end-to-end works in the VoxLane context. Eve is selectable. The response is natural, brief, and on-script. British accent confirmed by user via browser test 2026-06-06 â€” see Â§12.8.
 
-### 12.7 LiveKit bridge Opus decoding — RESOLVED 2026-06-06
+### 12.7 LiveKit bridge Opus decoding â€” RESOLVED 2026-06-06
 
-**Resolution chosen:** Option A from the original list — ported `oggmuxer.go` + `ogg.go` from `conversation-worker` (no CGo, no new dependencies). New file `xai_ogg.go` in the harness contains:
+**Resolution chosen:** Option A from the original list â€” ported `oggmuxer.go` + `ogg.go` from `conversation-worker` (no CGo, no new dependencies). New file `xai_ogg.go` in the harness contains:
 
 - `oggMuxer` with `writeOpusHead`, `writeOpusTags`, `writeOpusFrame`, `writePage`, OGG forward CRC32
 - `oggOpusReader` with `NextOpusPacket`, `readPage`, 255-continuation rule
@@ -1006,9 +1006,9 @@ For each utterance, record:
 | 19:27:24 | Hi there, I'd be happy to help you book a table. When were you looking to come in? |
 | 19:27:33 | What time were you thinking for tomorrow? How many people will be joining you? |
 | 19:27:45 | Thanks, I'll check if we have a table for 10 at 7pm tomorrow. Could I get your name and a contact number so I can confirm the booking? |
-| 19:27:56 | Thanks, George—what's the best phone number to reach you on? Once I have your details, I'll check our availability for you. |
-| 19:28:13 | Thank you, George—I've noted that as 07917 715734. I'll check our availability for a table of 10 at 7pm tomorrow and give you a call back to confirm. |
-| 19:28:43 | Thanks for asking, George—I'll check if we have any outdoor tables available for tomorrow evening. Would you prefer to sit outside if it's available? |
+| 19:27:56 | Thanks, Georgeâ€”what's the best phone number to reach you on? Once I have your details, I'll check our availability for you. |
+| 19:28:13 | Thank you, Georgeâ€”I've noted that as 07917 715734. I'll check our availability for a table of 10 at 7pm tomorrow and give you a call back to confirm. |
+| 19:28:43 | Thanks for asking, Georgeâ€”I'll check if we have any outdoor tables available for tomorrow evening. Would you prefer to sit outside if it's available? |
 
 The user improvised a 10-person booking call: party size, time, name, phone number (with UK format `07917 715734`), then a follow-up about outdoor seating. Eve handled all turns: confirmed the date, captured the time and party size, asked for the name, captured the phone number in full without guessing, then handled the off-script follow-up about outdoor seating.
 
@@ -1016,22 +1016,22 @@ The user improvised a 10-person booking call: party size, time, name, phone numb
 
 > "i have tested it and she sounds good, mostly perfected only when i asked her something while she was trying to find an answer for me about something else she got a bit confused but then she was ok, very good"
 
-**Verdict mapping (per §12.4 decision matrix):**
+**Verdict mapping (per Â§12.4 decision matrix):**
 
 | Test criterion | Result |
 |---|---|
 | browser heard xAI | **YES** |
 | accent consistency | **British** (Eve confirmed by user) |
 | latency | feels production-ready (no perceptible lag) |
-| VAD turn-taking | **correct** — phone number captured fully, no premature turn-end |
+| VAD turn-taking | **correct** â€” phone number captured fully, no premature turn-end |
 | interruption handling | **minor confusion on interruption**, recovered mid-turn |
-| phone-number handling | **correct** — waited for explicit finish, did not guess |
+| phone-number handling | **correct** â€” waited for explicit finish, did not guess |
 | instruction following | on-script answers (book a table, time, name, number) |
 | off-script handling | graceful redirect to callback ("I'll check and give you a call back") |
-| hallucination risk | none observed — no invented hours/menu/bookings |
+| hallucination risk | none observed â€” no invented hours/menu/bookings |
 | function/tool readiness | not tested in browser test (would need tool-calling config) |
 
-**Overall:** **Outcome A from §12.4** — Plan D passes the spike. Promote to primary, ship in production worker mode `xai-voice-agent`. Build product features (§7) on top.
+**Overall:** **Outcome A from Â§12.4** â€” Plan D passes the spike. Promote to primary, ship in production worker mode `xai-voice-agent`. Build product features (Â§7) on top.
 
 **Known follow-up:** interruption handling could be tightened (lower VAD threshold or shorter silence_duration_ms for the assistant-side interruption recovery). Worth A/B testing `silence_duration_ms=1200` vs `1500` in the next iteration.
 
@@ -1039,16 +1039,16 @@ The user improvised a 10-person booking call: party size, time, name, phone numb
 
 | Outcome | Action | Status 2026-06-06 |
 |---|---|---|
-| **A. Plan D passes** (Eve sounds British, VAD tuned, quality "incredible/human-like", cost ~$3/hr) | Promote Plan D to primary; ship in production worker mode `xai-voice-agent`; build product features on top (§7) | **CHOSEN 2026-06-06** — browser test passes, Eve is British, no hallucination, phone number captured cleanly. **GATED on 30-min validation** (see §13). |
-| **B. Plan D fails on accent** (Eve drifts American in production) | Fall back to Plan B (xAI STT/LLM + Cartesia voice); keep existing Cartesia integration | Not needed — accent confirmed British |
-| **C. Plan D fails on xAI** (API errors, pricing shifts, tools unreliable) | Fall back to Plan A (gpt-4o-mini + Cartesia); the existing stitched chain is already in production | Not needed — API stable for ~30 min test |
-| **D. More testing needed** | Extend spike with 30-min production-style call; compare against Plan A baseline | **IN PROGRESS 2026-06-07** — see §13 |
+| **A. Plan D passes** (Eve sounds British, VAD tuned, quality "incredible/human-like", cost ~$3/hr) | Promote Plan D to primary; ship in production worker mode `xai-voice-agent`; build product features on top (Â§7) | **CHOSEN 2026-06-06** â€” browser test passes, Eve is British, no hallucination, phone number captured cleanly. **GATED on 30-min validation** (see Â§13). |
+| **B. Plan D fails on accent** (Eve drifts American in production) | Fall back to Plan B (xAI STT/LLM + Cartesia voice); keep existing Cartesia integration | Not needed â€” accent confirmed British |
+| **C. Plan D fails on xAI** (API errors, pricing shifts, tools unreliable) | Fall back to Plan A (gpt-4o-mini + Cartesia); the existing stitched chain is already in production | Not needed â€” API stable for ~30 min test |
+| **D. More testing needed** | Extend spike with 30-min production-style call; compare against Plan A baseline | **IN PROGRESS 2026-06-07** â€” see Â§13 |
 
 ### 12.5 Spike team and contacts
 
 - **Owner:** VoxLane engineering spike team
 - **Manager:** worker-manager (decision authority)
-- **VPS:** `my-vps` (user's existing Tailscale SSH target — **do not modify Tailscale config**)
+- **VPS:** `my-vps` (user's existing Tailscale SSH target â€” **do not modify Tailscale config**)
 - **LiveKit cloud project:** `ai-voice-assistant`
 - **Working branch:** `feat/livekit-hd-spike`
 - **Working directory:** `experimental/livekit/` (all work inside this tree)
@@ -1061,7 +1061,7 @@ The user improvised a 10-person booking call: party size, time, name, phone numb
 
 ---
 
-## 13. 30-minute production-style validation (Plan D gating step) — IN PROGRESS 2026-06-07
+## 13. 30-minute production-style validation (Plan D gating step) â€” IN PROGRESS 2026-06-07
 
 **Manager directive (2026-06-06):** "Run a longer realistic test of Plan D before production promotion."
 
@@ -1069,16 +1069,16 @@ The user improvised a 10-person booking call: party size, time, name, phone numb
 A 30-minute mixed conversation via the existing LiveKit browser harness
 (`xai-voice-agent`) and a real human speaker (the user). The harness logs all
 events with `METRIC` prefixes; the metrics analyzer parses the log and produces
-a pass/fail report that gates the production promotion step (matrix row A in §12.4).
+a pass/fail report that gates the production promotion step (matrix row A in Â§12.4).
 
 ### 13.2 What this test is NOT
 - Not a unit test. Real voice + real VAD + real function-calling.
-- Not the existing 9-utterance browser test from §12.8 (which was ~3 min).
+- Not the existing 9-utterance browser test from Â§12.8 (which was ~3 min).
 - Not an automated text-only loop. (Text-only loop in `cmd/longtest/` was tried
   and showed model instability: "I'm Grok" defaults, occasional off-topic
   hallucinations like "Law of Cosines" responses to booking queries. Not a
   viable substitute for real voice.)
-- Not a comparative A/B vs Plan A. That is §12.9 Plan C, separate scope.
+- Not a comparative A/B vs Plan A. That is Â§12.9 Plan C, separate scope.
 
 ### 13.3 Scenarios (13 categories, ~30 min)
 Documented in full in
@@ -1135,7 +1135,7 @@ The analyzer (`cmd/analyze/main.go`) produces a markdown report with:
 ### 13.6 Decision gate
 - **PASS** if avg latency < 2.0s, no hallucinations, 100% function-call success
   on booking scenarios, no audio drops, accent consistent, all phone numbers
-  captured → promote to production worker mode (additive
+  captured â†’ promote to production worker mode (additive
   `LIVEKIT_WORKER_MODE=xai-voice-agent`).
 - **FAIL** classified A-G (VAD, Tool, Hallucination, Latency, Audio-Accent,
   xAI-Stability, LiveKit-Bridge).
@@ -1147,8 +1147,8 @@ The analyzer (`cmd/analyze/main.go`) produces a markdown report with:
 - **Done:** restaurant instructions file (`cmd/longtest/instructions.txt`,
   1.3 KB)
 - **Done:** automated WSS-only validator built (`cmd/longtest/main.go`,
-  5.7 MB Linux) — useful for debugging, **not** a substitute for the browser test
-- **Done:** metrics analyzer built (`cmd/analyze/main.go`, 2.1 MB Linux) —
+  5.7 MB Linux) â€” useful for debugging, **not** a substitute for the browser test
+- **Done:** metrics analyzer built (`cmd/analyze/main.go`, 2.1 MB Linux) â€”
   produces 20-item markdown report from METRIC log
 - **Done:** deploy + scenario docs (`DEPLOY_30MIN.md`, `THIRTY_MIN_SCENARIOS.md`)
 - **Pending:** user to run the 30-min browser test on VPS, pull log, run analyzer
@@ -1170,3 +1170,108 @@ The analyzer (`cmd/analyze/main.go`) produces a markdown report with:
 - Telnyx production webhook untouched
 - Tailscale untouched
 - No VPS, no .env, no secrets, no binaries, no WAVs, no debug logs committed
+
+---
+
+## 14. POST-SPIKE STATE (2026-06-07) — LiveKit browser path NO-GO, **phone path viable**
+
+This section supersedes §12 and §13 for current state. The manager's
+directive after r8 (L16 SDP failure) was:
+
+> "If L16 also fails, mark the current LiveKit/xAI spike as blocked/no-go
+> for now and move back to production-stack improvements."
+
+The r8 finding was the L16 test on the LiveKit/browser transport
+failed at SDP negotiation. The transport for the **phone path** is a
+**different problem** and was not blocked by the L16 finding. A
+parallel harness was built to test it.
+
+### 14.1 What's NO-GO (and what isn't)
+
+| Path | Status | Why |
+|---|---|---|
+| LiveKit browser + Go SDK + Opus | **NO-GO** | r8 L16 SDP failure; ffmpeg/OGG bursts (r5 "terrible"); Go SDK has no PCM-to-Opus encoder in SampleProvider; browser WebRTC SDP doesn't include L16. |
+| **xAI Voice Agent + Eve phone path (no LiveKit, no Opus, no ffmpeg)** | **VIABLE, function-call bridge VALIDATED on real user voice** | r1-r8 + r-real (TTS Gemma + user's actual voice) both produce errors=0, both tool calls fire with real call_ids, phone number  7917715734 captured correctly through 8 kHz mu-law + xAI STT. |
+| LiveKit Python plugin (browser/HD demo) | Parked | Official livekit-plugins-xai exists, would solve the Go SDK fight — but only needed if you want a browser demo, not the phone product. |
+
+The strategic state has been inverted from the original NO-GO
+framing: the actual product (UK restaurant takes a phone call) runs
+xAI/Eve with no Opus, no LiveKit, no CGo encoder — none of the
+things that blocked the spike. Better quality AND lower cost.
+
+### 14.2 Locked production stack
+
+| Layer | Tech |
+|---|---|
+| Telephony | Telnyx (existing) |
+| Audio codec | opus 24 kHz (or L16 16 kHz if Telnyx rejects opus) — NOT PCMU 8 kHz |
+| Real-time transport | xAI Voice Agent WSS (wss://api.x.ai/v1/realtime) |
+| STT + LLM + TTS + VAD | xAI Voice Agent (one vendor, one connection) |
+| Voice | Eve (British English) |
+| Model | grok-voice-latest |
+| Function-call bridge | Custom WSS client (Node.js, reuses spike code) |
+| Worker language | Node.js (existing stack) |
+| Booking system | ResDiary (real integration, replaces stub) |
+| Deposit / payment | Depos (real integration, replaces stub) |
+| Browser/HD demo | Parked |
+
+### 14.3 Spike results (phone path, not browser)
+
+experimental/livekit/xai-phone-harness/ — Node.js WSS client,
+no LiveKit, no Opus, no ffmpeg.
+
+| Run | Codec | Result |
+|---|---|---|
+| r1-r3 | PCMU 8 kHz (with udio.input.format field) | invalid_event on session.update; xAI rejects the field despite the docs |
+| r4 | PCM16 24 kHz (default, no udio.format field) | errors=0, model greets, system prompt fires |
+| r6 | r4 + client-side PCMU→PCM16 8k→24k upsample | errors=0, model greets, audio round-trips |
+| r7 | Real speech (Cartesia Gemma TTS) | vailability.check fires with real call_id, dispatched 0ms, output sent, resumed. errors=0 |
+| r8 | r7 + multi-response wait | **BOTH tool calls fire**: vailability.check + ooking.create. Phone number  7917715734 captured correctly from digit-spaced TTS. errors=0 |
+| r-real | User's actual voice (artifacts/Voice 260607_213806.m4a) | Same as r8. Phone number  7917715734 survived through 8 kHz mu-law + xAI STT on a non-synthetic accent. errors=0. |
+| r-opus | opus 24 kHz decoded to PCM16 24 kHz (BEST codec) | Same as r-real. errors=0, model asks for confirmation (more natural conversational behavior). Validates the production codec path. |
+
+**Verdict: phone path is production-viable. Function-call bridge
+is validated end-to-end on real user voice.**
+
+### 14.4 Codec finding (r3-r5)
+
+xAI's WSS API **rejects** udio.input.format = audio/pcmu and
+udio.output.format = audio/pcm in session.update, despite the
+docs listing them. The udio/pcmu ingest is documented but not
+implemented. Workaround: do G.711 decode + 8k→24k upsample
+client-side, send as xAI's default PCM16 24 kHz.
+
+The same is true for opus ingest — no native format fields
+work. Client-side decode is required for any codec that's not
+xAI's default.
+
+### 14.5 Commits on eat/livekit-hd-spike
+
+| SHA | What |
+|---|---|
+|  e5d259 | LiveKit/xAI browser spike archive (NO-GO) |
+| 68c44b8 | Phone harness initial (path viable) |
+| 26bfb5 | Phone harness r1-r6 (audio.format rejected, G.711 client-side) |
+| 75f680d | Phone harness r7-r8 (function-call bridge validated) |
+| 4fd09a1 | Phone harness r-real (user's real voice, STT robustness confirmed) |
+
+### 14.6 Manager's next-step sequence (one new variable per step)
+
+1. ~~Real-speech test (cheap, isolates STT)~~ — **DONE** in r-real
+2. **ResDiary/Depos dispatcher** (the product — TEST-1234 becomes a real held table). ResDiary API access expected 2026-06-08. Until then, work continues on items below.
+3. Telnyx live I/O (instrument inter-packet timing on both directions from the first call). Real pacing work, not a connector swap.
+
+### 14.7 What is NOT in scope (per manager's directive)
+
+- OpenAI/Cartesia model-pinning as main next task — fallback maintenance only
+- Multi-day Opus encoder implementation — closed (pion/opus is "far from done")
+- CGo/libopus route — unnecessary, kept in pocket
+- Python LiveKit plugin (livekit-plugins-xai) — only if a browser/HD path is separately wanted
+
+### 14.8 Production untouched
+
+All work on eat/livekit-hd-spike in experimental/livekit/. No
+production PCMU runtime, no production .env, no production systemd,
+no Telnyx production webhook, no production gateway changes. No
+merges to main. No secrets, env files, tokens, binaries, WAVs, or
+debug audio committed.
