@@ -14,142 +14,144 @@
 //
 // The dispatcher is the only file that needs to change when the
 // ResDiary / Depos / manager-queue credentials become available.
+//
+// Provider contracts live in src/providers.ts (frozen TypeScript-style
+// interfaces). The JSDoc typedefs below mirror those for the Node
+// runtime. Provider implementations (src/providers/*.js) are swappable
+// via the factory in src/providers/index.js.
+//
+// @typedef {import('./providers.ts').AvailabilityRequest} AvailabilityRequest
+// @typedef {import('./providers.ts').BookingCreateRequest} BookingCreateRequest
+// @typedef {import('./providers.ts').DepositHoldRequest} DepositHoldRequest
+// @typedef {import('./providers.ts').ManagerEscalationRequest} ManagerEscalationRequest
+// @typedef {import('./providers.ts').Result} Result
+// @typedef {import('./providers.ts').ProviderError} ProviderError
+// @typedef {import('./providers.ts').BookingProviderSet} BookingProviderSet
 
-const RESDIARY_BASE = process.env.RESDIARY_BASE_URL || 'https://api.resdiary.com/v1';
-const RESDIARY_KEY = process.env.RESDIARY_API_KEY;
-const DEPOS_BASE = process.env.DEPOS_BASE_URL || 'https://api.deposits.com/v1';
-const DEPOS_KEY = process.env.DEPOS_API_KEY;
-const MANAGER_QUEUE_URL = process.env.MANAGER_QUEUE_URL || '';
-const MANAGER_QUEUE_KEY = process.env.MANAGER_QUEUE_KEY;
+import { getProviders } from './providers/index.js';
 
-async function resdiaryGet(path, params) {
-  const url = new URL(RESDIARY_BASE + path);
-  url.search = new URLSearchParams(params).toString();
-  const res = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${RESDIARY_KEY}`,
-      'Accept': 'application/json',
-    },
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`ResDiary ${path} ${res.status}: ${body.slice(0, 200)}`);
+const DEPOSIT_PENCE_PER_COVER = parseInt(process.env.DEPOSIT_PENCE_PER_COVER || '2000', 10);
+
+/**
+ * Orchestrate the full booking flow:
+ *   1. ResDiary check availability
+ *   2. (if available) Depos hold deposit
+ *   3. ResDiary create booking
+ *   4. (if booking fails) Depos compensate the hold
+ *
+ * The dispatcher is the ONLY place that knows the flow. The
+ * individual providers don't call each other.
+ *
+ * @param {string} name - tool name (availability.check, booking.create, manager.escalate, etc.)
+ * @param {Record<string, any>} args - tool args from the xAI function_call
+ * @param {string} idempotencyKey - per-call idempotency key, supplied by the xai-client event loop
+ * @returns {Promise<object>} xAI function_call_output payload
+ */
+export async function dispatchToolCall(name, args, idempotencyKey) {
+  if (!idempotencyKey) {
+    throw new Error('dispatchToolCall: idempotencyKey is required');
   }
-  return res.json();
-}
+  const { availability, deposit, booking, managerQueue } = getProviders();
 
-async function resdiaryPost(path, body) {
-  const res = await fetch(RESDIARY_BASE + path, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${RESDIARY_KEY}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '');
-    throw new Error(`ResDiary ${path} ${res.status}: ${errBody.slice(0, 200)}`);
-  }
-  return res.json();
-}
-
-async function deposHold({ bookingId, amountCents, currency, customerEmail }) {
-  // Depos holds a deposit on the customer's card. The hold is
-  // captured on booking confirmation and released on cancel.
-  const res = await fetch(DEPOS_BASE + '/holds', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${DEPOS_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      booking_id: bookingId,
-      amount_cents: amountCents,
-      currency,
-      customer_email: customerEmail,
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Depos hold ${res.status}: ${body.slice(0, 200)}`);
-  }
-  return res.json();
-}
-
-async function managerMessage({ topic, message, callerName, callerPhone }) {
-  const res = await fetch(MANAGER_QUEUE_URL + '/messages', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${MANAGER_QUEUE_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      topic,
-      message,
-      caller_name: callerName,
-      caller_phone: callerPhone,
-      received_at: new Date().toISOString(),
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Manager queue ${res.status}: ${body.slice(0, 200)}`);
-  }
-  return res.json();
-}
-
-export async function dispatchToolCall(name, args) {
   switch (name) {
     case 'availability.check': {
-      const { date, time, party_size } = args;
-      const data = await resdiaryGet('/availability', { date, time, party_size });
-      // ResDiary returns { available, next_slot, message }. If
-      // unavailable, the model should offer the next available slot.
+      const req = { date: args.date, time: args.time, party_size: args.party_size };
+      const r = await availability.check(req, idempotencyKey);
+      if (!r.ok) return { error: r.error.code, detail: r.error.message };
       return {
-        available: !!data.available,
-        next_slot: data.next_slot || null,
-        message: data.message || (data.available ? 'A table is available.' : 'No tables available at that time.'),
+        available: r.value.available,
+        next_slot: r.value.next_slot,
+        message: r.value.message,
       };
     }
+
     case 'booking.create': {
-      // 1. Create the booking in ResDiary.
-      const { date, time, party_size, name, phone, notes } = args;
-      const booking = await resdiaryPost('/bookings', {
-        date, time, party_size, customer: { name, phone }, notes,
-      });
-      // 2. Hold the deposit on the customer's card via Depos.
-      //    TODO: confirm amount/currency with the manager.
-      const hold = await deposHold({
-        bookingId: booking.id,
-        amountCents: 2000, // £20 deposit per cover, TBD
+      const { date, time, party_size, name: customerName, phone, notes } = args;
+      const amountCents = party_size * DEPOSIT_PENCE_PER_COVER;
+
+      // 1. Hold the deposit FIRST. If the hold fails, we never
+      //    touch the booking system.
+      const holdReq = {
+        booking_id: 'pending-' + idempotencyKey,
+        amount_cents: amountCents,
         currency: 'GBP',
-        customerEmail: booking.customer?.email,
-      });
+        customer_email: args.email || 'unknown@example.com',
+        customer_phone: phone,
+        customer_name: customerName,
+        idempotency_key: idempotencyKey + ':hold',
+        expires_in_seconds: 24 * 60 * 60,
+      };
+      const holdR = await deposit.hold(holdReq);
+      if (!holdR.ok) {
+        return { error: 'deposit_hold_failed', detail: holdR.error.message, code: holdR.error.code };
+      }
+      const holdId = holdR.value.hold_id;
+
+      // 2. Create the booking in ResDiary.
+      const bookReq = {
+        date, time, party_size,
+        customer: { name: customerName, phone, email: args.email },
+        notes,
+        deposit_hold_id: holdId,
+        idempotency_key: idempotencyKey + ':book',
+      };
+      const bookR = await booking.create(bookReq);
+      if (!bookR.ok) {
+        // 3. Compensation: release the hold so the customer isn't
+        //    charged for a booking that never went through.
+        const compR = await deposit.compensate(
+          { hold_id: holdId, reason: 'booking_failed' },
+          idempotencyKey + ':compensate',
+        );
+        if (!compR.ok) {
+          return {
+            error: 'booking_create_failed_and_compensation_failed',
+            detail: `booking: ${bookR.error.message}; compensate: ${compR.error.message}`,
+            hold_id: holdId,
+            needs_manual_refund: true,
+          };
+        }
+        return {
+          error: 'booking_create_failed',
+          detail: bookR.error.message,
+          hold_id: holdId,
+          refunded: true,
+        };
+      }
+
       return {
-        status: 'created',
-        confirmation_id: booking.confirmation_code,
-        booking_id: booking.id,
-        deposit_hold_id: hold.hold_id,
+        status: bookR.value.status,
+        confirmation_id: bookR.value.confirmation_code,
+        booking_id: bookR.value.id,
+        deposit_hold_id: holdId,
       };
     }
+
     case 'manager.escalate': {
-      // Record a callback message. The manager will see it in
-      // the queue UI and call back the caller.
       const { topic, message, caller_name, caller_phone } = args;
-      const m = await managerMessage({
-        topic,
-        message,
-        callerName: caller_name,
-        callerPhone: caller_phone,
-      });
+      const r = await managerQueue.send(
+        {
+          topic,
+          message,
+          caller_name,
+          caller_phone,
+          booking_context: {
+            date: args.date,
+            time: args.time,
+            party_size: args.party_size,
+          },
+        },
+        idempotencyKey + ':escalate',
+      );
+      if (!r.ok) return { error: r.error.code, detail: r.error.message };
       return {
-        status: 'message_taken',
-        callback_required: true,
-        message_id: m.id,
+        status: r.value.status,
+        callback_required: r.value.callback_required,
+        message_id: r.value.id,
+        missing_phone: r.value.missing_phone,
       };
     }
+
     default:
       return {
         error: 'unknown_tool',

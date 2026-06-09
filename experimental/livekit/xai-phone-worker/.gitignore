@@ -9,3 +9,6 @@
 logs/
 **/logs/
 node_modules/
+tmp/
+**/tmp/
+fixtures/*.pcmu

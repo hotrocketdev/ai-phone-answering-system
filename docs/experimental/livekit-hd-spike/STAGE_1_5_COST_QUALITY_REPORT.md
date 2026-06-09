@@ -1270,7 +1270,81 @@ xAI's default.
 
 ### 14.8 Production untouched
 
-All work on eat/livekit-hd-spike in experimental/livekit/. No
+All work on `feat/livekit-hd-spike` in `experimental/livekit/`. No
+production PCMU runtime, no production .env, no production systemd,
+no Telnyx production webhook, no production gateway changes. No
+merges to main. No secrets, env files, tokens, binaries, WAVs, or
+debug audio committed.
+
+## 15. CONTROLLED NEXT PHASE (2026-06-07) — Dispatcher + fakes + adapter skeletons + Telnyx scaffold
+
+Manager directive: do not block waiting for ResDiary API access.
+Continue useful work that prepares the xAI production phone path
+without touching production.
+
+### 15.1 What was added in this iteration
+
+- **Provider contracts** (`xai-phone-worker/src/providers.ts`): 4
+  frozen TypeScript-style interfaces (`AvailabilityProvider`,
+  `BookingProvider`, `DepositProvider`, `ManagerQueueProvider`)
+  with `Result<T, ProviderError>` types and idempotency-key
+  parameters. Documented in
+  `docs/experimental/livekit-hd-spike/DISPATCHER_PROVIDER_CONTRACTS.md`.
+- **Fake providers** (`xai-phone-worker/src/providers/fake/`): 3
+  in-process fakes covering available/unavailable slots, declined
+  card, provider timeout/error, idempotency replay, missing
+  caller phone, configurable pence-per-cover.
+- **Real-adapter skeletons** (`xai-phone-worker/src/providers/real/`):
+  3 env-driven adapters (ResDiary, Depos, manager queue). HTTP
+  plumbing in place; field-mapping functions are TODO placeholders
+  awaiting real schema confirmation. Do not invent final schemas.
+- **Dispatcher** (`xai-phone-worker/src/dispatcher.js`):
+  orchestrates `availability -> hold -> book -> compensate-on-failure`.
+  Provider-agnostic via factory. Idempotency key required on every call.
+- **Contract tests** (`xai-phone-worker/src/contract.test.js`):
+  **15/15 passing.** Covers the 10 user scenarios (full booking
+  flow, alternative slots, deposit failure, booking failure +
+  compensation, manager escalation, prior-contact reference, phone
+  pass-through, party-size change, notes, unknown-fact
+  escalation) plus 5 robustness tests (timeout, invalid input,
+  idempotency, missing phone, retryable errors).
+- **Telnyx I/O scaffold** (`xai-phone-worker/src/telnyx-io.js`):
+  file-based simulation of Telnyx media stream in/out. Records
+  inbound gap, decode/resample/append time, outbound frame count,
+  pacing, backpressure events. 5/5 tests passing. Documented in
+  `docs/experimental/livekit-hd-spike/XAI_PHONE_PATH_PLAN.md`.
+
+### 15.2 What's blocked on real API access
+
+- **ResDiary API** (`RESDIARY_API_KEY` + `RESDIARY_VENUE_ID`): field
+  mappings in `xai-phone-worker/src/providers/real/resdiary-adapter.js`
+  are TODOs. ~1-2 hours of work once the key arrives: set env,
+  flip `USE_REAL_PROVIDERS=1`, run the contract tests, fix any
+  field-name mismatches the tests surface.
+- **Depos API** (`DEPOS_API_KEY`): same shape as ResDiary.
+- **Manager queue endpoint** (`MANAGER_QUEUE_URL` + `MANAGER_QUEUE_KEY`):
+  same shape.
+
+### 15.3 What's ready for Telnyx live I/O later
+
+- The Telnyx I/O scaffold (`src/telnyx-io.js`) is file-based but
+  has the exact interface a live Telnyx WSS client would have. To
+  go live, swap `TelnyxMediaSource` / `TelnyxMediaSink` for WSS
+  clients; the rest of the pipeline is unchanged. Inter-packet
+  timing instrumentation is already there per the manager's
+  earlier directive.
+
+### 15.4 New commits
+
+| SHA | What |
+|---|---|
+| `c47a87e` (previous HEAD) | r-opus validation + xai-phone-worker scaffold |
+| `48b5e14` | `--input-format pcm16_24k` flag for opus run |
+| (this commit) | Provider contracts, fakes, real-adapter skeletons, contract tests, Telnyx I/O scaffold, docs |
+
+### 15.5 Production untouched (still)
+
+All work on `feat/livekit-hd-spike` in `experimental/livekit/`. No
 production PCMU runtime, no production .env, no production systemd,
 no Telnyx production webhook, no production gateway changes. No
 merges to main. No secrets, env files, tokens, binaries, WAVs, or

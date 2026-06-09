@@ -1,69 +1,65 @@
 # xAI Phone Worker (production)
 
-**Status:** Scaffold. Replaces the spike (`xai-phone-harness`) for
-production deployment. Telephony I/O not wired yet — dispatcher
-(ResDiary + Depos + manager queue) is implemented but uses
-synthetic keys.
+**Status:** Pre-ResDiary-API scaffold complete. ResDiary + Depos + manager-queue dispatcher is fully wired with in-process fakes. Real-adapter skeletons (env-driven, no live calls) are in place. Telnyx I/O scaffold exercises the full audio path with file-based simulation.
 
-## What's here
+## Files
 
-- `src/xai-client.js` — xAI WSS protocol layer (same as the spike)
-- `src/dispatcher.js` — ResDiary + Depos + manager-queue calls (real product integrations)
-- `src/dispatcher.test.js` — in-process fake-server unit tests for the dispatcher
+- `src/xai-client.js` — xAI WSS protocol layer (copied from the spike, refactored)
+- `src/dispatcher.js` — orchestrates `availability -> hold -> book -> compensate-on-failure`
+- `src/providers.ts` — frozen TypeScript-style provider contracts (with JSDoc typedefs in the JS files)
+- `src/providers/index.js` — provider factory (fakes by default, real adapters when `USE_REAL_PROVIDERS=1`)
+- `src/providers/fake/resdiary-fake.js` — in-process ResDiary fake
+- `src/providers/fake/depos-fake.js` — in-process Depos fake
+- `src/providers/fake/manager-queue-fake.js` — in-process manager queue fake
+- `src/providers/real/resdiary-adapter.js` — SKELETON (awaiting API access)
+- `src/providers/real/depos-adapter.js` — SKELETON (awaiting API access)
+- `src/providers/real/manager-queue-adapter.js` — SKELETON (awaiting endpoint)
+- `src/telnyx-io.js` — Telnyx media stream I/O scaffold (file-based, swap to WSS for live)
+- `src/pcmu-codec.js` — G.711 µ-law encode/decode + 24k↔8k resample (pure JS, no deps)
 - `src/log.js` — minimal METRIC logger
-- `src/index.js` — production worker entry point (Telnyx I/O stubbed)
+- `src/index.js` — production worker entry point (Telnyx I/O stubbed — TODO)
+- `src/contract.test.js` — 15/15 contract tests for the full booking flow
+- `src/telnyx-io.test.js` — 5/5 tests for the Telnyx I/O scaffold
+- `docs/../../livekit-hd-spike/XAI_PHONE_PATH_PLAN.md` — production path plan
+- `docs/../../livekit-hd-spike/DISPATCHER_PROVIDER_CONTRACTS.md` — provider contracts
 
-## What's NOT here yet
-
-- **Telnyx media stream source** (`src/telnyx-source.js`) — TODO
-- **Telnyx media stream sink** (`src/telnyx-sink.js`) — TODO
-- **Production logging redirect** — currently stdout; production needs
-  `/var/log/voxlane/xai-worker.log` (or equivalent)
-- **Live call instrumentation** — inter-packet timing on both
-  directions, per the manager's directive (item 3)
-
-## Run the dispatcher tests
+## Run the test suite
 
 ```bash
 cd experimental/livekit/xai-phone-worker
 npm install
-npm run test:dispatcher
+npm test              # 20 tests total: 15 contract + 5 telnyx-io
 ```
-
-This starts a fake ResDiary + Depos + manager-queue server on
-`127.0.0.1:0`, points the dispatcher at it, and exercises the three
-function paths. Use this to validate the dispatcher's shape before
-the user provides real credentials.
 
 ## Run against real APIs (after credentials arrive)
 
 ```bash
 # .env (NOT committed)
+USE_REAL_PROVIDERS=1
 XAI_API_KEY=...
 RESDIARY_API_KEY=...
-RESDIARY_BASE_URL=https://api.resdiary.com/v1
+RESDIARY_VENUE_ID=...
 DEPOS_API_KEY=...
-DEPOS_BASE_URL=https://api.deposits.com/v1
 MANAGER_QUEUE_URL=...
 MANAGER_QUEUE_KEY=...
 
-npm start
+npm test              # same 20 tests, now against the real APIs
 ```
 
-## What this needs from the manager to go live
+The dispatcher doesn't change. The factory in `src/providers/index.js` is the only file that switches.
 
-1. **ResDiary API credentials** — confirmed available 2026-06-08
-2. **Depos API credentials** — TBD
-3. **Manager queue endpoint** — TBD (or use a local stub)
-4. **Telnyx media stream integration** — separate workstream, real
-   pacing concerns. Per the manager, this is "real work, not a
-   connector swap — file has no jitter, no backpressure, no caller
-   hangup."
-5. **Codec change in production gateway** — `TELNYX_STREAM_CODEC=PCMU`
-   → opus 24 kHz. This unlocks the audio quality that the manager
-   called "almost human."
+## What's blocked on real API access
+
+- ResDiary: `RESDIARY_API_KEY` + `RESDIARY_VENUE_ID` (expected 2026-06-08)
+- Depos: `DEPOS_API_KEY`
+- Manager queue: `MANAGER_QUEUE_URL` + `MANAGER_QUEUE_KEY`
+
+When each arrives, fill in the field-mapping TODOs in the corresponding `src/providers/real/*.js`, flip `USE_REAL_PROVIDERS=1`, run the contract tests. The tests will surface any field-name mismatches.
+
+## What's ready for Telnyx live I/O later
+
+The `src/telnyx-io.js` scaffold is file-based but has the exact interface a live Telnyx WSS client would have. To go live, swap `TelnyxMediaSource` / `TelnyxMediaSink` for WSS clients; the rest of the pipeline is unchanged. Inter-packet timing instrumentation (per the manager's directive) is already there.
 
 ## Production untouched
 
-All work on `feat/livekit-hd-spike` in `experimental/livekit/`. No
-production .env, systemd, webhook, gateway, or main-branch changes.
+All work on `feat/livekit-hd-spike` in `experimental/livekit/`. No production .env, systemd, webhook, gateway, or main-branch changes.

@@ -8,7 +8,9 @@
   "scripts": {
     "start": "node src/index.js",
     "test:smoke": "node src/smoke.js",
-    "test:dispatcher": "node src/dispatcher.test.js"
+    "test:contract": "node src/contract.test.js",
+    "test:telnyx": "node src/telnyx-io.test.js",
+    "test": "npm run test:contract && npm run test:telnyx"
   },
   "engines": {
     "node": ">=20"
