@@ -33,6 +33,7 @@ import { log } from './log.js';
 function parseArgs() {
   const args = {
     input: null,
+    inputFormat: 'pcmu_8k', // pcmu_8k | pcm16_24k
     output: 'output.wav',
     toneMs: 0,
     model: 'grok-voice-latest',
@@ -43,6 +44,7 @@ function parseArgs() {
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--input') args.input = argv[++i];
+    else if (a === '--input-format') args.inputFormat = argv[++i];
     else if (a === '--output') args.output = argv[++i];
     else if (a === '--tone-ms') args.toneMs = parseInt(argv[++i], 10);
     else if (a === '--model') args.model = argv[++i];
@@ -210,28 +212,45 @@ async function main() {
   await new Promise((r) => setTimeout(r, 300));
 
   // Decide the input.
-  let pcmu;
+  let pcm24k;
   if (args.input) {
-    log('reading PCMU input from', args.input);
-    pcmu = fs.readFileSync(args.input);
-    log('  loaded', pcmu.length, 'bytes PCMU');
+    if (args.inputFormat === 'pcm16_24k') {
+      log('reading raw PCM16 24 kHz input from', args.input);
+      pcm24k = fs.readFileSync(args.input);
+      log('  loaded', pcm24k.length, 'bytes PCM16 24 kHz');
+    } else {
+      // Default: PCMU 8 kHz (G.711 mu-law) from Telnyx-style telephony.
+      // Decode -> upsample 3x to PCM16 24 kHz (xAI's default input format).
+      log('reading PCMU 8 kHz input from', args.input);
+      const pcmu = fs.readFileSync(args.input);
+      log('  loaded', pcmu.length, 'bytes PCMU');
+      log('decoding PCMU -> PCM16 8kHz -> upsampling to 24kHz');
+      const pcm8k = pcmuToPcm16(pcmu);
+      pcm24k = pcm8kToPcm24k(pcm8k);
+      log('converted', pcmu.length, 'bytes PCMU ->', pcm24k.length, 'bytes PCM16 24 kHz');
+    }
   } else if (args.toneMs > 0) {
-    log('generating', args.toneMs, 'ms of 250 Hz tone at 8 kHz PCMU');
-    pcmu = tonePcmu(250, args.toneMs, 8000, 8000);
+    if (args.inputFormat === 'pcm16_24k') {
+      // Generate PCM16 24 kHz tone directly (no PCMU round-trip).
+      const pcm = Buffer.alloc(Math.floor(args.toneMs * 24000 * 2 / 1000));
+      for (let i = 0; i < pcm.length / 2; i++) {
+        const t = i / 24000;
+        const s = Math.round(8000 * Math.sin(2 * Math.PI * 250 * t));
+        pcm.writeInt16LE(s, i * 2);
+      }
+      pcm24k = pcm;
+      log('generated', pcm24k.length, 'bytes PCM16 24 kHz tone');
+    } else {
+      log('generating', args.toneMs, 'ms of 250 Hz tone at 8 kHz PCMU');
+      const pcmu = tonePcmu(250, args.toneMs, 8000, 8000);
+      const pcm8k = pcmuToPcm16(pcmu);
+      pcm24k = pcm8kToPcm24k(pcm8k);
+      log('converted', pcm24k.length, 'bytes PCM16 24 kHz');
+    }
   } else {
-    log('no --input or --tone-ms; sending 1 second of PCMU silence');
-    pcmu = Buffer.alloc(8000, 0xff);
+    log('no --input or --tone-ms; sending 1 second of PCM16 24 kHz silence');
+    pcm24k = Buffer.alloc(24000 * 2, 0);
   }
-
-  // Decode PCMU -> PCM16 8 kHz -> upsample to PCM16 24 kHz. xAI's
-  // WSS expects PCM16 audio at 24 kHz (the default). We do the
-  // G.711 mu-law decode + 3x upsample client-side; the alternative
-  // of declaring audio.input.format = audio/pcmu was rejected by
-  // the server (r3-r5 of the spike).
-  log('decoding PCMU -> PCM16 8kHz -> upsampling to 24kHz');
-  const pcm8k = pcmuToPcm16(pcmu);
-  const pcm24k = pcm8kToPcm24k(pcm8k);
-  log('converted', pcmu.length, 'bytes PCMU ->', pcm24k.length, 'bytes PCM16 24 kHz');
 
   // Stream PCM16 24 kHz in 100 ms chunks (4800 bytes each at 24 kHz).
   const chunk = 4800;
