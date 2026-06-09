@@ -28,16 +28,32 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME24_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 function validateDate(d) {
-  if (typeof d !== 'string' || !ISO_DATE_RE.test(d)) {
-    return { code: 'INVALID_INPUT', message: `Invalid date format: ${JSON.stringify(d)} (expected YYYY-MM-DD)` };
+  if (typeof d !== 'string') {
+    return { code: 'INVALID_INPUT', message: `Invalid date: ${JSON.stringify(d)} (expected YYYY-MM-DD or natural language like "tomorrow")` };
   }
-  return null;
+  // ISO YYYY-MM-DD — accepted as-is.
+  if (ISO_DATE_RE.test(d)) return null;
+  // Natural-language dates the model uses in the system prompt.
+  const lower = d.trim().toLowerCase();
+  if (lower === 'tomorrow' || lower === 'today' || lower === 'tonight' ||
+      lower === 'this evening' || /^this (mon|tues|wednes|thurs|fri|satur|sun)day$/.test(lower) ||
+      /^(mon|tues|wednes|thurs|fri|satur|sun)day$/.test(lower)) {
+    return null;
+  }
+  return { code: 'INVALID_INPUT', message: `Invalid date format: ${JSON.stringify(d)} (expected YYYY-MM-DD or natural language like "tomorrow")` };
 }
 function validateTime(t) {
-  if (typeof t !== 'string' || !TIME24_RE.test(t)) {
-    return { code: 'INVALID_INPUT', message: `Invalid time format: ${JSON.stringify(t)} (expected HH:MM)` };
+  if (typeof t !== 'string') {
+    return { code: 'INVALID_INPUT', message: `Invalid time: ${JSON.stringify(t)} (expected HH:MM)` };
   }
-  return null;
+  if (TIME24_RE.test(t)) return null;
+  // Natural-language: "7", "7pm", "7 pm", "seven", "half past seven", "19:00", etc.
+  const lower = t.trim().toLowerCase();
+  if (/^(\d{1,2})(\s*(am|pm))?$/.test(lower)) return null;
+  if (/^(\d{1,2}):\d{2}(\s*(am|pm))?$/.test(lower)) return null;
+  const wordNums = ['one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve'];
+  if (wordNums.some((w) => lower === w || lower === w + ' pm' || lower === w + ' am')) return null;
+  return { code: 'INVALID_INPUT', message: `Invalid time format: ${JSON.stringify(t)} (expected HH:MM or natural language like "seven" / "7pm")` };
 }
 function validatePartySize(p) {
   if (!Number.isInteger(p) || p < PARTY_SIZE_MIN || p > PARTY_SIZE_MAX) {

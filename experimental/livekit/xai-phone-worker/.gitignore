@@ -12,3 +12,5 @@ node_modules/
 tmp/
 **/tmp/
 fixtures/*.pcmu
+fixtures/**/*.pcmu
+fixtures/**/*.wav

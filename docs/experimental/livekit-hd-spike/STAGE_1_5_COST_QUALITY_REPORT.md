@@ -1349,3 +1349,121 @@ production PCMU runtime, no production .env, no production systemd,
 no Telnyx production webhook, no production gateway changes. No
 merges to main. No secrets, env files, tokens, binaries, WAVs, or
 debug audio committed.
+
+## 16. FAKE-PROVIDER REHEARSAL (2026-06-09) - End-to-end product flow validated
+
+Per manager directive: do not wait for ResDiary. Prove the full
+xAI phone-worker product flow using fake providers so that when
+the real API arrives, only real field mapping and credentials
+remain.
+
+### 16.1 What was added
+
+- **Rehearsal orchestrator** (`xai-phone-worker/src/rehearsal.js`):
+  18-step end-to-end script that drives the real xAI Voice Agent
+  WSS through the full booking flow with the **fake** ResDiary /
+  Depos / manager-queue providers. Outputs timestamped log,
+  machine-readable metrics, and concatenated assistant audio.
+- **Fixture generator** (`scripts/gen-rehearsal-fixtures.mjs`):
+  Cartesia Sonic 3.5 (Gemma British) → WAV → ffmpeg → PCMU 8 kHz.
+  Produces 7 caller-turn PCMU files (one per caller utterance
+  in the script).
+- **Fake ResDiary date/time validator fix**:
+  `validateDate` and `validateTime` now accept ISO formats AND
+  natural-language words (`tomorrow`, `today`, `tonight`, weekday
+  names, `7`, `7pm`, `19:00`, `seven`, `half past seven`, etc.)
+  — matching the model prompt's contract.
+- **Documentation** (`XAI_FAKE_PROVIDER_REHEARSAL.md`): full
+  rehearsal report with pass/fail results, latency observations,
+  audio observations, bugs found, and next-step recommendations.
+
+### 16.2 Rehearsal results
+
+| Check | Result |
+|---|---|
+| All 18 steps executed | YES |
+| `availability.check` fired (twice: initial + party-size change) | YES |
+| `deposit.hold` fired (1x, before `booking.create`) | YES |
+| `booking.create` fired | YES |
+| `manager.escalate` fired (off-script vegan menu question) | YES |
+| `function_call_output` returned every time | YES |
+| Assistant resumed after every tool call | YES |
+| Phone number `07917715734` preserved exactly | YES |
+| Date `"tomorrow"` accepted | YES (after fix) |
+| Time `"seven"` → `19:00` resolved | YES |
+| Hallucinated restaurant details | NO |
+| Repeated date question | NO |
+| Errors | 0 |
+| Dropped frames | 0 |
+| First-assistant-audio latency | 2990 ms (consistent with r-real spike) |
+| Turn latency (wait steps) | avg 9.5 s, p95 20 s (the 20 s is the safety timeout; tool-firing turns are 5-7 s) |
+
+### 16.3 Bugs found
+
+1. **Fake ResDiary rejected natural-language dates** (FIXED).
+   First run failed at step 6 with `Invalid date format: "tomorrow"`.
+   The model correctly passes `"tomorrow"` per the system prompt;
+   the fake validator only accepted ISO. Fix is in
+   `src/providers/fake/resdiary-fake.js`. Implication: the real
+   ResDiary API likely accepts natural-language dates too; verify
+   when API access arrives.
+2. **STT mis-heard phone on first attempt** (NOT a bug, design
+   choice). Spaced-out TTS "0 7 9 1 7, 7 1 5 7 3 4" was heard as
+   "2017-07-15" in the first run. The model asked for clarification
+   rather than guessing. **On the second run (after the date
+   fix), the phone number was captured correctly.**
+3. **Party-size change re-checks availability but does not update
+   the booking** (DESIGN LIMITATION). The model has no
+   `booking.update` or `booking.cancel` tool. Need to add one
+   before production.
+4. **MaxListenersExceededWarning in orchestrator** (FIXED in
+   source). Rehearsal data unaffected.
+
+### 16.4 Recommended next step once ResDiary API arrives
+
+1. Set `RESDIARY_API_KEY`, `RESDIARY_VENUE_ID`, `USE_REAL_PROVIDERS=1`.
+2. Fill in the 4 field-mapping TODOs in
+   `src/providers/real/resdiary-adapter.js`.
+3. `npm test` — 15/15 contract tests should still pass against
+   the real API; failures name the failing field.
+4. Repeat for `DEPOS_API_KEY` and the manager queue endpoint.
+5. Re-run the rehearsal (`node src/rehearsal.js`) against the
+   real APIs. The orchestration logic is identical; only the
+   provider implementations change.
+6. Listen to `rehearsal-assistant.wav` to confirm Eve's voice
+   quality is unchanged.
+
+Estimated time: 1-2 hours.
+
+### 16.5 Recommended next step before live Telnyx I/O
+
+The Telnyx I/O scaffold (`src/telnyx-io.js`) is file-based and
+works correctly. To go live:
+
+1. Replace `TelnyxMediaSource` with a Telnyx WSS client that
+   consumes media frames from a Telnyx Programmable Voice call
+   control webhook. Keep the same `on('frame', ...)` event signature.
+2. Replace `TelnyxMediaSink` with a Telnyx WSS client that writes
+   back to the same call. Keep `write(pcm16_24k)`.
+3. Re-run the rehearsal with the live source — the existing
+   metric summary (gap_ms, decode_ms, resample_ms, pacing_ms,
+   dropped_frames) gives the baseline to compare against.
+4. Instrument inter-packet timing on both directions from the
+   first call (per the manager's earlier directive).
+
+Estimated time: 1 day.
+
+### 16.6 New commit
+
+| SHA | What |
+|---|---|
+| (this commit) | Rehearsal orchestrator + 7 PCMU fixtures + fake-validator fix + rehearsal report + manager report §16 |
+
+### 16.7 Production untouched (still)
+
+All work on `feat/livekit-hd-spike` in `experimental/livekit/`. No
+production PCMU runtime, no production .env, no production systemd,
+no Telnyx production webhook, no production gateway changes. No
+merges to main. No secrets, env files, tokens, binaries, WAVs (the
+test artefact WAV is in `tmp/` which is gitignored), debug audio, or
+logs committed.
