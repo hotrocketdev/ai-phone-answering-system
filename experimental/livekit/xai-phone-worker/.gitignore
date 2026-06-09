@@ -14,3 +14,4 @@ tmp/
 fixtures/*.pcmu
 fixtures/**/*.pcmu
 fixtures/**/*.wav
+fixtures/**/*.pcm16_24k

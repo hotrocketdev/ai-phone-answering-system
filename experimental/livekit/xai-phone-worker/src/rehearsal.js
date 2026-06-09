@@ -25,7 +25,7 @@ import { getProviders, resetProviders } from './providers/index.js';
 import { pcmuToPcm16, pcm8kToPcm24k, pcm24kToPcm8k, pcm16ToPcmu } from './pcmu-codec.js';
 import { log } from './log.js';
 
-const RESTAURANT_INSTRUCTIONS = `You are Alex, the receptionist at Porto Douro Restaurants. Greet the caller warmly and ask how you can help. For a new table booking, collect date, time, party size, name, and phone number. Use availability.check to see if a table is free, then booking.create to confirm. If anything is unclear or you don't know the answer (especially about menu, dietary, hours, or anything you can't verify), offer to take a message via manager.escalate. Speak in British English, briefly and warmly. Do not invent restaurant details.`;
+const RESTAURANT_INSTRUCTIONS = `You are Alex, the receptionist at Porto Douro Restaurants. Greet the caller warmly and ask how you can help. For a new table booking, collect date, time, party size, name, and phone number. Use availability.check to see if a table is free, then booking.create to confirm. CRITICAL: if a caller asks something you cannot verify (menu, dietary, hours, anything restaurant-specific), call manager.escalate IMMEDIATELY in the same turn — do NOT ask the user 'would you like me to take a message' first, just call the tool. Speak in British English, briefly and warmly. Do not invent restaurant details.`;
 
 const TOOLS = [
   {
@@ -85,32 +85,32 @@ const TOOLS = [
 // 18-step rehearsal script. Each step is one of:
 //   { side: 'caller', pcmu: 'fixtures/rehearsal/tNN-*.pcmu' }   -> feed audio to xAI
 //   { side: 'wait', timeoutMs: 15000 }                         -> wait for assistant to respond
+// 18-step rehearsal script. Each caller step references an audio
+// fixture. The extension determines how it's decoded:
+//   .pcmu       -> 8 kHz mu-law (telephony floor), decoded + 3x upsample
+//   .pcm16_24k  -> 24 kHz PCM (no telephony floor), fed directly
+// Set REHEARSAL_INPUT_FORMAT env to switch (default .pcmu).
+const INPUT_EXT = process.env.REHEARSAL_INPUT_FORMAT || '.pcmu';
+function fixt(name) { return `fixtures/rehearsal/${name}${INPUT_EXT}`; }
+
 const SCRIPT = [
-  { step: 1,  side: 'caller', note: 'Caller says hello',                                      pcmu: 'fixtures/rehearsal/t01-hello.pcmu' },
+  { step: 1,  side: 'caller', note: 'Caller says hello',                                      pcmu: fixt('t01-hello') },
   { step: 2,  side: 'wait',   note: 'Assistant greets' },
-  { step: 3,  side: 'caller', note: 'Caller asks to book a table',                            pcmu: 'fixtures/rehearsal/t02-book.pcmu' },
+  { step: 3,  side: 'caller', note: 'Caller asks to book a table',                            pcmu: fixt('t02-book') },
   { step: 4,  side: 'wait',   note: 'Assistant acknowledges' },
-  { step: 5,  side: 'caller', note: 'Caller says "Tomorrow at seven for four people"',      pcmu: 'fixtures/rehearsal/t03-tomorrow-7-4.pcmu' },
-  // 4-6: Assistant calls availability.check, gets back available, asks for name
+  { step: 5,  side: 'caller', note: 'Caller says "Tomorrow at seven for four people"',      pcmu: fixt('t03-tomorrow-7-4') },
   { step: 6,  side: 'wait',   note: 'Assistant checks availability.check' },
-  { step: 7,  side: 'caller', note: 'Caller says "George"',                                   pcmu: 'fixtures/rehearsal/t07-george.pcmu' },
+  { step: 7,  side: 'caller', note: 'Caller says "George"',                                   pcmu: fixt('t07-george') },
   { step: 8,  side: 'wait',   note: 'Assistant asks for phone' },
-  { step: 9,  side: 'caller', note: 'Caller says phone number',                               pcmu: 'fixtures/rehearsal/t09-phone.pcmu' },
-  // 10-12: Assistant explains deposit, calls deposit.hold then booking.create
+  { step: 9,  side: 'caller', note: 'Caller says phone number',                               pcmu: fixt('t09-phone') },
   { step: 10, side: 'wait',   note: 'Assistant explains deposit, calls deposit.hold + booking.create' },
   { step: 11, side: 'wait',   note: 'Assistant continues after tools' },
-  // 13: Assistant confirms with confirmation ID
   { step: 12, side: 'wait',   note: 'Assistant confirms booking' },
-  // 14: Caller changes party size
-  { step: 13, side: 'caller', note: 'Caller changes party size to 6',                          pcmu: 'fixtures/rehearsal/t14-change-to-6.pcmu' },
-  // 15: Assistant re-checks availability, updates booking
+  { step: 13, side: 'caller', note: 'Caller changes party size to 6',                          pcmu: fixt('t14-change-to-6') },
   { step: 14, side: 'wait',   note: 'Assistant re-checks availability and updates booking' },
-  // 16: Off-script question
-  { step: 15, side: 'caller', note: 'Caller asks off-script (vegan tasting menu)',           pcmu: 'fixtures/rehearsal/t16-off-script.pcmu' },
-  // 17: Manager escalation
+  { step: 15, side: 'caller', note: 'Caller asks off-script (vegan tasting menu)',           pcmu: fixt('t16-off-script') },
   { step: 16, side: 'wait',   note: 'Assistant calls manager.escalate' },
   { step: 17, side: 'wait',   note: 'Assistant acknowledges escalation' },
-  // 18: Natural close
   { step: 18, side: 'wait',   note: 'Assistant ends call naturally' },
 ];
 
@@ -199,11 +199,23 @@ async function waitForResponseDone(xai, timeoutMs = 20000) {
   });
 }
 
-async function feedCallerTurn(xai, pcmuPath) {
+async function feedCallerTurn(xai, audioPath) {
   const t0 = performance.now();
-  const pcmu = fs.readFileSync(pcmuPath);
-  const pcm16_8k = pcmuToPcm16(pcmu);
-  const pcm16_24k = pcm8kToPcm24k(pcm16_8k);
+  let pcm16_24k;
+  let label;
+  if (audioPath.endsWith('.pcm16_24k')) {
+    // Already 24 kHz PCM16 mono — feed directly to xAI.
+    pcm16_24k = fs.readFileSync(audioPath);
+    label = `${pcm16_24k.length} bytes PCM16 24k`;
+  } else {
+    // PCMU 8 kHz: decode mu-law, upsample 3x to PCM16 24 kHz.
+    // This is the telephony floor; useful for measuring the
+    // "real production" experience.
+    const pcmu = fs.readFileSync(audioPath);
+    const pcm16_8k = pcmuToPcm16(pcmu);
+    pcm16_24k = pcm8kToPcm24k(pcm16_8k);
+    label = `${pcmu.length} bytes PCMU -> ${pcm16_24k.length} bytes PCM16 24k`;
+  }
 
   // Stream in 100ms chunks (4800 bytes at 24 kHz).
   const CHUNK = 4800;
@@ -214,7 +226,7 @@ async function feedCallerTurn(xai, pcmuPath) {
   // Force end-of-turn: xAI's VAD will eventually fire on silence but
   // committing explicitly is faster in a test.
   xai.commitAudio();
-  flog(`  -> fed ${pcmu.length} bytes PCMU in ${(performance.now() - t0).toFixed(0)}ms`);
+  flog(`  -> fed ${label} in ${(performance.now() - t0).toFixed(0)}ms`);
 }
 
 async function main() {
