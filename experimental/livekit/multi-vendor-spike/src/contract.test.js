@@ -8,6 +8,8 @@
 // Run with: npm test (alias for test:contract)
 
 import assert from 'node:assert/strict';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { XaiBundledStt } from './vendors/stt/xai.js';
 import { XaiEveTts } from './vendors/tts/xai-eve.js';
 import { FileLoopbackTransport } from './vendors/transport/file-loopback.js';
@@ -16,7 +18,7 @@ import { makeBundle } from './vendors/bundles.js';
 
 let passed = 0;
 let failed = 0;
-function test(name: string, fn: () => void | Promise<void>) {
+function test(name, fn) {
   return Promise.resolve()
     .then(fn)
     .then(() => { passed++; console.log(`  PASS  ${name}`); })
@@ -48,8 +50,12 @@ async function main() {
 
   // 2. File-loopback transport.
   await test('transport/file-loopback: connect reads file', async () => {
+    const fixture_path = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '..', '..', 'xai-phone-worker', 'fixtures', 'rehearsal', 't01-hello.pcmu'
+    );
     const t = new FileLoopbackTransport({
-      file_path: 'fixtures/rehearsal/t01-hello.pcmu',
+      file_path: fixture_path,
       format: 'pcmu_8k',
     });
     await t.connect();
@@ -63,13 +69,11 @@ async function main() {
     assert.equal(s.name, 'xai');
   });
 
-  await test('stt/deepgram: throws on missing API key', () => {
+  await test('stt/deepgram: throws on missing API key', async () => {
     // Lazy import to avoid loading @deepgram/sdk if not installed.
-    assert.throws(() => {
-      // @ts-ignore
-      const { DeepgramStt } = require('./vendors/stt/deepgram.js');
-      new DeepgramStt({ apiKey: '' });
-    }, /apiKey is required/);
+    const mod = await import('./vendors/stt/deepgram.js');
+    const { DeepgramStt } = mod;
+    assert.throws(() => new DeepgramStt({ apiKey: '' }), /apiKey is required/);
   });
 
   // 4. TTS vendor names.
@@ -78,12 +82,10 @@ async function main() {
     assert.equal(t.name, 'xai-eve');
   });
 
-  await test('tts/elevenlabs: throws on missing API key', () => {
-    assert.throws(() => {
-      // @ts-ignore
-      const { ElevenLabsTts } = require('./vendors/tts/elevenlabs.js');
-      new ElevenLabsTts({ apiKey: '' });
-    }, /apiKey is required/);
+  await test('tts/elevenlabs: throws on missing API key', async () => {
+    const mod = await import('./vendors/tts/elevenlabs.js');
+    const { ElevenLabsTts } = mod;
+    assert.throws(() => new ElevenLabsTts({ apiKey: '' }), /apiKey is required/);
   });
 
   // 5. Bundle factory.
@@ -92,24 +94,19 @@ async function main() {
     assert.equal(b.name, 'xai-bundle');
   });
 
-  await test('bundles: make hybrid-deepgram without DEEPGRAM_API_KEY throws', async () => {
-    const prev = process.env.DEEPGRAM_API_KEY;
-    delete process.env.DEEPGRAM_API_KEY;
-    try {
-      await assert.rejects(() => makeBundle('hybrid-deepgram'), /deepgram_api_key/);
-    } finally {
-      if (prev) process.env.DEEPGRAM_API_KEY = prev;
-    }
+  await test('bundles: make hybrid-deepgram without deepgram_api_key throws', async () => {
+    await assert.rejects(
+      () => makeBundle('hybrid-deepgram', {}),
+      /deepgram_api_key/
+    );
   });
 
-  await test('bundles: make hybrid-elevenlabs without ELEVENLABS_API_KEY throws', async () => {
-    const prev = process.env.ELEVENLABS_API_KEY;
-    delete process.env.ELEVENLABS_API_KEY;
-    try {
-      await assert.rejects(() => makeBundle('hybrid-elevenlabs'), /elevenlabs_api_key/);
-    } finally {
-      if (prev) process.env.ELEVENLABS_API_KEY = prev;
-    }
+  await test('bundles: make hybrid-elevenlabs without elevenlabs_api_key throws', async () => {
+    // Pass deepgram + xai so the only missing key is elevenlabs
+    await assert.rejects(
+      () => makeBundle('hybrid-elevenlabs', { deepgram_api_key: 'test-only', xai_api_key: 'test-only' }),
+      /elevenlabs_api_key/
+    );
   });
 
   console.log(`\n--- ${passed} passed, ${failed} failed ---`);

@@ -5,34 +5,41 @@
 // without a Redis instance.
 
 import { EventEmitter } from 'node:events';
-import type { CallerContext, MemoryVendor, VendorName } from '../contracts.ts';
 
-const VENDOR: VendorName = 'redis-mem';
+const VENDOR = 'redis-mem';
 
-interface Entry {
-  ctx: CallerContext;
-  expires_at_ms: number;
-}
+/**
+ * @typedef {Object} Entry
+ * @property {import('../contracts.ts').CallerContext} ctx
+ * @property {number} expires_at_ms
+ */
 
-export class RedisMemMemory extends EventEmitter implements MemoryVendor {
-  readonly name: VendorName = VENDOR;
-  private _store: Map<string, Entry> = new Map();
-  private _histories: Map<string, Array<{ ts_ms: number; summary: string }>> = new Map();
-  private _defaultTtlS: number;
+export class RedisMemMemory extends EventEmitter {
+  /** @type {string} */
+  name = VENDOR;
+  /** @type {Map<string, Entry>} */
+  _store = new Map();
+  /** @type {Map<string, Array<{ ts_ms: number; summary: string }>>} */
+  _histories = new Map();
+  /** @type {number} */
+  _defaultTtlS;
 
-  constructor(opts: { default_ttl_s?: number } = {}) {
+  /** @param {{ default_ttl_s?: number }} [opts] */
+  constructor(opts = {}) {
     super();
     this._defaultTtlS = opts.default_ttl_s ?? 60 * 60 * 24 * 90;
   }
 
-  async get(phone: string): Promise<CallerContext | null> {
+  /** @param {string} phone */
+  async get(phone) {
     this._gc();
     const entry = this._store.get(phone);
     if (!entry) return null;
     return entry.ctx;
   }
 
-  async set(phone: string, ctx: CallerContext, ttl_seconds?: number): Promise<void> {
+  /** @param {string} phone @param {import('../contracts.ts').CallerContext} ctx @param {number} [ttl_seconds] */
+  async set(phone, ctx, ttl_seconds) {
     const ttl = ttl_seconds ?? this._defaultTtlS;
     this._store.set(phone, {
       ctx,
@@ -40,7 +47,8 @@ export class RedisMemMemory extends EventEmitter implements MemoryVendor {
     });
   }
 
-  async append(phone: string, entry: { ts_ms: number; summary: string }): Promise<void> {
+  /** @param {string} phone @param {{ ts_ms: number; summary: string }} entry */
+  async append(phone, entry) {
     let arr = this._histories.get(phone);
     if (!arr) {
       arr = [];
@@ -49,12 +57,12 @@ export class RedisMemMemory extends EventEmitter implements MemoryVendor {
     arr.push(entry);
   }
 
-  async close(): Promise<void> {
+  async close() {
     this._store.clear();
     this._histories.clear();
   }
 
-  private _gc(): void {
+  _gc() {
     const now = Date.now();
     for (const [k, v] of this._store) {
       if (v.expires_at_ms < now) this._store.delete(k);

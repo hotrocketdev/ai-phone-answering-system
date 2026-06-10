@@ -11,35 +11,38 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { pcmuToPcm16, pcm8kToPcm24k, pcm24kToPcm8k, pcm16ToPcmu } from '../../../../xai-phone-worker/src/pcmu-codec.js';
-import type { TransportFrame, TransportVendor, VendorName } from '../contracts.ts';
 
-const VENDOR: VendorName = 'file-loopback';
+const VENDOR = 'file-loopback';
 const CHUNK_BYTES_PCM16_24K = 4800;  // 100ms at 24 kHz
 const CHUNK_BYTES_PCM16_8K = 1600;   // 100ms at 8 kHz
 const FRAME_INTERVAL_MS = 100;
 
-export interface FileLoopbackConfig {
-  file_path: string;
-  format: 'pcmu_8k' | 'pcm16_24k';
-  /** Speed multiplier for fast rehearsal (default 1.0). */
-  speed?: number;
-  /** Loop the file forever (for soak tests). */
-  loop?: boolean;
-}
+/**
+ * @typedef {Object} FileLoopbackConfig
+ * @property {string} file_path
+ * @property {'pcmu_8k' | 'pcm16_24k'} format
+ * @property {number} [speed]
+ * @property {boolean} [loop]
+ */
 
-export class FileLoopbackTransport extends EventEmitter implements TransportVendor {
-  readonly name: VendorName = VENDOR;
-  private cfg: Required<FileLoopbackConfig>;
-  private _pcm16_24k: Buffer | null = null;
-  private _frameInCount = 0;
-  private _frameOutCount = 0;
-  private _droppedIn = 0;
-  private _droppedOut = 0;
-  private _deltas: number[] = [];
-  private _lastFrameAt = 0;
-  private _running = false;
+export class FileLoopbackTransport extends EventEmitter {
+  /** @type {string} */
+  name = VENDOR;
+  /** @type {Required<FileLoopbackConfig>} */
+  cfg;
+  /** @type {Buffer | null} */
+  _pcm16_24k = null;
+  _frameInCount = 0;
+  _frameOutCount = 0;
+  _droppedIn = 0;
+  _droppedOut = 0;
+  /** @type {number[]} */
+  _deltas = [];
+  _lastFrameAt = 0;
+  _running = false;
 
-  constructor(cfg: FileLoopbackConfig) {
+  /** @param {FileLoopbackConfig} cfg */
+  constructor(cfg) {
     super();
     this.cfg = {
       file_path: cfg.file_path,
@@ -49,7 +52,7 @@ export class FileLoopbackTransport extends EventEmitter implements TransportVend
     };
   }
 
-  async connect(): Promise<void> {
+  async connect() {
     // Decode the file into PCM16 24 kHz (the canonical form for the orchestrator).
     const raw = fs.readFileSync(this.cfg.file_path);
     if (this.cfg.format === 'pcm16_24k') {
@@ -61,11 +64,12 @@ export class FileLoopbackTransport extends EventEmitter implements TransportVend
     this.emit('connected', { frames_total: Math.ceil(this._pcm16_24k.length / CHUNK_BYTES_PCM16_24K) });
   }
 
-  onFrame(cb: (frame: TransportFrame) => void): void {
+  /** @param {(frame: import('../contracts.ts').TransportFrame) => void} cb */
+  onFrame(cb) {
     this.on('frame', cb);
   }
 
-  async play(): Promise<void> {
+  async play() {
     // Stream the file out as if it were a live caller. The orchestrator
     // listens via onFrame().
     if (!this._pcm16_24k) throw new Error('FileLoopbackTransport: call connect() first');
@@ -84,24 +88,25 @@ export class FileLoopbackTransport extends EventEmitter implements TransportVend
         sample_rate: 24000,
         delta_ms: delta,
         emitted_at_ms: Date.now(),
-      } as TransportFrame);
+      });
       offset += CHUNK_BYTES_PCM16_24K;
       await new Promise((r) => setTimeout(r, FRAME_INTERVAL_MS / this.cfg.speed));
     }
   }
 
-  write(pcm16: Buffer, sample_rate: 16000 | 24000): void {
+  /** @param {Buffer} pcm16 @param {16000 | 24000} sample_rate */
+  write(pcm16, sample_rate) {
     // In file-loopback mode, the assistant audio is collected by the
     // orchestrator via a sink listener. We track outbound frames for
     // the stats snapshot.
     this._frameOutCount++;
   }
 
-  stop(): void {
+  stop() {
     this._running = false;
   }
 
-  async close(): Promise<void> {
+  async close() {
     this._running = false;
   }
 

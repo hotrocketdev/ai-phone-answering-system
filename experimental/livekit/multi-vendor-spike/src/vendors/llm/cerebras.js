@@ -19,23 +19,25 @@
 //   3. Implement complete() and stream() below
 //   4. Test with the same 18-step rehearsal
 
-import type { LlmRequest, LlmResult, LlmToken, LlmVendor, VendorName } from '../contracts.ts';
-
-const VENDOR: VendorName = 'cerebras';
+const VENDOR = 'cerebras';
 const CEREBRAS_API_URL = 'https://api.cerebras.ai/v1/chat/completions';
 const DEFAULT_MODEL = 'llama-3.3-70b';  // fastest + smartest Cerebras model
 
-interface CerebrasConfig {
-  apiKey: string;
-  model?: string;
-  timeout_ms?: number;
-}
+/**
+ * @typedef {Object} CerebrasConfig
+ * @property {string} apiKey
+ * @property {string} [model]
+ * @property {number} [timeout_ms]
+ */
 
-export class CerebrasLlm implements LlmVendor {
-  readonly name: VendorName = VENDOR;
-  private cfg: Required<CerebrasConfig>;
+export class CerebrasLlm {
+  /** @type {string} */
+  name = VENDOR;
+  /** @type {Required<CerebrasConfig>} */
+  cfg;
 
-  constructor(cfg: CerebrasConfig) {
+  /** @param {CerebrasConfig} cfg */
+  constructor(cfg) {
     this.cfg = {
       apiKey: cfg.apiKey,
       model: cfg.model || DEFAULT_MODEL,
@@ -46,18 +48,20 @@ export class CerebrasLlm implements LlmVendor {
     }
   }
 
-  async complete(req: LlmRequest): Promise<LlmResult> {
+  /** @param {import('../contracts.ts').LlmRequest} req */
+  async complete(req) {
     // TODO: implement when user gives go-ahead.
     // Cerebras uses an OpenAI-compatible API surface, so the body shape
     // matches xai-grok.js's complete() almost exactly.
     throw new Error('CerebrasLlm.complete: not yet implemented. Install @cerebras/cerebras-cloud-sdk or use fetch().');
   }
 
-  async *stream(req: LlmRequest): AsyncIterable<LlmToken> {
+  /** @param {import('../contracts.ts').LlmRequest} req */
+  async *stream(req) {
     throw new Error('CerebrasLlm.stream: not yet implemented.');
   }
 
-  async close(): Promise<void> {
+  async close() {
     // No-op; HTTP-only.
   }
 }

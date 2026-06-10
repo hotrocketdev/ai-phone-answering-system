@@ -34,33 +34,35 @@
 //      in the production worker
 
 import { EventEmitter } from 'node:events';
-import type { TransportFrame, TransportVendor, VendorName } from '../contracts.ts';
 
-const VENDOR: VendorName = 'livekit';
+const VENDOR = 'livekit';
 
-interface LiveKitConfig {
-  url: string;             // 'wss://your-project.livekit.cloud'
-  api_key: string;
-  api_secret: string;
-  room_name: string;
-  participant_identity: string;  // the worker's identity
-  /** Subscribe to the caller's audio track only. */
-  track_subscribe?: 'caller' | 'all';
-}
+/**
+ * @typedef {Object} LiveKitConfig
+ * @property {string} url
+ * @property {string} api_key
+ * @property {string} api_secret
+ * @property {string} room_name
+ * @property {string} participant_identity
+ * @property {'caller' | 'all'} [track_subscribe]
+ */
 
-export class LiveKitTransport extends EventEmitter implements TransportVendor {
-  readonly name: VendorName = VENDOR;
-  private cfg: LiveKitConfig;
-  // private _room: any = null;  // Room from 'livekit-client' (browser) or 'livekit-server-sdk' (Node)
-  private _frameInCount = 0;
-  private _frameOutCount = 0;
+export class LiveKitTransport extends EventEmitter {
+  /** @type {string} */
+  name = VENDOR;
+  /** @type {LiveKitConfig} */
+  cfg;
+  // _room: any = null;  // Room from 'livekit-client' (browser) or 'livekit-server-sdk' (Node)
+  _frameInCount = 0;
+  _frameOutCount = 0;
 
-  constructor(cfg: LiveKitConfig) {
+  /** @param {LiveKitConfig} cfg */
+  constructor(cfg) {
     super();
     this.cfg = cfg;
   }
 
-  async connect(): Promise<void> {
+  async connect() {
     // TODO: implement when @livekit/server-sdk or @livekit/agents is installed.
     // Sketch:
     //   const { RoomServiceClient, Room } = await import('livekit-server-sdk');
@@ -78,11 +80,13 @@ export class LiveKitTransport extends EventEmitter implements TransportVendor {
     throw new Error('LiveKitTransport.connect: not yet implemented. Install livekit-server-sdk and fill in.');
   }
 
-  onFrame(cb: (frame: TransportFrame) => void): void {
+  /** @param {(frame: import('../contracts.ts').TransportFrame) => void} cb */
+  onFrame(cb) {
     this.on('frame', cb);
   }
 
-  write(pcm16: Buffer, sample_rate: 16000 | 24000): void {
+  /** @param {Buffer} pcm16 @param {16000 | 24000} sample_rate */
+  write(pcm16, sample_rate) {
     // TODO: publish PCM16 to a LiveKit track.
     // LiveKit wants Opus-encoded audio; you can either:
     //   (a) pre-encode to Opus (e.g. via @livekit/opus or ffmpeg) and publish
@@ -92,7 +96,7 @@ export class LiveKitTransport extends EventEmitter implements TransportVendor {
     this._frameOutCount++;
   }
 
-  async close(): Promise<void> {
+  async close() {
     // TODO: room.disconnect()
   }
 

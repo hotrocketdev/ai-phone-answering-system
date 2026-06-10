@@ -10,21 +10,24 @@
 // events, but we re-frame the latency here as if it were a streaming STT.
 
 import { EventEmitter } from 'node:events';
-import type { SttRequest, SttPartial, SttResult, SttVendor, VendorName } from '../contracts.ts';
 
-const VENDOR: VendorName = 'xai';
+const VENDOR = 'xai';
 const SILENCE_WINDOW_MS = 1500;
 
-export class XaiBundledStt extends EventEmitter implements SttVendor {
-  readonly name: VendorName = VENDOR;
-  private _silenceWindowMs: number;
+export class XaiBundledStt extends EventEmitter {
+  /** @type {string} */
+  name = VENDOR;
+  /** @type {number} */
+  _silenceWindowMs;
 
-  constructor(opts: { silence_window_ms?: number } = {}) {
+  /** @param {{ silence_window_ms?: number }} [opts] */
+  constructor(opts = {}) {
     super();
     this._silenceWindowMs = opts.silence_window_ms ?? SILENCE_WINDOW_MS;
   }
 
-  async *startStream(req: Omit<SttRequest, 'pcm16_mono'>) {
+  /** @param {Omit<import('../contracts.ts').SttRequest, 'pcm16_mono'>} req */
+  async *startStream(req) {
     // The xAI bundle doesn't expose partial transcripts; it only emits
     // a final transcript via conversation.item.input_audio_transcription.completed
     // after the server-VAD silence window elapses. So this stream yields
@@ -44,13 +47,14 @@ export class XaiBundledStt extends EventEmitter implements SttVendor {
     );
   }
 
-  async transcribe(req: SttRequest): Promise<SttResult> {
+  /** @param {import('../contracts.ts').SttRequest} req */
+  async transcribe(req) {
     // We don't have a "transcribe a buffer" mode in the xAI bundle.
     // The bundled STT is WSS-only and live-only.
     throw new Error('XaiBundledStt.transcribe: xAI bundle is WSS-only. Use deepgram.js for batch.');
   }
 
-  async close(): Promise<void> {
+  async close() {
     // No-op; the WSS lifecycle is managed by xai-client.js.
   }
 }

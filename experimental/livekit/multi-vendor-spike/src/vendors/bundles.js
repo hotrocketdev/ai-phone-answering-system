@@ -19,30 +19,32 @@
 // adapters are implemented and the API keys are set. The user has
 // approved the scaffold; live use requires the go-ahead.
 
-import type { VendorBundle } from './contracts.ts';
+/**
+ * @typedef {'xai-bundle' | 'hybrid-deepgram' | 'hybrid-elevenlabs' | 'matrix'} BundleName
+ *
+ * @typedef {Object} BundleOptions
+ * @property {string} [xai_api_key]
+ * @property {string} [deepgram_api_key]
+ * @property {string} [elevenlabs_api_key]
+ * @property {string} [cerebras_api_key]
+ * @property {string} [redis_url]
+ * @property {string} [livekit_url]
+ * @property {string} [livekit_api_key]
+ * @property {string} [livekit_api_secret]
+ * @property {string} [tenant_id]
+ * @property {string} [rehearsal_file]
+ * @property {'pcmu_8k' | 'pcm16_24k'} [rehearsal_format]
+ */
 
-export type BundleName = 'xai-bundle' | 'hybrid-deepgram' | 'hybrid-elevenlabs' | 'matrix';
+/** @type {BundleName} */
+export const BUNDLE_NAMES = ['xai-bundle', 'hybrid-deepgram', 'hybrid-elevenlabs', 'matrix'];
 
-export interface BundleOptions {
-  // API keys (read from .env by the adapters)
-  xai_api_key?: string;
-  deepgram_api_key?: string;
-  elevenlabs_api_key?: string;
-  cerebras_api_key?: string;
-  redis_url?: string;
-  livekit_url?: string;
-  livekit_api_key?: string;
-  livekit_api_secret?: string;
-
-  // Tenant
-  tenant_id?: string;
-
-  // Rehearsal fixtures
-  rehearsal_file?: string;
-  rehearsal_format?: 'pcmu_8k' | 'pcm16_24k';
-}
-
-export async function makeBundle(name: BundleName, opts: BundleOptions = {}): Promise<VendorBundle> {
+/**
+ * @param {BundleName} name
+ * @param {BundleOptions} [opts]
+ * @returns {Promise<import('./contracts.ts').VendorBundle>}
+ */
+export async function makeBundle(name, opts = {}) {
   switch (name) {
     case 'xai-bundle':
       return await makeXaiBundle(opts);
@@ -59,7 +61,8 @@ export async function makeBundle(name: BundleName, opts: BundleOptions = {}): Pr
 
 // --- xAI bundle (current spike) ---
 
-async function makeXaiBundle(opts: BundleOptions): Promise<VendorBundle> {
+/** @param {BundleOptions} opts */
+async function makeXaiBundle(opts) {
   const { XaiBundledStt } = await import('./stt/xai.js');
   const { XaiEveTts } = await import('./tts/xai-eve.js');
   const { FileLoopbackTransport } = await import('./transport/file-loopback.js');
@@ -80,7 +83,7 @@ async function makeXaiBundle(opts: BundleOptions): Promise<VendorBundle> {
       complete: async () => { throw new Error('xAI bundle LLM is bound to the WSS; use xai-client.js'); },
       stream: async function* () { /* no-op */ },
       close: async () => {},
-    } as any,
+    },
     tts: new XaiEveTts(),
     transport: new FileLoopbackTransport({
       file_path: opts.rehearsal_file || 'fixtures/rehearsal/t02-book.pcmu',
@@ -94,7 +97,8 @@ async function makeXaiBundle(opts: BundleOptions): Promise<VendorBundle> {
 
 // --- Hybrid: Deepgram STT + xAI Grok LLM + xAI TTS (via bundle) ---
 
-async function makeHybridDeepgramBundle(opts: BundleOptions): Promise<VendorBundle> {
+/** @param {BundleOptions} opts */
+async function makeHybridDeepgramBundle(opts) {
   if (!opts.deepgram_api_key) throw new Error('hybrid-deepgram: deepgram_api_key required');
   if (!opts.xai_api_key) throw new Error('hybrid-deepgram: xai_api_key required');
 
@@ -122,7 +126,8 @@ async function makeHybridDeepgramBundle(opts: BundleOptions): Promise<VendorBund
 
 // --- Hybrid: Deepgram STT + xAI Grok LLM + ElevenLabs TTS ---
 
-async function makeHybridElevenLabsBundle(opts: BundleOptions): Promise<VendorBundle> {
+/** @param {BundleOptions} opts */
+async function makeHybridElevenLabsBundle(opts) {
   if (!opts.deepgram_api_key) throw new Error('hybrid-elevenlabs: deepgram_api_key required');
   if (!opts.xai_api_key) throw new Error('hybrid-elevenlabs: xai_api_key required');
   if (!opts.elevenlabs_api_key) throw new Error('hybrid-elevenlabs: elevenlabs_api_key required');
@@ -151,7 +156,8 @@ async function makeHybridElevenLabsBundle(opts: BundleOptions): Promise<VendorBu
 
 // --- Matrix: per-call dynamic decision ---
 
-async function makeMatrixBundle(opts: BundleOptions): Promise<VendorBundle> {
+/** @param {BundleOptions} opts */
+async function makeMatrixBundle(opts) {
   // Picks the cheapest viable bundle for the current call based on
   // historical latency, error rate, and current vendor health.
   // For the spike, this is a thin wrapper that does nothing extra

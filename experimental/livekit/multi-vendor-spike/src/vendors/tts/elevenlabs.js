@@ -24,31 +24,27 @@
 //   - Bella (American, soft, intimate)              voice_id: EXAVITQu4vr4xnSDxMaL
 //   - Custom voice clone of Eve (out of scope for this spike)
 
-import type { TtsRequest, TtsAudioChunk, TtsVendor, VendorName } from '../contracts.ts';
-
-const VENDOR: VendorName = 'elevenlabs';
+const VENDOR = 'elevenlabs';
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1/text-to-speech';
 const DEFAULT_MODEL = 'eleven_turbo_v2_5';
 
-interface ElevenLabsConfig {
-  apiKey: string;
-  voiceId?: string;       // default to Charlotte (British, professional)
-  model?: string;
-  timeout_ms?: number;
-  /** Voice settings forwarded to the API. */
-  voice_settings?: {
-    stability?: number;          // 0-1, default 0.5
-    similarity_boost?: number;   // 0-1, default 0.75
-    style?: number;              // 0-1, default 0.0
-    use_speaker_boost?: boolean; // default true
-  };
-}
+/**
+ * @typedef {Object} ElevenLabsConfig
+ * @property {string} apiKey
+ * @property {string} [voiceId]
+ * @property {string} [model]
+ * @property {number} [timeout_ms]
+ * @property {{ stability?: number; similarity_boost?: number; style?: number; use_speaker_boost?: boolean }} [voice_settings]
+ */
 
-export class ElevenLabsTts implements TtsVendor {
-  readonly name: VendorName = VENDOR;
-  private cfg: Required<ElevenLabsConfig>;
+export class ElevenLabsTts {
+  /** @type {string} */
+  name = VENDOR;
+  /** @type {Required<ElevenLabsConfig>} */
+  cfg;
 
-  constructor(cfg: ElevenLabsConfig) {
+  /** @param {ElevenLabsConfig} cfg */
+  constructor(cfg) {
     this.cfg = {
       apiKey: cfg.apiKey,
       voiceId: cfg.voiceId || 'XB0fDUnXU5powFXDhCwa',  // Charlotte
@@ -66,7 +62,8 @@ export class ElevenLabsTts implements TtsVendor {
     }
   }
 
-  async synthesize(req: TtsRequest): Promise<Buffer> {
+  /** @param {import('../contracts.ts').TtsRequest} req */
+  async synthesize(req) {
     // TODO: implement when user gives go-ahead.
     // Sketch:
     //   const url = `${ELEVENLABS_API_URL}/${this.cfg.voiceId}`;
@@ -90,7 +87,8 @@ export class ElevenLabsTts implements TtsVendor {
     throw new Error('ElevenLabsTts.synthesize: not yet implemented. Set ELEVENLABS_API_KEY and fill in.');
   }
 
-  async *stream(req: TtsRequest): AsyncIterable<TtsAudioChunk> {
+  /** @param {import('../contracts.ts').TtsRequest} req */
+  async *stream(req) {
     // TODO: implement streaming TTS.
     // Use /v1/text-to-speech/{voice_id}/stream with Accept: text/event-stream.
     // Parse SSE chunks; each chunk is a base64-encoded audio delta.
@@ -98,7 +96,7 @@ export class ElevenLabsTts implements TtsVendor {
     throw new Error('ElevenLabsTts.stream: not yet implemented.');
   }
 
-  async close(): Promise<void> {
+  async close() {
     // No-op; HTTP-only.
   }
 }

@@ -20,30 +20,33 @@
 // Reference: https://developers.deepgram.com/docs/streaming
 
 import { EventEmitter } from 'node:events';
-import type { SttRequest, SttPartial, SttResult, SttVendor, VendorTiming, VendorName } from '../contracts.ts';
 
-const VENDOR: VendorName = 'deepgram';
+const VENDOR = 'deepgram';
 const DEFAULT_ENDPOINTING_MS = 250;
 const DEEPGRAM_WSS_URL = 'wss://api.deepgram.com/v1/listen';
 
-interface DeepgramConfig {
-  apiKey: string;
-  model?: 'nova-3' | 'nova-2' | 'nova-3-general';
-  language?: string;
-  endpointing_ms?: number;
-  /** interim_results: receive partial transcripts. */
-  interim_results?: boolean;
-  /** vad_events: receive speech-start/speech-end events. */
-  vad_events?: boolean;
-}
+/**
+ * @typedef {Object} DeepgramConfig
+ * @property {string} apiKey
+ * @property {'nova-3' | 'nova-2' | 'nova-3-general'} [model]
+ * @property {string} [language]
+ * @property {number} [endpointing_ms]
+ * @property {boolean} [interim_results]
+ * @property {boolean} [vad_events]
+ */
 
-export class DeepgramStt extends EventEmitter implements SttVendor {
-  readonly name: VendorName = VENDOR;
-  private cfg: Required<DeepgramConfig>;
-  private _ws: any = null;  // WebSocket type from 'ws'; not imported to keep the file loadable without @deepgram/sdk installed
-  private _pending: { resolve: (r: SttResult) => void; reject: (e: Error) => void; started_at: number } | null = null;
+export class DeepgramStt extends EventEmitter {
+  /** @type {string} */
+  name = VENDOR;
+  /** @type {Required<DeepgramConfig>} */
+  cfg;
+  /** @type {any} */
+  _ws = null;  // WebSocket type from 'ws'; not imported to keep the file loadable without @deepgram/sdk installed
+  /** @type {{ resolve: (r: any) => void; reject: (e: Error) => void; started_at: number } | null} */
+  _pending = null;
 
-  constructor(cfg: DeepgramConfig) {
+  /** @param {DeepgramConfig} cfg */
+  constructor(cfg) {
     super();
     this.cfg = {
       apiKey: cfg.apiKey,
@@ -58,7 +61,8 @@ export class DeepgramStt extends EventEmitter implements SttVendor {
     }
   }
 
-  async startStream(req: Omit<SttRequest, 'pcm16_mono'>) {
+  /** @param {Omit<import('../contracts.ts').SttRequest, 'pcm16_mono'>} req */
+  async startStream(req) {
     // TODO: implement when @deepgram/sdk is installed.
     // Sketch:
     //   const { createClient, LiveTranscriptionEvents } = await import('@deepgram/sdk');
@@ -78,11 +82,12 @@ export class DeepgramStt extends EventEmitter implements SttVendor {
     throw new Error('DeepgramStt.startStream: not yet implemented. Install @deepgram/sdk and fill in.');
   }
 
-  async transcribe(req: SttRequest): Promise<SttResult> {
+  /** @param {import('../contracts.ts').SttRequest} req */
+  async transcribe(req) {
     throw new Error('DeepgramStt.transcribe: not yet implemented. Install @deepgram/sdk and fill in.');
   }
 
-  async close(): Promise<void> {
+  async close() {
     if (this._ws) {
       try { this._ws.close(); } catch (_) { /* ignore */ }
       this._ws = null;

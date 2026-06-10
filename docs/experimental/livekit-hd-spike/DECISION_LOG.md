@@ -43,12 +43,29 @@
 - **Status:** DECIDED. List of pending approvals below.
 
 ### Pending user approval (from 2026-06-10)
-1. `npm install @deepgram/sdk` + set `DEEPGRAM_API_KEY` — enables Deepgram Nova-3 STT live test. **Cost:** $0 (free $200 trial for new accounts).
-2. `npm install elevenlabs` + set `ELEVENLABS_API_KEY` — enables ElevenLabs TTS live test. **Cost:** $0 (free 10K chars/month tier). **NOTE:** production usage of ElevenLabs is $1,100+/mo, the A/B test is just for the voice.
-3. `npm install @cerebras/cerebras-cloud-sdk` + set `CEREBRAS_API_KEY` — enables Cerebras LLM live test. **Cost:** $0 (free trial available, otherwise pay-as-you-go).
-4. `npm install @livekit/agents` + set LiveKit env — enables LiveKit transport test. **Cost:** $0 (1K participant-minutes free, then $0.004/min).
-5. `npm install ioredis` + set `REDIS_URL` — enables Redis memory on the production VPS. **Cost:** $0 (VPS already has Redis).
-6. **Add booking.cancel and booking.update tools to the dispatcher** (design limitation flagged in the 18-step rehearsal; not vendor-related but is a blocker for production).
+1. `npm install @deepgram/sdk` + set `DEEPGRAM_API_KEY` — enables Deepgram Nova-3 STT live test. **Cost:** $0 (free $200 trial for new accounts). **DONE 2026-06-10 (commit pending)** — see "Installed 4 vendor SDKs" below.
+2. `npm install elevenlabs` + set `ELEVENLABS_API_KEY` — enables ElevenLabs TTS live test. **Cost:** $0 (free 10K chars/month tier). **NOTE:** production usage of ElevenLabs is $1,100+/mo, the A/B test is just for the voice. **DONE 2026-06-10 (commit pending)** — installed `elevenlabs@1.59.0`. Note: package is deprecated upstream (moved to `@elevenlabs/elevenlabs-js`); still functional. We should pin the version and revisit before any production use.
+3. `npm install @cerebras/cerebras-cloud-sdk` + set `CEREBRAS_API_KEY` — enables Cerebras LLM live test. **Cost:** $0 (free trial available, otherwise pay-as-you-go). **DONE 2026-06-10 (commit pending)** — installed as `@cerebras/cerebras_cloud_sdk` (underscore, not hyphen — the original package name in the README was wrong, npm registry only publishes the underscore form).
+4. `npm install @livekit/agents` + set LiveKit env — enables LiveKit transport test. **Cost:** $0 (1K participant-minutes free, then $0.004/min). **DEFERRED per user 2026-06-10**: user said "Skip LiveKit for now — it's a transport optimization, the matrix bundle doesn't use it, we'll add it later if needed." Out of scope for this session.
+5. `npm install ioredis` + set `REDIS_URL` — enables Redis memory on the production VPS. **Cost:** $0 (VPS already has Redis). **DONE 2026-06-10 (commit pending)** — see "Installed 4 vendor SDKs" below.
+6. **Add booking.cancel and booking.update tools to the dispatcher** (design limitation flagged in the 18-step rehearsal; not vendor-related but is a blocker for production). Not addressed in this session.
+
+### Decision: Fixed the contract test scaffold (was unreadable)
+- **What:** stripped TypeScript syntax from `src/contract.test.js`, `src/vendors/bundles.js`, and all 9 vendor adapter `.js` files so the test runs in plain Node. Used JSDoc typedefs to preserve the contract types from `contracts.ts`. Removed `readonly` modifiers on class fields, replaced `import type` / `as Type` / `Promise<X>` annotations with `@param`/`@type` JSDoc. Replaced `require()` in an ESM file with `await import()`. Resolved the file-loopback fixture path via `import.meta.url` so the test works regardless of cwd.
+- **Why:** the user flagged that the README's "10/10 pass" claim was false — the tests couldn't even parse. The scaffold as committed was TS-source in `.js` files; plain Node fails with `SyntaxError: Unexpected token 'type'` / `'as'` / `missing ) after argument list`. Fixing this is the prerequisite for any vendor SDK install.
+- **Result:** `npm test` now runs cleanly. Real pass count is **11/11**, not 10/10 (the existing scaffold had 11 tests; the README's "10/10" was wrong).
+- **Risk:** none. Pure TS-to-JSDoc translation, no behaviour changes. The vendor adapter logic is unchanged; only the syntax is.
+- **Status:** DONE. `src/contract.test.js`, `src/vendors/bundles.js`, all vendor `.js` files updated. No files committed yet (per user's "I decide, you write it down" process).
+
+### Decision: Installed 4 vendor SDKs (Deepgram, ElevenLabs, Cerebras, ioredis; skipped LiveKit)
+- **What:** `npm install @deepgram/sdk elevenlabs @cerebras/cerebras_cloud_sdk ioredis`. 82 transitive packages added. Skipped `@livekit/agents` per user instruction ("Skip LiveKit for now — it's a transport optimization, the matrix bundle doesn't use it, we'll add it later if needed").
+- **Why:** each install was a pending item from the 2026-06-10 decision list. The user gave the go-ahead in this session. No live API calls were made from this machine — the SDKs are installed, but the orchestrator/rehearsal scripts that would call them are not yet wired (the adapters still throw "not yet implemented" on `startStream`/`synthesize`/`complete`). The contract tests still pass 11/11 because the SDK-backed vendors throw "apiKey is required" at construction time, before the SDK is touched.
+- **Caveat on Cerebras package name:** the README and decision log both said `@cerebras/cerebras-cloud-sdk` (hyphen). The actual npm package is `@cerebras/cerebras_cloud_sdk` (underscore). The hyphen form returns 404 from the registry. Updated the install command and this log entry accordingly.
+- **Caveat on ElevenLabs package:** `elevenlabs@1.59.0` is deprecated upstream and has moved to `@elevenlabs/elevenlabs-js`. The deprecated form is still installable and functional. We should not rely on it for production without testing against the new package.
+- **Cost approved:** $0 (package downloads). No live API calls were made. The user's provided API keys for Deepgram, ElevenLabs, and Cerebras are NOT set in the environment on this machine and are NOT written to any tracked file. They will only be used on the VPS, per the user's instructions.
+- **Result:** `npm test` still passes 11/11. SDK vendors (Deepgram, ElevenLabs, Cerebras) all throw on missing key at construction, as expected. Redis was not exercised by the contract test (the test only uses `redis-mem.js`, the in-memory stub), but ioredis is now installed and ready to wire into `memory/redis.js`.
+- **Risk:** low. No production code touched, no live calls made, no secrets in the env or in tracked files. The user has not approved a live rehearsal from this machine.
+- **Status:** DONE. Not yet committed.
 
 ## 2026-06-09 (yesterday)
 

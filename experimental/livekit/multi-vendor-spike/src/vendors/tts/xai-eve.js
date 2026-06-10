@@ -28,20 +28,22 @@
 //      curious to try ElevenLabs just for curiosity" — so we include
 //      it as a candidate.
 
-import type { TtsRequest, TtsAudioChunk, TtsVendor, VendorName } from '../contracts.ts';
+const VENDOR = 'xai-eve';
 
-const VENDOR: VendorName = 'xai-eve';
+export class XaiEveTts {
+  /** @type {string} */
+  name = VENDOR;
+  /** @type {string} */
+  _voiceId;
 
-export class XaiEveTts implements TtsVendor {
-  readonly name: VendorName = VENDOR;
-  private _voiceId: string;
-
-  constructor(opts: { voice_id?: string } = {}) {
+  /** @param {{ voice_id?: string }} [opts] */
+  constructor(opts = {}) {
     // xAI's Eve voice identifier. Same as used in the Voice Agent WSS.
     this._voiceId = opts.voice_id || 'eve';
   }
 
-  async synthesize(req: TtsRequest): Promise<Buffer> {
+  /** @param {import('../contracts.ts').TtsRequest} req */
+  async synthesize(req) {
     // xAI does not expose a standalone TTS API as of 2026-06. To use
     // Eve TTS in a multi-vendor pipeline, the only path is through
     // the Voice Agent WSS, which requires also using xAI's STT and LLM.
@@ -56,11 +58,12 @@ export class XaiEveTts implements TtsVendor {
     );
   }
 
-  async *stream(req: TtsRequest): AsyncIterable<TtsAudioChunk> {
+  /** @param {import('../contracts.ts').TtsRequest} req */
+  async *stream(req) {
     throw new Error('XaiEveTts.stream: not available standalone. Use Voice Agent bundle.');
   }
 
-  async close(): Promise<void> {
+  async close() {
     // No-op.
   }
 }

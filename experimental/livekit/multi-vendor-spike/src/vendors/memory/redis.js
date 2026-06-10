@@ -14,28 +14,29 @@
 // so adding a small client library is free.
 
 import { EventEmitter } from 'node:events';
-import type { CallerContext, MemoryVendor, VendorName } from '../contracts.ts';
 
-const VENDOR: VendorName = 'redis';
+const VENDOR = 'redis';
 const KEY_PREFIX = 'voxlane:caller:';
 const DEFAULT_TTL_S = 60 * 60 * 24 * 90;  // 90 days
 
-interface RedisConfig {
-  /** redis://localhost:6379 or rediss://... (TLS) */
-  url: string;
-  /** Optional auth. */
-  password?: string;
-  /** Tenant key prefix. */
-  tenant?: string;
-  default_ttl_s?: number;
-}
+/**
+ * @typedef {Object} RedisConfig
+ * @property {string} url
+ * @property {string} [password]
+ * @property {string} [tenant]
+ * @property {number} [default_ttl_s]
+ */
 
-export class RedisMemory extends EventEmitter implements MemoryVendor {
-  readonly name: VendorName = VENDOR;
-  private cfg: Required<RedisConfig>;
-  private _client: any = null;  // Redis from 'ioredis'
+export class RedisMemory extends EventEmitter {
+  /** @type {string} */
+  name = VENDOR;
+  /** @type {Required<RedisConfig>} */
+  cfg;
+  /** @type {any} */
+  _client = null;  // Redis from 'ioredis'
 
-  constructor(cfg: RedisConfig) {
+  /** @param {RedisConfig} cfg */
+  constructor(cfg) {
     super();
     this.cfg = {
       url: cfg.url,
@@ -45,7 +46,7 @@ export class RedisMemory extends EventEmitter implements MemoryVendor {
     };
   }
 
-  async connect(): Promise<void> {
+  async connect() {
     // TODO: implement when user gives go-ahead and ioredis is installed.
     // Sketch:
     //   const { default: Redis } = await import('ioredis');
@@ -58,13 +59,15 @@ export class RedisMemory extends EventEmitter implements MemoryVendor {
     throw new Error('RedisMemory.connect: not yet implemented. Install ioredis and fill in.');
   }
 
-  async get(phone: string): Promise<CallerContext | null> {
+  /** @param {string} phone */
+  async get(phone) {
     if (!this._client) throw new Error('RedisMemory: not connected');
     const raw = await this._client.get(this._key(phone));
     return raw ? JSON.parse(raw) : null;
   }
 
-  async set(phone: string, ctx: CallerContext, ttl_seconds?: number): Promise<void> {
+  /** @param {string} phone @param {import('../contracts.ts').CallerContext} ctx @param {number} [ttl_seconds] */
+  async set(phone, ctx, ttl_seconds) {
     if (!this._client) throw new Error('RedisMemory: not connected');
     const key = this._key(phone);
     const value = JSON.stringify(ctx);
@@ -75,21 +78,23 @@ export class RedisMemory extends EventEmitter implements MemoryVendor {
     }
   }
 
-  async append(phone: string, entry: { ts_ms: number; summary: string }): Promise<void> {
+  /** @param {string} phone @param {{ ts_ms: number; summary: string }} entry */
+  async append(phone, entry) {
     if (!this._client) throw new Error('RedisMemory: not connected');
     const key = this._key(phone) + ':history';
     await this._client.rpush(key, JSON.stringify(entry));
     await this._client.expire(key, this.cfg.default_ttl_s);
   }
 
-  async close(): Promise<void> {
+  async close() {
     if (this._client) {
       try { await this._client.quit(); } catch (_) { /* ignore */ }
       this._client = null;
     }
   }
 
-  private _key(phone: string): string {
+  /** @param {string} phone */
+  _key(phone) {
     return `${KEY_PREFIX}${this.cfg.tenant}:${phone}`;
   }
 }

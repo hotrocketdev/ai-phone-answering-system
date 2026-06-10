@@ -13,25 +13,26 @@
 //   2. Set XAI_API_KEY in .env
 //   3. The LLM vendor becomes a thin wrapper over fetch()
 
-import type { LlmRequest, LlmResult, LlmToken, LlmVendor, VendorName, VendorTiming } from '../contracts.ts';
-
-const VENDOR: VendorName = 'xai-grok';
+const VENDOR = 'xai-grok';
 const XAI_API_URL = 'https://api.x.ai/v1/chat/completions';
 const DEFAULT_MODEL = 'grok-4-fast-non-reasoning';  // fastest text model; bundle uses grok-voice-latest
 // Alternative: grok-4-1-fast-non-reasoning (faster, less context), grok-3-mini (cheap fallback)
 
-interface XaiGrokConfig {
-  apiKey: string;
-  model?: string;
-  /** AbortController timeout for individual requests. */
-  timeout_ms?: number;
-}
+/**
+ * @typedef {Object} XaiGrokConfig
+ * @property {string} apiKey
+ * @property {string} [model]
+ * @property {number} [timeout_ms]
+ */
 
-export class XaiGrokLlm implements LlmVendor {
-  readonly name: VendorName = VENDOR;
-  private cfg: Required<XaiGrokConfig>;
+export class XaiGrokLlm {
+  /** @type {string} */
+  name = VENDOR;
+  /** @type {Required<XaiGrokConfig>} */
+  cfg;
 
-  constructor(cfg: XaiGrokConfig) {
+  /** @param {XaiGrokConfig} cfg */
+  constructor(cfg) {
     this.cfg = {
       apiKey: cfg.apiKey,
       model: cfg.model || DEFAULT_MODEL,
@@ -42,7 +43,8 @@ export class XaiGrokLlm implements LlmVendor {
     }
   }
 
-  async complete(req: LlmRequest): Promise<LlmResult> {
+  /** @param {import('../contracts.ts').LlmRequest} req */
+  async complete(req) {
     // TODO: implement when user gives go-ahead.
     // Sketch:
     //   const body = {
@@ -75,13 +77,14 @@ export class XaiGrokLlm implements LlmVendor {
     throw new Error('XaiGrokLlm.complete: not yet implemented. Set XAI_API_KEY and fill in.');
   }
 
-  async *stream(req: LlmRequest): AsyncIterable<LlmToken> {
+  /** @param {import('../contracts.ts').LlmRequest} req */
+  async *stream(req) {
     // TODO: SSE streaming. Use fetch with stream:true + ReadableStream.
     // Yields { type: 'text', text: '...' } tokens, then { type: 'tool_call', tool_call: {...} }.
     throw new Error('XaiGrokLlm.stream: not yet implemented.');
   }
 
-  async close(): Promise<void> {
+  async close() {
     // No-op; HTTP-only.
   }
 }
