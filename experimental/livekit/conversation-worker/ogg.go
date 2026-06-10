@@ -1,6 +1,13 @@
-// Minimal Ogg Opus demuxer. Identical to the spike publisher's
-// oggdemuxer.go (kept in sync). Returns one raw Opus packet per
-// NextOpusPacket() call; first two packets are OpusHead and OpusTags.
+// Minimal Ogg Opus demuxer. Reads Ogg pages and yields raw
+// Opus packets (logical packets, not raw segments). One Opus
+// packet may span multiple Ogg page segments using the 255-
+// continuation rule: a segment of 255 bytes means the packet
+// continues with the next segment, a segment of 0-254 bytes
+// means the packet ends at this segment.
+//
+// The first two packets returned are always OpusHead and
+// OpusTags (typically each fits in a single segment on its
+// own page). Subsequent packets are Opus frames.
 package main
 
 import (
@@ -12,29 +19,33 @@ import (
 
 const oggCapture = "OggS"
 
-// oggOpusReader reads Ogg Opus pages and yields raw Opus packets.
+// oggOpusReader reads Ogg Opus pages and yields raw Opus
+// packets (each packet may span multiple 255-byte segments
+// within a page).
 type oggOpusReader struct {
 	r io.Reader
 
-	// current page being processed
-	pageBuf    []byte
-	segOffsets []int
-	segLens    []int
-	segIdx     int
-	eos        bool
+	pageBuf     []byte
+	segTable    []byte
+	segIdx      int
+	pageDataOff int
+	eos         bool
+	pageDone    bool
 }
 
-// newOggOpusReaderImpl is the constructor; aliased to newOggOpusReader
-// via a method so the public symbol is short.
+// newOggOpusReaderImpl is the constructor; aliased to
+// newOggOpusReader via a method so the public symbol is short.
 func newOggOpusReaderImpl(r io.Reader) *oggOpusReader {
-	return &oggOpusReader{r: r}
+	return &oggOpusReader{r: r, pageDone: true}
 }
 
-// NextOpusPacket returns the next raw Opus packet, or io.EOF at end of
-// stream. Each packet is one Opus frame (~20ms at default settings).
+// NextOpusPacket returns the next raw Opus packet (one
+// logical packet, possibly spanning multiple 255-byte
+// segments), or io.EOF at end of stream. The first two
+// packets are OpusHead and OpusTags. Each subsequent packet
+// is one Opus frame (typically 20ms of audio).
 func (o *oggOpusReader) NextOpusPacket() ([]byte, error) {
-	for o.segIdx >= len(o.segLens) {
-		// need a new page
+	if o.pageDone {
 		if o.eos {
 			return nil, io.EOF
 		}
@@ -42,13 +53,35 @@ func (o *oggOpusReader) NextOpusPacket() ([]byte, error) {
 			return nil, err
 		}
 	}
-	pkt := o.pageBuf[o.segOffsets[o.segIdx] : o.segOffsets[o.segIdx]+o.segLens[o.segIdx]]
-	o.segIdx++
+
+	var pkt []byte
+	for o.segIdx < len(o.segTable) {
+		segLen := int(o.segTable[o.segIdx])
+		if o.pageDataOff+segLen > len(o.pageBuf) {
+			return nil, fmt.Errorf("ogg: segment overruns page buffer (pageBuf=%d pageDataOff=%d segLen=%d)",
+				len(o.pageBuf), o.pageDataOff, segLen)
+		}
+		seg := o.pageBuf[o.pageDataOff : o.pageDataOff+segLen]
+		pkt = append(pkt, seg...)
+		o.pageDataOff += segLen
+		o.segIdx++
+
+		if segLen < 255 {
+			// End of logical packet.
+			if o.segIdx >= len(o.segTable) {
+				o.pageDone = true
+			}
+			return pkt, nil
+		}
+		// segLen == 255: continuation; loop and grab next seg.
+	}
+	// Ran off the end of the page on a continuation — treat as
+	// hard page boundary.
+	o.pageDone = true
 	return pkt, nil
 }
 
-// readPage reads one Ogg page from the underlying reader and splits it
-// into segments.
+// readPage reads one Ogg page from the underlying reader.
 func (o *oggOpusReader) readPage() error {
 	var hdr [27]byte
 	if _, err := io.ReadFull(o.r, hdr[:]); err != nil {
@@ -63,16 +96,11 @@ func (o *oggOpusReader) readPage() error {
 	headerType := hdr[5]
 	nSeg := int(hdr[26])
 
-	// read segment table
 	segTable := make([]byte, nSeg)
 	if _, err := io.ReadFull(o.r, segTable); err != nil {
 		return err
 	}
 
-	// group the segment table into logical packets.
-	// For Opus (1 packet per segment typically), each segment is its
-	// own logical packet. We just record (offset, length) for each
-	// segment and treat each as one Opus packet.
 	totalData := 0
 	for _, s := range segTable {
 		totalData += int(s)
@@ -82,17 +110,10 @@ func (o *oggOpusReader) readPage() error {
 		return err
 	}
 
-	offsets := make([]int, 0, nSeg)
-	lens := make([]int, 0, nSeg)
-	off := 0
-	for _, s := range segTable {
-		offsets = append(offsets, off)
-		lens = append(lens, int(s))
-		off += int(s)
-	}
-	o.segOffsets = offsets
-	o.segLens = lens
+	o.segTable = segTable
 	o.segIdx = 0
+	o.pageDataOff = 0
+	o.pageDone = false
 
 	if headerType&0x04 != 0 {
 		o.eos = true
@@ -110,8 +131,8 @@ type opusHead struct {
 	MappingFamily   uint8
 }
 
-// ParseOpusHead validates the first Ogg page is an OpusHead and returns
-// its parsed fields.
+// ParseOpusHead validates the first Ogg page is an OpusHead and
+// returns its parsed fields.
 func ParseOpusHead(packet []byte) (*opusHead, error) {
 	if len(packet) < 19 {
 		return nil, errors.New("opus: OpusHead too short")

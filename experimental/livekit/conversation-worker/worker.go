@@ -1,6 +1,45 @@
-// Worker orchestrates the two-way loop. It is a long-running goroutine
-// driven by a LiveKit Room callback; outbound publish happens once at
-// startup, inbound subscription is event-driven.
+// Worker orchestrates the two-way LiveKit conversation loop.
+//
+// Two modes (set via LIVEKIT_WORKER_MODE):
+//
+//   stitched (Stage 1, default): per-utterance VAD + STT (Whisper) +
+//   LLM (gpt-4o-mini) + TTS (Cartesia) + ffmpeg Opus publish.
+//   Multi-turn.
+//
+//   realtime (Stage 1.5): LiveKit RTP Opus -> continuous ffmpeg
+//   decode -> OpenAI Realtime WebSocket -> continuous ffmpeg
+//   encode -> LiveKit RTP Opus. Realtime handles STT/LLM/TTS
+//   server-side; sub-1s latency, server VAD, voice mimicry.
+//
+// Inbound pipeline (stitched mode, per-track goroutine):
+//   1. track.ReadRTP()  ->  samplebuilder  ->  raw Opus frames
+//   2. VAD on frame cadence: 500ms silence ends an utterance
+//   3. Snapshot buffered Opus frames; run ffmpeg per-utterance to
+//      decode to mono s16le 16kHz PCM
+//   4. Wrap PCM in WAV; POST to OpenAI Whisper
+//   5. Append user turn to history; POST to gpt-4o-mini
+//   6. POST reply to Cartesia Sonic 3.5 + Julia
+//   7. ffmpeg encodes PCM to Opus; push frames into outboundProvider
+//   8. Push 200ms silence delimiter so the browser hears a gap
+//   9. Loop: next utterance, multi-turn
+//
+// Inbound pipeline (realtime mode, per-track goroutine):
+//   1. track.ReadRTP()  ->  samplebuilder  ->  raw Opus frames
+//   2. oggMuxer writes OGG Opus pages to ffmpeg stdin (continuous)
+//   3. ffmpeg decode goroutine: OGG Opus 48kHz -> PCM16 24kHz
+//   4. Chunk to 100ms, send input_audio_buffer.append to Realtime
+//   5. Server VAD detects speech, runs model, streams response
+//
+// Outbound pipeline (realtime mode):
+//   - One long-lived ffmpeg encode subprocess: PCM16 24kHz in,
+//     OGG Opus 48kHz out. Lives for the worker's lifetime.
+//   - Realtime response.audio.delta -> write to encode stdin
+//   - Reader goroutine: OGG demux -> 20ms Opus frames -> outboundProvider
+//
+// Outbound pipeline:
+//   - Single long-lived LocalSampleTrack, published once at startup
+//   - Channel-backed outboundProvider; never closed (multi-turn)
+//   - Each turn pushes 20ms Opus frames at 64kbps
 package main
 
 import (
@@ -10,7 +49,6 @@ import (
 	"os"
 	"os/signal"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -24,24 +62,41 @@ import (
 type worker struct {
 	livekitURL, apiKey, apiSecret string
 	roomName, identity           string
+	mode                         string // "stitched" or "realtime"
+
+	// Stage 1 (stitched mode) config
 	cartesiaKey, voiceID, modelID string
 	cartesiaRate                  int
 	cartesiaEnc                   string
 	filterChain                   string
 	bitrate                       int
 	opusApp                       string
-	replyMode                     string
-	replyText                     string
+	openaiKey                     string
+	silenceTimeout                time.Duration
 
-	// outbound is the Opus track published to the room. Samples are
-	// written by the sampleProvider goroutine driven by LiveKit.
+	// Stage 1.5 (realtime mode) config
+	rtModel         string
+	rtVoice         string
+	rtInstructions  string
+	rtVadThreshold  float64
+	rtVadSilenceMs  int
+	rtVadPrefixMs   int
+	rtOpusBitrate   int
+	rtInboundFilter string
+
+	// Runtime state shared across both modes
 	outbound *lksdk.LocalSampleTrack
 	provider *outboundProvider
 
-	// replyOnce ensures the outbound reply fires exactly once per
-	// worker lifetime (this is a spike — no conversation loop).
-	replied   atomic.Bool
-	replyOnce sync.Once
+	// Realtime-mode runtime state
+	rt            *realtimeClient
+	encodePcm     io.WriteCloser
+	encodeCancel  context.CancelFunc
+	encodeCmds    []*continuousPcm
+	decodeCmds    []*continuousPcm
+	inboundTracks map[string]context.CancelFunc
+	encErrOnce    sync.Once
+	rtErrOnce     sync.Once
 }
 
 func (w *worker) run() error {
@@ -63,19 +118,52 @@ func (w *worker) run() error {
 	latencyLog("room_connected")
 
 	// 3. Pre-create the outbound Opus track and publish it. The track
-	// publishes silence until the reply fires; that is fine for the
-	// spike (the browser sees `track subscribed` and waits).
+	// publishes silence until the first turn fires.
 	if err := w.publishOutboundTrack(room); err != nil {
 		return err
 	}
 	latencyLog("outbound_track_published")
 
-	// 4. Block until SIGINT/SIGTERM. The reply is fired asynchronously
-	// by the OnTrackSubscribed callback.
+	// 4. Mode-specific setup.
+	w.inboundTracks = make(map[string]context.CancelFunc)
+	switch w.mode {
+	case "realtime":
+		if err := w.runRealtime(room); err != nil {
+			return err
+		}
+	case "realtime-cartesia":
+		if err := w.runRealtimeCartesia(room); err != nil {
+			return err
+		}
+	case "stitched":
+		// stitched mode setup happens lazily in onInboundTrack
+		// (per-utterance VAD + STT/LLM/TTS chain).
+	default:
+		log.Fatalf("unknown mode %q (already validated in main)", w.mode)
+	}
+
+	// 5. Block until SIGINT/SIGTERM.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	s := <-sig
 	log.Printf("worker: signal %v — disconnecting", s)
+
+	// 6. Realtime-mode cleanup.
+	if w.rt != nil {
+		w.rt.close()
+	}
+	for _, cancel := range w.inboundTracks {
+		cancel()
+	}
+	if w.encodeCancel != nil {
+		w.encodeCancel()
+	}
+	for _, cp := range w.encodeCmds {
+		cp.kill()
+	}
+	for _, cp := range w.decodeCmds {
+		cp.kill()
+	}
 	return nil
 }
 
@@ -119,154 +207,247 @@ func (w *worker) publishOutboundTrack(room *lksdk.Room) error {
 	}
 	log.Printf("outbound track published: id=%s mime=%s", pub.SID(), pub.MimeType())
 
+	// Pre-publish silence so the browser sees a live track from t=0
+	// (otherwise some browsers' VAD/AGC suppresses early frames).
+	w.provider.pushSilence(500 * time.Millisecond)
+
 	// StartWrite kicks off a goroutine that pulls from the provider's
 	// channel and writes each sample to the LiveKit RTP egress.
-	done := make(chan struct{})
+	// Note: the playback-complete callback will never fire for this
+	// spike because the provider channel is never closed (multi-turn).
 	if err := track.StartWrite(w.provider, func() {
-		log.Println("outbound playback complete")
-		close(done)
+		log.Println("outbound playback complete (unexpected in spike; channel is never closed)")
 	}); err != nil {
 		return err
 	}
 	return nil
 }
 
-// onInboundTrack is the core event of the spike. It spins up a
-// per-track goroutine that assembles Opus frames from RTP packets
-// and triggers the outbound reply on the first frame.
+// onInboundTrack spins up the per-track goroutine that owns the
+// samplebuilder + VAD + utterance pipeline.
 func (w *worker) onInboundTrack(track *webrtc.TrackRemote, pub *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
-	log.Printf("inbound_track_subscribed: identity=%s sid=%s codec=%s clock=%d channels=%d",
-		rp.Identity(), pub.SID(), track.Codec().MimeType, track.Codec().ClockRate, track.Codec().Channels)
+	log.Printf("inbound_track_subscribed: identity=%s sid=%s codec=%s clock=%d channels=%d mode=%s",
+		rp.Identity(), pub.SID(), track.Codec().MimeType,
+		track.Codec().ClockRate, track.Codec().Channels, w.mode)
 	latencyLog("inbound_track_subscribed")
 
-	// Only audio is interesting for the spike.
 	if track.Kind() != webrtc.RTPCodecTypeAudio {
 		log.Printf("inbound_track_ignored: non-audio (kind=%d)", track.Kind())
 		return
 	}
-
-	go w.runInboundReader(track, rp.Identity())
+	switch w.mode {
+	case "realtime", "realtime-cartesia":
+		// Both Realtime variants share the same inbound
+		// pipeline (LiveKit -> ffmpeg decode -> Realtime
+		// STT/LLM). The outbound path differs.
+		go w.runRealtimeInbound(track, rp)
+	case "stitched":
+		go w.runInboundReader(track, rp.Identity())
+	}
 }
 
-// runInboundReader assembles Opus frames from RTP packets. The first
-// complete frame triggers the outbound reply (Stage 2).
+// sampleMsg carries one assembled Opus frame (or an error) from
+// the read loop to the orchestrating select.
+type sampleMsg struct {
+	data []byte
+	err  error
+}
+
+// runInboundReader orchestrates: readRTP -> samplebuilder -> VAD ->
+// utterance channel -> handleUtterance. Two goroutines: a read
+// loop pushing sampleMsg into sampleCh, and the orchestrator that
+// runs VAD + utterance handling.
 func (w *worker) runInboundReader(track *webrtc.TrackRemote, peerIdentity string) {
 	defer func() {
 		log.Printf("inbound_reader_exit: identity=%s", peerIdentity)
 	}()
 
 	codec := track.Codec()
-	if codec.MimeType != webrtc.MimeTypeOpus {
-		log.Printf("inbound_reader: non-Opus codec %q — assembling raw RTP payload (no depacketizer)", codec.MimeType)
-	}
-
 	clockRate := codec.ClockRate
 	if clockRate == 0 {
 		clockRate = 48000
 	}
 
 	// SampleBuilder with a generous maxLate so we can cope with
-	// reordering; Opus frames are small (10-60 bytes) so memory cost
-	// is negligible.
+	// reordering; Opus frames are small (10-60 bytes) so memory
+	// cost is negligible.
 	sb := newOpusSampleBuilder(200, clockRate)
 
-	var totalFrames int
-	var totalBytes int
-	var firstFrameLogged bool
+	// Per-utterance VAD + history + utterance channel.
+	v := newVAD()
+	v.silenceTimeout = w.silenceTimeout
+	history := make([]chatMessage, 0, 8)
+	utteranceCh := make(chan [][]byte, 4)
+
+	// Read loop: pull RTP packets, assemble Opus frames, push to VAD.
+	// When VAD says an utterance ended, ship the buffered frames on
+	// utteranceCh.
+	go func() {
+		var totalFrames int
+		var firstFrameLogged bool
+		for {
+			pkt, _, err := track.ReadRTP()
+			if err != nil {
+				log.Printf("inbound_read_rtp: identity=%s err=%v", peerIdentity, err)
+				return
+			}
+			sample, ok := sb.push(pkt)
+			if !ok {
+				continue
+			}
+			totalFrames++
+			if !firstFrameLogged {
+				firstFrameLogged = true
+				latencyLog("first_inbound_frame")
+				log.Printf("first_inbound_frame: identity=%s bytes=%d duration=%s",
+					peerIdentity, len(sample.Data), sample.Duration)
+			}
+			if v.push(sample.Data) {
+				// Max duration hit
+				frames := v.takeUtterance()
+				if frames != nil {
+					utteranceCh <- frames
+				}
+			}
+			if totalFrames%100 == 0 {
+				log.Printf("inbound_metric: identity=%s frames=%d", peerIdentity, totalFrames)
+			}
+		}
+	}()
+
+	// Orchestrator loop: silence-timer ticks (100ms) + utteranceCh
+	// messages. VAD's tick() returns true when silenceTimeout has
+	// elapsed since the last frame; on true, snapshot the buffered
+	// frames and ship them on utteranceCh.
+	silenceTick := time.NewTimer(w.silenceTimeout)
+	defer silenceTick.Stop()
 	for {
-		pkt, _, err := track.ReadRTP()
-		if err != nil {
-			log.Printf("inbound_read_rtp: identity=%s err=%v", peerIdentity, err)
-			return
-		}
-		sample, ok := sb.push(pkt)
-		if !ok {
-			continue
-		}
-		totalFrames++
-		totalBytes += len(sample.Data)
-		if !firstFrameLogged {
-			firstFrameLogged = true
-			latencyLog("first_inbound_frame")
-			log.Printf("first_inbound_frame: identity=%s bytes=%d duration=%s",
-				peerIdentity, len(sample.Data), sample.Duration)
-			// Stage 2 trigger: first frame → outbound reply.
-			w.maybeFireReply()
-		}
-		if totalFrames%50 == 0 {
-			log.Printf("inbound_metric: identity=%s frames=%d bytes=%d",
-				peerIdentity, totalFrames, totalBytes)
+		select {
+		case frames := <-utteranceCh:
+			w.handleUtterance(frames, &history)
+		case <-silenceTick.C:
+			if v.tick() {
+				frames := v.takeUtterance()
+				if frames != nil {
+					utteranceCh <- frames // re-use the same channel
+				}
+			}
+			silenceTick.Reset(w.silenceTimeout)
 		}
 	}
 }
 
-// maybeFireReply runs the reply exactly once. The work happens on a
-// goroutine so the inbound reader is not blocked.
-func (w *worker) maybeFireReply() {
-	w.replyOnce.Do(func() {
-		go w.fireReply()
-	})
-}
-
-func (w *worker) fireReply() {
-	log.Printf("outbound_reply_start: mode=%s", w.replyMode)
-	latencyLog("outbound_reply_start")
-	defer latencyLog("outbound_reply_done")
+// handleUtterance runs the full STT -> LLM -> TTS -> publish chain
+// for one user utterance. Latency is logged at every stage. Errors
+// are logged but do not abort the inbound loop. History is updated
+// in place so the next turn has context.
+func (w *worker) handleUtterance(frames [][]byte, history *[]chatMessage) {
+	t0 := time.Now()
+	latencyLog("utterance_ended")
+	log.Printf("utterance_frames: count=%d", len(frames))
+	if len(frames) == 0 {
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	switch w.replyMode {
-	case "none":
-		log.Printf("outbound_reply_skip: REPLY_MODE=none")
-		return
-	case "tone_on_first_frame":
-		w.publishTone(ctx)
-	case "fixed_on_first_frame":
-		w.publishCartesia(ctx, w.replyText)
-	default:
-		log.Printf("outbound_reply_unknown_mode: %q — falling back to tone", w.replyMode)
-		w.publishTone(ctx)
-	}
-}
-
-func (w *worker) publishTone(ctx context.Context) {
-	log.Printf("outbound_tone: freq=440Hz duration=3s")
-	// 3s of 440 Hz mono PCM at 48 kHz, amplitude 30%.
-	pcm := generateTone(48000, 1, 440.0, 3.0)
-	if err := w.publishPCMAsOpus(ctx, pcm, 48000, "s16le"); err != nil {
-		log.Printf("outbound_tone: publish failed: %v", err)
-		return
-	}
-	log.Printf("outbound_tone_done")
-}
-
-func (w *worker) publishCartesia(ctx context.Context, text string) {
-	if w.cartesiaKey == "" {
-		log.Printf("outbound_cartesia_skip: CARTESIA_API_KEY empty — falling back to tone")
-		w.publishTone(ctx)
-		return
-	}
-	log.Printf("outbound_cartesia: voice=%s model=%s rate=%d encoding=%s text_len=%d",
-		w.voiceID, w.modelID, w.cartesiaRate, w.cartesiaEnc, len(text))
-	pcm, err := Synthesize(w.cartesiaKey, text, w.voiceID, w.modelID, w.cartesiaEnc, w.cartesiaRate)
+	// 1. Decode Opus -> PCM via ffmpeg (per-utterance subprocess)
+	pcm, err := decodeOpusUtteranceToPCM(ctx, frames)
 	if err != nil {
-		log.Printf("outbound_cartesia: synthesize failed: %v — falling back to tone", err)
-		w.publishTone(ctx)
+		log.Printf("utterance_decode_failed: %v", err)
 		return
+	}
+	latencyLog("opus_decoded")
+	log.Printf("utterance_pcm: bytes=%d (%.2fs @ 16kHz mono s16le)",
+		len(pcm), float64(len(pcm))/float64(opusDecodeSampleRate*2))
+
+	// 2. Wrap in WAV
+	wav := pcmS16LEToWAV(pcm, opusDecodeSampleRate)
+	latencyLog("wav_wrapped")
+
+	// 3. STT
+	transcript, err := Transcribe(w.openaiKey, wav)
+	if err != nil {
+		log.Printf("utterance_stt_failed: %v", err)
+		return
+	}
+	latencyLog("stt_done")
+	log.Printf("stt_text: %q", transcript)
+	if transcript == "" {
+		return
+	}
+
+	// 4. LLM
+	reply, err := CompleteLLM(ctx, w.openaiKey, *history, transcript)
+	if err != nil {
+		log.Printf("utterance_llm_failed: %v", err)
+		return
+	}
+	latencyLog("llm_done")
+	log.Printf("llm_reply: %q", reply)
+
+	// 5. TTS via Cartesia
+	var pcmReply []int16
+	if w.cartesiaKey == "" {
+		log.Printf("utterance_tts_skip: CARTESIA_API_KEY empty — using 2s tone")
+		pcmReply = generateTone(w.cartesiaRate, 1, 440.0, 2.0)
+	} else {
+		pcmReply, err = Synthesize(w.cartesiaKey, reply, w.voiceID, w.modelID, w.cartesiaEnc, w.cartesiaRate)
+		if err != nil {
+			log.Printf("utterance_tts_failed: %v — falling back to 2s tone", err)
+			pcmReply = generateTone(w.cartesioFallbackRate(), 1, 440.0, 2.0)
+		}
 	}
 	latencyLog("cartesia_done")
-	if err := w.publishPCMAsOpus(ctx, pcm, w.cartesiaRate, w.cartesiaEnc); err != nil {
-		log.Printf("outbound_cartesia: publish failed: %v", err)
+
+	// 6. Encode PCM -> Opus + publish (existing pipeline; does not close channel)
+	if err := w.publishPCMAsOpus(ctx, pcmReply, w.cartesiaRate, w.cartesiaEnc); err != nil {
+		log.Printf("utterance_publish_failed: %v", err)
 		return
 	}
-	log.Printf("outbound_cartesia_done")
+	latencyLog("opus_published")
+
+	// 7. Push a short silence delimiter so the browser hears a gap
+	// between turns (no audible click on Opus stream continuation).
+	w.provider.pushSilence(250 * time.Millisecond)
+
+	// 8. Update history (cap at 8 messages = 4 turns)
+	*history = append(*history,
+		chatMessage{Role: "user", Content: transcript},
+		chatMessage{Role: "assistant", Content: reply},
+	)
+	if len(*history) > 8 {
+		*history = (*history)[len(*history)-8:]
+	}
+
+	log.Printf("turn_total_ms: %d", time.Since(t0).Milliseconds())
+}
+
+// cartesioFallbackRate is used when Cartesia fails and we fall back
+// to the test tone. The tone generator runs at this rate (usually
+// 48kHz) and ffmpeg encodes to Opus.
+func (w *worker) cartesioFallbackRate() int {
+	if w.cartesiaRate == 0 {
+		return 48000
+	}
+	return w.cartesiaRate
 }
 
 // publishPCMAsOpus spins up an ffmpeg subprocess to encode the PCM
 // buffer as Opus and writes the resulting frames into the outbound
-// LiveKit track via the provider channel.
+// LiveKit track via the provider channel. The provider channel is
+// NOT closed here (multi-turn); the channel is closed only at
+// worker shutdown.
 func (w *worker) publishPCMAsOpus(ctx context.Context, pcm []int16, inputRate int, encoding string) error {
+	// Debug: save the latest TTS PCM as a WAV for offline noise
+	// analysis. Toggle by touching /tmp/save-tts (any content) and
+	// remove to disable. Files are overwritten each turn.
+	if _, err := os.Stat("/tmp/save-tts"); err == nil {
+		pcmBytes := int16ToBytes(pcm)
+		wav := pcmS16LEToWAV(pcmBytes, inputRate)
+		_ = os.WriteFile("/tmp/last-reply.wav", wav, 0644)
+	}
 	ff, err := startFfmpegOpus(ctx, inputRate, encoding, w.filterChain, w.bitrate, w.opusApp)
 	if err != nil {
 		return err
@@ -278,8 +459,6 @@ func (w *worker) publishPCMAsOpus(ctx context.Context, pcm []int16, inputRate in
 		return err
 	}
 	demuxer := newOggOpusReaderImpl(ff.stdout)
-	// OpusHead + OpusTags consumed inline; subsequent packets are
-	// raw Opus frames for the LiveKit track.
 	headPkt, err := demuxer.NextOpusPacket()
 	if err != nil {
 		return err
@@ -308,8 +487,6 @@ func (w *worker) publishPCMAsOpus(ctx context.Context, pcm []int16, inputRate in
 		w.provider.push(media.Sample{Data: pkt, Duration: 20 * time.Millisecond})
 	}
 	log.Printf("outbound_frames_published: count=%d", count)
-	// Signal end-of-stream so the LiveKit track can finalize.
-	w.provider.close()
 	return nil
 }
 
