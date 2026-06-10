@@ -1,0 +1,25 @@
+{
+  "name": "multi-vendor-spike",
+  "version": "0.1.0",
+  "description": "Multi-vendor latency + voice quality spike: STT/LLM/TTS/memory/transport swappable. Compares head-to-head with the xAI single-vendor baseline. Goal: < 1.0s first-audio, Eve-class voice quality, $20-50/mo cost.",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test:contract": "node src/contract.test.js",
+    "rehearse:xai": "node src/rehearsal.js --vendor-bundle xai",
+    "rehearse:hybrid": "node src/rehearsal.js --vendor-bundle hybrid",
+    "rehearse:matrix": "node src/rehearsal.js --vendor-bundle matrix",
+    "rehearse:compare": "node src/rehearsal.js --vendor-bundle compare",
+    "test": "npm run test:contract"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0"
+  },
+  "//devDependencies-comment": "Vendor SDKs are added by the spike runner (e.g. @deepgram/sdk, elevenlabs, @livekit/agents, ioredis). Do NOT pre-install before user approval."
+}

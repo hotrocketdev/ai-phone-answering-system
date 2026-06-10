@@ -5,6 +5,8 @@
 **Run date:** 2026-06-09
 **Source:** `feat/livekit-hd-spike` @ commit `020d631` (with the rehearsal orchestrator on top)
 
+**This is the baseline for the multi-vendor spike.** The user approved building `experimental/livekit/multi-vendor-spike/` on 2026-06-10 to A/B test Deepgram (STT) + xAI Grok (LLM) + ElevenLabs (TTS) against this xAI single-vendor baseline. Decision rationale in `docs/experimental/livekit-hd-spike/DECISION_REPORT_MULTI_VENDOR.md`.
+
 ## Goal
 
 Per manager directive:

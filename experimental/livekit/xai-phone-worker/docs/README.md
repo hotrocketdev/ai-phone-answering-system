@@ -2,6 +2,15 @@
 
 **Status:** Pre-ResDiary-API scaffold complete. ResDiary + Depos + manager-queue dispatcher is fully wired with in-process fakes. Real-adapter skeletons (env-driven, no live calls) are in place. Telnyx I/O scaffold exercises the full audio path with file-based simulation.
 
+**Latency baseline (measured 2026-06-09 with opus 24 kHz fixtures, fake providers):**
+- First assistant audio: **1.81-2.06s** (3-rehearsal median 1.94s)
+- Turn latencies: avg 7.0s, p95 20s (includes 2.5s quiet timer)
+- Function-call dispatch: 0.7-1.7ms (fake providers; real will be 1-3s for ResDiary)
+- Dropped frames: 0
+- Errors: 0
+
+**Multi-vendor follow-up:** see `experimental/livekit/multi-vendor-spike/` (scaffolded 2026-06-10) for the head-to-head spike that targets < 1.0s first-audio. Decision rationale in `docs/experimental/livekit-hd-spike/DECISION_REPORT_MULTI_VENDOR.md` and `docs/experimental/livekit-hd-spike/DECISION_LOG.md`.
+
 ## Files
 
 - `src/xai-client.js` — xAI WSS protocol layer (copied from the spike, refactored)

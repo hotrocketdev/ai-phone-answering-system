@@ -1467,3 +1467,62 @@ no Telnyx production webhook, no production gateway changes. No
 merges to main. No secrets, env files, tokens, binaries, WAVs (the
 test artefact WAV is in `tmp/` which is gitignored), debug audio, or
 logs committed.
+
+## 17. MULTI-VENDOR SPIKE — Scaffold complete, decisions pending (2026-06-10)
+
+### 17.1 Why this is here
+
+The user (Jorge) reviewed §16 results and concluded that the xAI single-vendor stack
+is on the right path for the product flow (function calls, fake providers, dispatcher
+all working), but the first-audio latency of 1.8-2.1s is not competitive with apps like
+sophiie.ai that are already in the market with sub-1.0s first-audio. The user approved
+building a multi-vendor spike to A/B test alternatives. Quoting the user:
+
+> "Lets try a few setups, with LiveKit, Redis, Deepgram, [Cerebras] etc, and keep xAI
+> voice for now but im curious also to try ElevenLabs as well just for curiosity. I
+> think we really need to make multi vendor even for the future as it will be easy to
+> change."
+
+### 17.2 What was added (2026-06-10)
+
+| Path | What | Status |
+|---|---|---|
+| `experimental/livekit/multi-vendor-spike/` | New spike directory with 11 source files, vendor adapters (Deepgram, xAI Grok, Cerebras, ElevenLabs, LiveKit, Redis), bundle factory, vendor-agnostic orchestrator, head-to-head rehearsal script, contract tests | SKELETON COMPLETE |
+| `docs/experimental/livekit-hd-spike/DECISION_REPORT_MULTI_VENDOR.md` | The main handoff doc: TL;DR, what we agreed on, vendor contracts, cost & latency table, decision matrix, recommendations, pending approvals | DONE |
+| `docs/experimental/livekit-hd-spike/DECISION_LOG.md` | Running log of every decision the user has made (from 2026-06-07 onwards) with status, cost, and pending approvals | DONE |
+| `docs/experimental/livekit-hd-spike/XAI_FAKE_PROVIDER_REHEARSAL.md` | Updated to point to the multi-vendor spike as the follow-up | DONE |
+| `docs/experimental/livekit-hd-spike/XAI_PHONE_PATH_PLAN.md` | Updated to point forward to the multi-vendor work | DONE |
+| `experimental/livekit/xai-phone-worker/docs/README.md` | Updated with latency baseline numbers and pointer to the multi-vendor spike | DONE |
+
+### 17.3 Three vendor bundles for head-to-head comparison
+
+1. **xai-bundle** (current spike, baseline) — STT+LLM+TTS from xAI WSS, $0.05/min, 1.8-2.1s first-audio
+2. **hybrid-deepgram** — Deepgram Nova-3 STT (250ms endpointing) + xAI Grok LLM + xAI TTS, $0.05/min, 0.8-1.1s expected
+3. **hybrid-elevenlabs** — Deepgram STT + xAI Grok LLM + ElevenLabs Charlotte TTS, $0.25/min, 0.7-1.0s expected (curiosity A/B)
+
+The clear production winner on cost/latency is **hybrid-deepgram** at $40/mo (vs $225/mo for xai-bundle, $1,165/mo for hybrid-elevenlabs).
+
+### 17.4 What is NOT in this commit (pending user approval per vendor)
+
+- ❌ `npm install @deepgram/sdk` — pending. Live test would cost $0 (free $200 trial).
+- ❌ `npm install elevenlabs` — pending. Live test would cost $0 (free 10K chars/month), but production usage is $1,100+/mo.
+- ❌ `npm install @cerebras/cerebras-cloud-sdk` — pending.
+- ❌ `npm install @livekit/agents` — pending.
+- ❌ `npm install ioredis` — pending.
+- ❌ Live API calls of any kind — pending.
+- ❌ `booking.cancel` and `booking.update` tools — pending (design limitation flagged in §16.3).
+
+### 17.5 New commits
+
+| SHA | What |
+|---|---|
+| (this commit) | Multi-vendor spike scaffold + decision report + decision log + pointer updates to existing docs |
+| (next, when user approves) | Vendor SDKs + live rehearsal + COMPARE_REPORT.md |
+
+### 17.6 Production untouched (still, third time)
+
+All work on `feat/livekit-hd-spike` in `experimental/livekit/`. No
+production PCMU runtime, no production .env, no production systemd,
+no Telnyx production webhook, no production gateway changes. No
+merges to main. No secrets, env files, tokens, binaries, WAVs, debug
+audio, or logs committed. No live API calls made (no money spent).

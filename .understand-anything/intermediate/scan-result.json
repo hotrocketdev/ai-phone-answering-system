@@ -1,0 +1,1429 @@
+{
+  "scriptCompleted": true,
+  "files": [
+    {
+      "path": ".env.example",
+      "language": "config",
+      "sizeLines": 52,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "sizeLines": 36,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/diff-overlay.json",
+      "language": "json",
+      "sizeLines": 37,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/fingerprints.json",
+      "language": "json",
+      "sizeLines": 8922,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batches.json",
+      "language": "json",
+      "sizeLines": 538,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/scan-result.json",
+      "language": "json",
+      "sizeLines": 1236,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/knowledge-graph.json",
+      "language": "json",
+      "sizeLines": 13176,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/meta.json",
+      "language": "json",
+      "sizeLines": 6,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/onboarding-report.md",
+      "language": "markdown",
+      "sizeLines": 139,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".understand-anything/voxlane-context-load-2026-06-02.md",
+      "language": "markdown",
+      "sizeLines": 352,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "AGENTS.md",
+      "language": "markdown",
+      "sizeLines": 26,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "ai_voice_receptionist_session_handoff_may_2026_UPDATED_FINAL.md",
+      "language": "markdown",
+      "sizeLines": 951,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "ai_voice_receptionist_session_handoff_may_2026.md",
+      "language": "markdown",
+      "sizeLines": 435,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "backend/Dockerfile",
+      "language": "dockerfile",
+      "sizeLines": 23,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "backend/nest-cli.json",
+      "language": "json",
+      "sizeLines": 8,
+      "fileCategory": "config"
+    },
+    {
+      "path": "backend/package.json",
+      "language": "json",
+      "sizeLines": 40,
+      "fileCategory": "config"
+    },
+    {
+      "path": "backend/src/app.module.ts",
+      "language": "typescript",
+      "sizeLines": 8,
+      "fileCategory": "code"
+    },
+    {
+      "path": "backend/src/common/guards/hmac.guard.ts",
+      "language": "typescript",
+      "sizeLines": 38,
+      "fileCategory": "code"
+    },
+    {
+      "path": "backend/src/main.ts",
+      "language": "typescript",
+      "sizeLines": 15,
+      "fileCategory": "code"
+    },
+    {
+      "path": "backend/src/modules/tools/tools.controller.ts",
+      "language": "typescript",
+      "sizeLines": 88,
+      "fileCategory": "code"
+    },
+    {
+      "path": "backend/src/modules/tools/tools.module.ts",
+      "language": "typescript",
+      "sizeLines": 7,
+      "fileCategory": "code"
+    },
+    {
+      "path": "backend/src/modules/voice/voice.controller.ts",
+      "language": "typescript",
+      "sizeLines": 122,
+      "fileCategory": "code"
+    },
+    {
+      "path": "backend/src/modules/voice/voice.module.ts",
+      "language": "typescript",
+      "sizeLines": 7,
+      "fileCategory": "code"
+    },
+    {
+      "path": "backend/tsconfig.json",
+      "language": "json",
+      "sizeLines": 28,
+      "fileCategory": "config"
+    },
+    {
+      "path": "CLAUDE.md",
+      "language": "markdown",
+      "sizeLines": 62,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "deploy/Caddyfile.example",
+      "language": "example",
+      "sizeLines": 52,
+      "fileCategory": "code"
+    },
+    {
+      "path": "deploy/env.production.example",
+      "language": "example",
+      "sizeLines": 68,
+      "fileCategory": "code"
+    },
+    {
+      "path": "deploy/scripts/validate-public-endpoint.sh",
+      "language": "shell",
+      "sizeLines": 89,
+      "fileCategory": "script"
+    },
+    {
+      "path": "deploy/systemd/backend.service.example",
+      "language": "example",
+      "sizeLines": 27,
+      "fileCategory": "code"
+    },
+    {
+      "path": "deploy/systemd/voice-gateway.service.example",
+      "language": "example",
+      "sizeLines": 28,
+      "fileCategory": "code"
+    },
+    {
+      "path": "docker-compose.yml",
+      "language": "yaml",
+      "sizeLines": 59,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "docs/ADR-001-voice-transport-strategy.md",
+      "language": "markdown",
+      "sizeLines": 94,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/AGENT_RUNTIME_EVALUATION.md",
+      "language": "markdown",
+      "sizeLines": 67,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/CODEBASE-CLEANUP-AND-FOCUS-PLAN.md",
+      "language": "markdown",
+      "sizeLines": 118,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/context/AUDIO_QUALITY_CODEC_TEST_PLAN.md",
+      "language": "markdown",
+      "sizeLines": 439,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/context/FUTURE_PROOF_HD_VOICE_ARCHITECTURE.md",
+      "language": "markdown",
+      "sizeLines": 422,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/context/HANDOVER_CURRENT_STATE.md",
+      "language": "markdown",
+      "sizeLines": 984,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/context/LIVEKIT_HD_SPIKE_PLAN.md",
+      "language": "markdown",
+      "sizeLines": 285,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/context/RECEPTIONIST_CORE_SPEC.md",
+      "language": "markdown",
+      "sizeLines": 314,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/context/SESSION_RESTORE_GUIDE.md",
+      "language": "markdown",
+      "sizeLines": 254,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/context/tenant-behaviours/RESTAURANT_BEHAVIOUR_PACK.md",
+      "language": "markdown",
+      "sizeLines": 318,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/context/VOICE_QUALITY_STACK_STRATEGY.md",
+      "language": "markdown",
+      "sizeLines": 296,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/context/VOXLANE_MASTER_CONTEXT.md",
+      "language": "markdown",
+      "sizeLines": 660,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/CURRENT_MVP_LIMITATIONS.md",
+      "language": "markdown",
+      "sizeLines": 70,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/CURRENT_MVP_STABILITY_CHECKLIST.md",
+      "language": "markdown",
+      "sizeLines": 72,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/CURRENT_RUNTIME_LOCK.md",
+      "language": "markdown",
+      "sizeLines": 60,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/EXPERIMENTAL_CODE_ARCHIVE_PLAN.md",
+      "language": "markdown",
+      "sizeLines": 74,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/BROWSER_AUDIO_TEST_RUNBOOK.md",
+      "language": "markdown",
+      "sizeLines": 258,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/DECISION_LOG.md",
+      "language": "markdown",
+      "sizeLines": 123,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/DECISION_REPORT_MULTI_VENDOR.md",
+      "language": "markdown",
+      "sizeLines": 220,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/DISPATCHER_PROVIDER_CONTRACTS.md",
+      "language": "markdown",
+      "sizeLines": 192,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/NEXT_STEP_DECISION.md",
+      "language": "markdown",
+      "sizeLines": 130,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/PRODUCTION_MIGRATION_RECOMMENDATION.md",
+      "language": "markdown",
+      "sizeLines": 195,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/publisher-README.md",
+      "language": "markdown",
+      "sizeLines": 139,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/README.md",
+      "language": "markdown",
+      "sizeLines": 119,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/RESULTS_README.md",
+      "language": "markdown",
+      "sizeLines": 397,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/SERVER_NOTES.md",
+      "language": "markdown",
+      "sizeLines": 92,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/SPIKE_NO_GO_REPORT_2026-06-07.md",
+      "language": "markdown",
+      "sizeLines": 128,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/SPIKE_REPORT.md",
+      "language": "markdown",
+      "sizeLines": 279,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/STAGE_1_5_COST_QUALITY_REPORT.md",
+      "language": "markdown",
+      "sizeLines": 1527,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/web-client-README.md",
+      "language": "markdown",
+      "sizeLines": 65,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/XAI_FAKE_PROVIDER_REHEARSAL.md",
+      "language": "markdown",
+      "sizeLines": 184,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/XAI_FULL_STACK_VALIDATION.md",
+      "language": "markdown",
+      "sizeLines": 452,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/livekit-hd-spike/XAI_PHONE_PATH_PLAN.md",
+      "language": "markdown",
+      "sizeLines": 73,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/experimental/telnyx/TELNYX_ADAPTER_IMPLEMENTATION_PLAN.md",
+      "language": "markdown",
+      "sizeLines": 170,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/FIRST_LIVE_CALL_RESULTS.md",
+      "language": "markdown",
+      "sizeLines": 111,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/HANDOVER_2026-05_VOXLANE_VOICE_PLATFORM.md",
+      "language": "markdown",
+      "sizeLines": 0,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/LOCAL_INTEGRATION_RESULTS.md",
+      "language": "markdown",
+      "sizeLines": 113,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/MULTI_TENANCY_ARCHITECTURE_NOTE.md",
+      "language": "markdown",
+      "sizeLines": 108,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/MVP_LATENCY_BREAKDOWN.md",
+      "language": "markdown",
+      "sizeLines": 76,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/MVP_TASKLIST.md",
+      "language": "markdown",
+      "sizeLines": 151,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/NEXTGEN-LIVEKIT-HD-AUDIO-PLAN.md",
+      "language": "markdown",
+      "sizeLines": 141,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/NGROK_EXPOSURE_RESULTS.md",
+      "language": "markdown",
+      "sizeLines": 62,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/PRODUCTION_RUNTIME_BOUNDARIES.md",
+      "language": "markdown",
+      "sizeLines": 81,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/PRODUCTION-ROADMAP-VOICE-QUALITY-FIRST.md",
+      "language": "markdown",
+      "sizeLines": 100,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/PROJECT_STATUS.md",
+      "language": "markdown",
+      "sizeLines": 775,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/PUBLIC_ENDPOINT_MIGRATION_PLAN.md",
+      "language": "markdown",
+      "sizeLines": 226,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/SESSION_STATE.md",
+      "language": "markdown",
+      "sizeLines": 62,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/TELNYX_DIRECT_WEBSOCKET_ADAPTER.md",
+      "language": "markdown",
+      "sizeLines": 246,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/TELNYX_OUTBOUND_AUDIO_DEBUG.md",
+      "language": "markdown",
+      "sizeLines": 84,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/TENANT_CONFIGURATION_MVP.md",
+      "language": "markdown",
+      "sizeLines": 86,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/VOICE_PROVIDER_ABSTRACTION.md",
+      "language": "markdown",
+      "sizeLines": 90,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/VOICE-STACK-DECISION-MATRIX.md",
+      "language": "markdown",
+      "sizeLines": 66,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/VPS_CADDY_DEPLOYMENT_CHECKLIST.md",
+      "language": "markdown",
+      "sizeLines": 156,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/VPS_DEPLOYMENT_RUNBOOK.md",
+      "language": "markdown",
+      "sizeLines": 199,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/WINDOWS_TO_VPS_DEPLOY_NOTES.md",
+      "language": "markdown",
+      "sizeLines": 112,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/.env.example",
+      "language": "config",
+      "sizeLines": 98,
+      "fileCategory": "config"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/cartesia_stream.go",
+      "language": "go",
+      "sizeLines": 137,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/cartesia.go",
+      "language": "go",
+      "sizeLines": 120,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/continuous_ffmpeg.go",
+      "language": "go",
+      "sizeLines": 294,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/conversation-worker-linux",
+      "language": "unknown",
+      "sizeLines": 89400,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/conversation-worker-stage1.5",
+      "language": "5",
+      "sizeLines": 89960,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/ffmpegopus.go",
+      "language": "go",
+      "sizeLines": 161,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/go.mod",
+      "language": "mod",
+      "sizeLines": 79,
+      "fileCategory": "config"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/go.sum",
+      "language": "sum",
+      "sizeLines": 261,
+      "fileCategory": "config"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/inbound.go",
+      "language": "go",
+      "sizeLines": 39,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/llm.go",
+      "language": "go",
+      "sizeLines": 95,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/main.go",
+      "language": "go",
+      "sizeLines": 232,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/ogg.go",
+      "language": "go",
+      "sizeLines": 158,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/oggmuxer_test.go",
+      "language": "go",
+      "sizeLines": 97,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/oggmuxer.go",
+      "language": "go",
+      "sizeLines": 228,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/oggtest-bin",
+      "language": "unknown",
+      "sizeLines": 114910,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/opus_decode.go",
+      "language": "go",
+      "sizeLines": 215,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/outbound.go",
+      "language": "go",
+      "sizeLines": 98,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/realtime_pipeline.go",
+      "language": "go",
+      "sizeLines": 564,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/realtime.go",
+      "language": "go",
+      "sizeLines": 285,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/stt.go",
+      "language": "go",
+      "sizeLines": 78,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/tone.go",
+      "language": "go",
+      "sizeLines": 27,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/vad.go",
+      "language": "go",
+      "sizeLines": 95,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/conversation-worker/worker.go",
+      "language": "go",
+      "sizeLines": 505,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/package.json",
+      "language": "json",
+      "sizeLines": 25,
+      "fileCategory": "config"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/README.md",
+      "language": "markdown",
+      "sizeLines": 117,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/contract.test.js",
+      "language": "javascript",
+      "sizeLines": 119,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/index.js",
+      "language": "javascript",
+      "sizeLines": 57,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/orchestrator.js",
+      "language": "javascript",
+      "sizeLines": 215,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/rehearsal.js",
+      "language": "javascript",
+      "sizeLines": 176,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/bundles.js",
+      "language": "javascript",
+      "sizeLines": 160,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/contracts.ts",
+      "language": "typescript",
+      "sizeLines": 249,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/llm/cerebras.js",
+      "language": "javascript",
+      "sizeLines": 80,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/llm/xai-grok.js",
+      "language": "javascript",
+      "sizeLines": 103,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/memory/redis-mem.js",
+      "language": "javascript",
+      "sizeLines": 63,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/memory/redis.js",
+      "language": "javascript",
+      "sizeLines": 104,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/stt/deepgram.js",
+      "language": "javascript",
+      "sizeLines": 106,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/stt/xai.js",
+      "language": "javascript",
+      "sizeLines": 66,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/transport/file-loopback.js",
+      "language": "javascript",
+      "sizeLines": 128,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/transport/livekit.js",
+      "language": "javascript",
+      "sizeLines": 123,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/tts/elevenlabs.js",
+      "language": "javascript",
+      "sizeLines": 126,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/multi-vendor-spike/src/vendors/tts/xai-eve.js",
+      "language": "javascript",
+      "sizeLines": 75,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/publisher/.env.example",
+      "language": "config",
+      "sizeLines": 46,
+      "fileCategory": "config"
+    },
+    {
+      "path": "experimental/livekit/publisher/cartesia.go",
+      "language": "go",
+      "sizeLines": 177,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/publisher/ffmpegopus.go",
+      "language": "go",
+      "sizeLines": 375,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/publisher/go.mod",
+      "language": "mod",
+      "sizeLines": 76,
+      "fileCategory": "config"
+    },
+    {
+      "path": "experimental/livekit/publisher/go.sum",
+      "language": "sum",
+      "sizeLines": 497,
+      "fileCategory": "config"
+    },
+    {
+      "path": "experimental/livekit/publisher/main.go",
+      "language": "go",
+      "sizeLines": 422,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/publisher/oggdemuxer_test.go",
+      "language": "go",
+      "sizeLines": 123,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/publisher/oggdemuxer.go",
+      "language": "go",
+      "sizeLines": 172,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/publisher/pcmsampleprovider_test.go",
+      "language": "go",
+      "sizeLines": 70,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/publisher/pcmsampleprovider.go",
+      "language": "go",
+      "sizeLines": 112,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/publisher/publisher-codec-linux",
+      "language": "unknown",
+      "sizeLines": 89756,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/token-gen/go.mod",
+      "language": "mod",
+      "sizeLines": 72,
+      "fileCategory": "config"
+    },
+    {
+      "path": "experimental/livekit/token-gen/go.sum",
+      "language": "sum",
+      "sizeLines": 177,
+      "fileCategory": "config"
+    },
+    {
+      "path": "experimental/livekit/token-gen/main.go",
+      "language": "go",
+      "sizeLines": 73,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-harness/docs/README.md",
+      "language": "markdown",
+      "sizeLines": 137,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-harness/fixtures/caller-opus24k.pcm16",
+      "language": "pcm16",
+      "sizeLines": 3241,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-harness/package.json",
+      "language": "json",
+      "sizeLines": 18,
+      "fileCategory": "config"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-harness/scripts/gen-caller-fixture.mjs",
+      "language": "javascript",
+      "sizeLines": 167,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-harness/scripts/gen-rehearsal-fixtures.mjs",
+      "language": "javascript",
+      "sizeLines": 123,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-harness/src/index.js",
+      "language": "javascript",
+      "sizeLines": 319,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-harness/src/log.js",
+      "language": "javascript",
+      "sizeLines": 16,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-harness/src/pcmu-codec.js",
+      "language": "javascript",
+      "sizeLines": 108,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-harness/src/tools.js",
+      "language": "javascript",
+      "sizeLines": 32,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-harness/src/xai-client.js",
+      "language": "javascript",
+      "sizeLines": 250,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/docs/README.md",
+      "language": "markdown",
+      "sizeLines": 74,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/package.json",
+      "language": "json",
+      "sizeLines": 22,
+      "fileCategory": "config"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/rehearsal-out.txt",
+      "language": "txt",
+      "sizeLines": 17,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/scripts/gen-rehearsal-fixtures-opus24k.mjs",
+      "language": "javascript",
+      "sizeLines": 125,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/scripts/gen-rehearsal-fixtures.mjs",
+      "language": "javascript",
+      "sizeLines": 123,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/contract.test.js",
+      "language": "javascript",
+      "sizeLines": 255,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/dispatcher.js",
+      "language": "javascript",
+      "sizeLines": 161,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/index.js",
+      "language": "javascript",
+      "sizeLines": 163,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/log.js",
+      "language": "javascript",
+      "sizeLines": 18,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/pcmu-codec.js",
+      "language": "javascript",
+      "sizeLines": 108,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/providers.ts",
+      "language": "typescript",
+      "sizeLines": 205,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/providers/fake/depos-fake.js",
+      "language": "javascript",
+      "sizeLines": 119,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/providers/fake/manager-queue-fake.js",
+      "language": "javascript",
+      "sizeLines": 80,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/providers/fake/resdiary-fake.js",
+      "language": "javascript",
+      "sizeLines": 196,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/providers/index.js",
+      "language": "javascript",
+      "sizeLines": 68,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/providers/real/depos-adapter.js",
+      "language": "javascript",
+      "sizeLines": 121,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/providers/real/manager-queue-adapter.js",
+      "language": "javascript",
+      "sizeLines": 95,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/providers/real/resdiary-adapter.js",
+      "language": "javascript",
+      "sizeLines": 155,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/rehearsal.js",
+      "language": "javascript",
+      "sizeLines": 379,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/telnyx-io.js",
+      "language": "javascript",
+      "sizeLines": 235,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/telnyx-io.test.js",
+      "language": "javascript",
+      "sizeLines": 102,
+      "fileCategory": "code"
+    },
+    {
+      "path": "experimental/livekit/xai-phone-worker/src/xai-client.js",
+      "language": "javascript",
+      "sizeLines": 240,
+      "fileCategory": "code"
+    },
+    {
+      "path": "LIVE_CALL_TESTING.md",
+      "language": "markdown",
+      "sizeLines": 115,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "shared/package.json",
+      "language": "json",
+      "sizeLines": 7,
+      "fileCategory": "config"
+    },
+    {
+      "path": "shared/src/booking.ts",
+      "language": "typescript",
+      "sizeLines": 18,
+      "fileCategory": "code"
+    },
+    {
+      "path": "shared/src/index.ts",
+      "language": "typescript",
+      "sizeLines": 4,
+      "fileCategory": "code"
+    },
+    {
+      "path": "shared/src/session.ts",
+      "language": "typescript",
+      "sizeLines": 51,
+      "fileCategory": "code"
+    },
+    {
+      "path": "shared/src/tenant.ts",
+      "language": "typescript",
+      "sizeLines": 22,
+      "fileCategory": "code"
+    },
+    {
+      "path": "shared/src/tools.ts",
+      "language": "typescript",
+      "sizeLines": 33,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/cmd/gateway/main.go",
+      "language": "go",
+      "sizeLines": 509,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/deepgram_audio_aura-2-pandora-en.raw",
+      "language": "raw",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/Dockerfile",
+      "language": "dockerfile",
+      "sizeLines": 22,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "voice-gateway/gateway-linux",
+      "language": "unknown",
+      "sizeLines": 84041,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/go.mod",
+      "language": "mod",
+      "sizeLines": 25,
+      "fileCategory": "config"
+    },
+    {
+      "path": "voice-gateway/go.sum",
+      "language": "sum",
+      "sizeLines": 58,
+      "fileCategory": "config"
+    },
+    {
+      "path": "voice-gateway/internal/audio/alaw.go",
+      "language": "go",
+      "sizeLines": 33,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/audio/audio_test.go",
+      "language": "go",
+      "sizeLines": 625,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/audio/g722.go",
+      "language": "go",
+      "sizeLines": 82,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/audio/mulaw.go",
+      "language": "go",
+      "sizeLines": 136,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/audio/pipeline.go",
+      "language": "go",
+      "sizeLines": 257,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/audio/resampler.go",
+      "language": "go",
+      "sizeLines": 184,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/config/config_test.go",
+      "language": "go",
+      "sizeLines": 224,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/config/config.go",
+      "language": "go",
+      "sizeLines": 257,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/llm/grok/adapter.go",
+      "language": "go",
+      "sizeLines": 31,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/llm/llm.go",
+      "language": "go",
+      "sizeLines": 106,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/llm/openai/adapter.go",
+      "language": "go",
+      "sizeLines": 75,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/logging/logging.go",
+      "language": "go",
+      "sizeLines": 38,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/metrics/metrics.go",
+      "language": "go",
+      "sizeLines": 50,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/openai/client_test.go",
+      "language": "go",
+      "sizeLines": 359,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/openai/client.go",
+      "language": "go",
+      "sizeLines": 459,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/provider/provider.go",
+      "language": "go",
+      "sizeLines": 171,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/provider/signalwire/adapter.go",
+      "language": "go",
+      "sizeLines": 46,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/provider/telnyx/adapter_test.go",
+      "language": "go",
+      "sizeLines": 236,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/provider/telnyx/adapter.go",
+      "language": "go",
+      "sizeLines": 477,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/provider/twilio/adapter.go",
+      "language": "go",
+      "sizeLines": 193,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/redis/session_store_test.go",
+      "language": "go",
+      "sizeLines": 95,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/redis/session_store.go",
+      "language": "go",
+      "sizeLines": 246,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/renderer/cartesia/renderer_test.go",
+      "language": "go",
+      "sizeLines": 33,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/renderer/cartesia/renderer.go",
+      "language": "go",
+      "sizeLines": 249,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/renderer/elevenlabs/renderer.go",
+      "language": "go",
+      "sizeLines": 29,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/renderer/openai/renderer.go",
+      "language": "go",
+      "sizeLines": 31,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/renderer/renderer.go",
+      "language": "go",
+      "sizeLines": 49,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/runtime/deepgram/agent.go",
+      "language": "go",
+      "sizeLines": 221,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/runtime/runtime.go",
+      "language": "go",
+      "sizeLines": 56,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/booking_slots_test.go",
+      "language": "go",
+      "sizeLines": 397,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/booking_slots.go",
+      "language": "go",
+      "sizeLines": 389,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/inbound_audio_capture.go",
+      "language": "go",
+      "sizeLines": 167,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/manual_vad_test.go",
+      "language": "go",
+      "sizeLines": 28,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/openai_cartesia_skip_test.go",
+      "language": "go",
+      "sizeLines": 175,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/openai_cartesia_skip.go",
+      "language": "go",
+      "sizeLines": 71,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/outbound_tts_capture_test.go",
+      "language": "go",
+      "sizeLines": 215,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/outbound_tts_capture.go",
+      "language": "go",
+      "sizeLines": 141,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/send_mulaw_pacing_test.go",
+      "language": "go",
+      "sizeLines": 102,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/session.go",
+      "language": "go",
+      "sizeLines": 1630,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/sm/state_machine_test.go",
+      "language": "go",
+      "sizeLines": 312,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/session/sm/state_machine.go",
+      "language": "go",
+      "sizeLines": 490,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/twilio/handler_test.go",
+      "language": "go",
+      "sizeLines": 286,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voice-gateway/internal/twilio/handler.go",
+      "language": "go",
+      "sizeLines": 237,
+      "fileCategory": "code"
+    },
+    {
+      "path": "voxlane_architecture_critique.md",
+      "language": "markdown",
+      "sizeLines": 304,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "VoxLane_Implementation_Blueprint.md",
+      "language": "markdown",
+      "sizeLines": 2889,
+      "fileCategory": "docs"
+    }
+  ],
+  "totalFiles": 232,
+  "filteredByIgnore": 28,
+  "estimatedComplexity": "large",
+  "stats": {
+    "filesScanned": 232,
+    "byCategory": {
+      "config": 24,
+      "code": 136,
+      "docs": 68,
+      "infra": 3,
+      "script": 1
+    },
+    "byLanguage": {
+      "5": 1,
+      "config": 3,
+      "unknown": 5,
+      "json": 13,
+      "markdown": 67,
+      "dockerfile": 2,
+      "typescript": 14,
+      "example": 4,
+      "shell": 1,
+      "yaml": 1,
+      "go": 70,
+      "mod": 4,
+      "sum": 4,
+      "javascript": 40,
+      "pcm16": 1,
+      "txt": 1,
+      "raw": 1
+    }
+  }
+}

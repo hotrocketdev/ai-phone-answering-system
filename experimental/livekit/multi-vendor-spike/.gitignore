@@ -1,0 +1,31 @@
+# --- Secrets / env ---------------------------------------------------------
+.env
+.env.*
+*.pem
+*.key
+*.env
+
+# --- Logs / build / test ---------------------------------------------------
+*.log
+*.txt
+logs/
+**/logs/
+node_modules/
+tmp/
+**/tmp/
+
+# --- Audio / fixtures (debug + test artefacts) ----------------------------
+*.wav
+*.pcm
+*.pcmu
+*.pcm16_24k
+*.mp3
+*.ogg
+fixtures/
+**/fixtures/
+
+# --- Vendor SDKs / cache ---------------------------------------------------
+.cache/
+*.d.ts
+*.js.map
+coverage/

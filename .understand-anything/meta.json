@@ -1,0 +1,7 @@
+{
+  "lastAnalyzedAt": "2026-06-10T00:00:00Z",
+  "gitCommitHash": "ea48d182b6448be7d1d4de572bb9a97fc5631f7a",
+  "version": "1.0.0",
+  "analyzedFiles": 139,
+  "note": "Augmented with multi-vendor-spike files (18) + 2 decision docs + 1 concept. See DECISION_REPORT_MULTI_VENDOR.md for context."
+}

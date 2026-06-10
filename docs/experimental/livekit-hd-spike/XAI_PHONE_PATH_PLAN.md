@@ -2,6 +2,8 @@
 
 **Status:** Pre-ResDiary-API scaffold complete. All work on `feat/livekit-hd-spike` in `experimental/livekit/xai-phone-worker/`. Production untouched.
 
+**Follow-up:** the user approved building the multi-vendor spike on 2026-06-10 to A/B test Deepgram STT + xAI Grok LLM + ElevenLabs TTS against this xAI single-vendor baseline. See `experimental/livekit/multi-vendor-spike/` and `docs/experimental/livekit-hd-spike/DECISION_REPORT_MULTI_VENDOR.md`. The xai-phone-worker remains the production-deployment target; the multi-vendor spike is parallel work to find the cheapest path to < 1.0s first-audio.
+
 ## What's in the locked stack
 
 | Layer | Tech | Status |
