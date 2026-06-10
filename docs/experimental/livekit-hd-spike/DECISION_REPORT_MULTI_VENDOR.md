@@ -1,8 +1,19 @@
 # Multi-Vendor Decision Report — 2026-06-10
 
-> **Audience:** the next chat session. Read this first, then the multi-vendor-spike scaffold, then the decision log, then the previous docs.
+> **Audience:** the next chat session. Read this first, then the multi-vendor spike scaffold, then the decision log, then the previous docs.
 >
 > **Status of this report:** SKELETON + PLAN, not yet executed. The user (Jorge) approved building the multi-vendor scaffold; live vendor use requires explicit go-ahead per vendor.
+
+> ## ⚠️ MANDATORY FIRST STEP — LOAD SUPERPOWERS ⚠️
+>
+> Before doing any work in this spike, you MUST load these two superpowers:
+>
+> 1. **`superpowers:subagent-driven-development`** — dispatch subagents for non-trivial work; main chat coordinates, reviews, integrates
+> 2. **`superpowers:executing-plans`** — execute plans as checklists with explicit verification at each step
+>
+> **This is a standing user instruction, set in stone on 2026-06-10.** See `DECISION_LOG.md` §"Superpowers workflow is mandatory for all spike work" for the full rationale. Pattern the user is trying to break: the previous chat did work in the main context, didn't verify (claimed "10/10 contract tests pass" without running them, claimed scaffold was "ready" when vendor adapters were throw stubs), and silently shipped mistakes. The superpowers are the fix.
+>
+> **If you start work without loading them, you are already failing the user's process.** Load them first. Then read the rest of this report.
 
 ## TL;DR
 

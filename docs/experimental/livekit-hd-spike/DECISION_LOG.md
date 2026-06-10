@@ -67,6 +67,19 @@
 - **Risk:** low. No production code touched, no live calls made, no secrets in the env or in tracked files. The user has not approved a live rehearsal from this machine.
 - **Status:** DONE. Not yet committed.
 
+### Decision: Superpowers workflow is mandatory for all spike work
+- **What:** every chat session (including the next chat that picks up this spike) MUST use the following superpowers:
+  - `superpowers:subagent-driven-development` — dispatch subagents to do individual units of work; the main chat coordinates, reviews, and integrates. Do NOT do large work in the main chat context.
+  - `superpowers:executing-plans` — when a plan is written, execute it as a checklist with explicit verification at each step. Do not skip verification steps even if they "should work."
+- **Why:** the user flagged (2026-06-10) that this chat made multiple silent mistakes (claiming "10/10 contract tests pass" without running them, claiming the scaffold was "ready" when vendor adapters were throw stubs, claiming the matrix bundle used Cerebras/LiveKit when it just wraps hybrid-deepgram). The pattern was: assistant does work in the main chat, doesn't verify, claims success. Superpowers are the user's standing instruction to break that pattern. They are set in stone, not a suggestion.
+- **Applies to:** every future chat session that works on this branch. This is not a one-time instruction. Every new chat starts by loading these two superpowers.
+- **What this means in practice:**
+  - **Before claiming any work is done:** run the verification step (npm test, git diff, etc.) and paste the actual output. Do not paraphrase; do not claim "should work."
+  - **For non-trivial work:** dispatch a subagent. The main chat's job is to write the plan, dispatch the subagent, review the subagent's output, and integrate.
+  - **For plans written in the decision report or by the user:** treat them as a checklist. Check off each item only after the verification step passes.
+  - **When in doubt about whether something is "trivial":** err on the side of dispatching a subagent. The cost of an unnecessary subagent is much lower than the cost of a silent mistake.
+- **Status:** SET IN STONE. Every chat that works on the multi-vendor-spike (or any future VoxLane work) must load these superpowers first. If a chat does not, that's a process failure to flag immediately.
+
 ## 2026-06-09 (yesterday)
 
 ### Decision: Stay on xAI single-vendor
