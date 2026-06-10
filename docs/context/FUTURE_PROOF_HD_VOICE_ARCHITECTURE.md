@@ -264,10 +264,56 @@ browser mic → LiveKit Cloud
 - Browser test: 5-minute back-and-forth conversation with Alex
 - **Gate to Stage 2:** HD quality clearly better than PCMU, latency under 2 s end-to-end
 
+### Stage 1.5 — OpenAI Realtime latency comparison (DEFERRED, no implementation yet)
+
+**Status:** Documented for future work. **Do not implement until Stage 1 is signed off.**
+
+The Stage 1 chain (browser mic → LiveKit → worker → Whisper STT → gpt-4o-mini → Cartesia Sonic 3.5 → Opus → browser) validates the HD voice path end-to-end with three independent vendors. We deliberately keep the variables fixed during Stage 1: STT, LLM, TTS, and the multi-vendor separation.
+
+The next question to answer, **after** Stage 1 passes, is: **what is the latency and feel cost of that separation?** A single-vendor real-time model (OpenAI Realtime `gpt-4o-realtime-preview`) replaces the STT + LLM + Cartesia chain with one WebSocket-managed pipeline:
+
+```
+browser mic → LiveKit Cloud → worker → gpt-4o-realtime (audio in, audio out)
+            → Opus 48 kHz → LiveKit Cloud → browser speaker
+```
+
+#### What to compare in Stage 1.5
+
+| Metric | Stage 1 (current chain) | Stage 1.5 (Realtime) target |
+|---|---|---|
+| **End-to-end first-audio-byte** | 2.0-4.8 s observed (Whisper + gpt-4o-mini + Cartesia startup) | < 1.0 s |
+| **Barge-in latency** | TBD (VAD-triggered, not in spike yet) | < 300 ms (native half-duplex turn-taking) |
+| **Per-utterance STT+LLM+TTS cost** | ~$0.006 (Whisper 1¢/min + gpt-4o-mini tokens + Cartesia 5¢/min) | ~$0.06/min in + $0.024/min out (≈ 10-15x current) |
+| **Voice quality** | Cartesia Sonic 3.5 + Julia (spike winner) | OpenAI's built-in voices (alloy, shimmer, nova, etc.) — quality TBD |
+| **Multi-language / accents** | UK accent excellent, others TBD | OpenAI voices have global coverage |
+| **Failure modes** | Each vendor can fail independently; fallbacks possible | Single point of failure per turn |
+| **Operational complexity** | 3 API keys, 3 vendors, 3 SLAs to monitor | 1 API key, 1 vendor |
+
+#### Why defer
+
+- **Mixing variables** — switching to Realtime in Stage 1 would confound the HD-path validation. We want to know "does HD Opus via LiveKit + Cartesia beat PCMU?" before asking "is the single-vendor Realtime chain worth the cost?"
+- **Cost** — Realtime is 5-15x more expensive per minute. Locking it in before cost-quality is validated is a procurement risk.
+- **Voice choice** — Cartesia Sonic 3.5 + Julia is a deliberate brand choice (UK, warm, near-human). OpenAI voices are global-default and not necessarily a better brand fit.
+- **Existing investment** — Whisper + gpt-4o-mini + Cartesia are already in production on PCMU. Reusing them for HD lowers operational cost.
+
+#### What Stage 1.5 should produce
+
+1. A second spike branch (`feat/openai-realtime-comparison`) with the Realtime integration.
+2. Side-by-side recordings of the same 4-utterance browser test (hello, book, outdoor, 4-tomorrow-7) on each chain.
+3. A measured table: latency, cost per turn, perceived naturalness (5-person panel, blind A/B), barge-in latency.
+4. A documented decision: keep the multi-vendor chain, swap to Realtime, or run Realtime for browser callers and the multi-vendor chain for PSTN.
+
+#### Out of scope (deferred further)
+
+- Realtime as the default for production. Not before Stage 1.5 decision is signed off.
+- Barge-in / half-duplex turn-taking. Requires deeper work on both chains before A/B.
+- Realtime over PSTN. Realtime is browser/app-only; PCMU callers stay on the Cartesia chain.
+
 ### Stage 2 — TTS comparison + lock-in (1-2 weeks)
 
 - Run the § 7 comparison plan
 - Lock in the chosen TTS provider for HD path
+- (After Stage 1.5) Decide whether to keep multi-vendor chain or move to Realtime
 - Document in `docs/experimental/livekit-hd-spike/TTS_COMPARISON.md`
 - **Gate to Stage 3:** cost-quality decision made, vendor locked in
 

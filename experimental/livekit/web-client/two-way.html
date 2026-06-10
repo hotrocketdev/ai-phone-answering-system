@@ -6,6 +6,7 @@
   <style>
     body { font-family: system-ui, sans-serif; max-width: 760px; margin: 30px auto; padding: 20px; }
     h1 { margin: 0 0 8px; }
+    h2 { margin: 24px 0 8px; font-size: 16px; }
     .meta { color: #666; font-size: 13px; margin-bottom: 20px; }
     .status { padding: 12px 14px; border-radius: 6px; margin: 10px 0;
               font-family: ui-monospace, monospace; font-size: 13px; }
@@ -13,12 +14,14 @@
     .status.connecting { background: #fff3cd; color: #856404; }
     .status.connected  { background: #d4edda; color: #155724; }
     .status.error      { background: #f8d7da; color: #721c24; }
-    .row { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
-    label { min-width: 80px; font-size: 13px; color: #555; }
-    input { flex: 1; padding: 8px; font-family: ui-monospace, monospace; font-size: 12px;
-            border: 1px solid #ccc; border-radius: 4px; }
-    button { padding: 8px 16px; cursor: pointer; border: 0; border-radius: 4px;
-             background: #0a66c2; color: white; font-weight: 600; }
+    .row { display: block; margin: 10px 0; }
+    label { display: block; font-size: 11px; color: #666; margin-bottom: 4px;
+            text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    input { width: 100%; padding: 10px; font-family: ui-monospace, monospace; font-size: 12px;
+            border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+    button { padding: 10px 20px; cursor: pointer; border: 0; border-radius: 4px;
+             background: #0a66c2; color: white; font-weight: 600; margin: 4px 8px 4px 0;
+             font-size: 14px; }
     button.secondary { background: #6c757d; }
     button.danger { background: #dc3545; }
     button:disabled { background: #aaa; cursor: not-allowed; }
@@ -53,8 +56,8 @@
   <div class="row">
     <label>Token</label>
     <input id="token" type="text" placeholder="paste LiveKit access token (publisher or listener token)" />
+  </div>
   <div class="row">
-    <label></label>
     <button id="connect-btn">Connect</button>
     <button id="disconnect-btn" class="secondary" disabled>Disconnect</button>
   </div>
@@ -63,8 +66,9 @@
 
   <h2>2. Microphone</h2>
   <div class="row">
-    <label></label>
     <button id="mic-btn" disabled>Enable microphone &amp; publish</button>
+  </div>
+  <div class="row">
     <span class="pill off" id="mic-pill">mic off</span>
     <span class="pill off" id="pub-pill">not published</span>
   </div>
